@@ -10,12 +10,13 @@ PROJECT_ROOT = BASE_DIR.parent
 TASKS_DIR = BASE_DIR / "tasks"
 FINISHED_DIR = BASE_DIR / "finished"
 ERRORS_DIR = BASE_DIR / "errors"
+REVIEWS_DIR = BASE_DIR / "reviews"
 WORKDIR = PROJECT_ROOT / "workdir"
 
 # Git doesn't track empty directories, so once the last task file is moved out
 # tasks/ would vanish on the next branch switch. A tracked .gitkeep keeps it alive,
 # and mkdir recreates any directory that is missing anyway.
-for _dir in (TASKS_DIR, FINISHED_DIR, ERRORS_DIR):
+for _dir in (TASKS_DIR, FINISHED_DIR, ERRORS_DIR, REVIEWS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 (TASKS_DIR / ".gitkeep").touch(exist_ok=True)
 
@@ -156,6 +157,10 @@ AGENT_CLI = os.environ.get("AGENT_CLI", "claude")
 
 VERDICT_RE = re.compile(r"^VERDICT:\s*(PASS|FAIL)\b:?\s*(.*)$", re.MULTILINE)
 COMMITS_RESULT_RE = re.compile(r"^RESULT:\s*(OK|PARTIAL|NOTHING_TO_COMMIT)\b:?\s*(.*)$", re.MULTILINE)
+FIX_RESULT_RE = re.compile(r"^FIX_RESULT:\s*(FIXED|PARTIAL|NOTHING_TO_FIX|FAILED)\b:?\s*(.*)$", re.MULTILINE)
+
+# How many /code-review-fixer rounds to run on a failing review before giving up.
+MAX_FIX_ATTEMPTS = int(os.environ.get("MAX_FIX_ATTEMPTS", "2"))
 
 
 def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False):
@@ -189,12 +194,14 @@ def execute_claude(prompt_text):
     return success
 
 
-def run_code_review(task_filename):
+def run_code_review(task_filename, attempt=0):
     """Runs the /code-review skill and gates on its VERDICT line.
 
-    Returns (passed, reason). The full report is saved next to the task in errors/ on failure.
+    Returns (passed, reason, report_path). Every report is saved to reviews/ so
+    /code-review-fixer can read it; reviews/ is gitignored so the next review
+    doesn't pick up its own previous report as a change.
     """
-    print("\n🔍 Running automated Code Review agent...")
+    print(f"\n🔍 Running automated Code Review agent (round {attempt + 1})...")
     ok, output = run_agent(command="code-review", cwd=PROJECT_ROOT, capture=True)
 
     # Use the last VERDICT line, in case the report quotes the format earlier.
@@ -206,12 +213,49 @@ def run_code_review(task_filename):
 
     print(f"🧾 Code review verdict: {verdict}" + (f" — {reason}" if reason else ""))
 
-    if verdict != "PASS":
-        report_path = ERRORS_DIR / f"{Path(task_filename).stem}.review.md"
-        report_path.write_text(output, encoding="utf-8")
-        print(f"📝 Review report saved to {report_path}")
-        return False, reason
-    return True, ""
+    report_path = REVIEWS_DIR / f"{Path(task_filename).stem}.review.{attempt + 1}.md"
+    report_path.write_text(output, encoding="utf-8")
+    print(f"📝 Review report saved to {report_path}")
+    return verdict == "PASS", reason, report_path
+
+
+def run_code_review_fixer(report_path):
+    """Runs the /code-review-fixer skill on a review report.
+
+    Returns True when the fixer changed something worth re-reviewing (FIXED or PARTIAL).
+    """
+    print("\n🛠️  Applying review findings via /code-review-fixer skill...")
+    rel_report = report_path.relative_to(PROJECT_ROOT)
+    ok, output = run_agent(command="code-review-fixer", args=str(rel_report), cwd=PROJECT_ROOT, capture=True)
+
+    matches = FIX_RESULT_RE.findall(output)
+    status, reason = matches[-1] if matches else ("UNKNOWN", "fixer produced no FIX_RESULT line")
+    print(f"🧾 Fixer result: {status}" + (f" — {reason}" if reason else ""))
+    return ok and status in ("FIXED", "PARTIAL")
+
+
+def review_with_fixes(task_filename):
+    """Reviews the change, running /code-review-fixer and re-reviewing on FAIL.
+
+    Returns (passed, reason). The last failing report is copied next to the task in errors/.
+    """
+    attempt = 0
+    while True:
+        passed, reason, report_path = run_code_review(task_filename, attempt)
+        if passed:
+            return True, ""
+        if attempt >= MAX_FIX_ATTEMPTS:
+            print(f"🛑 Review still failing after {MAX_FIX_ATTEMPTS} fix round(s).")
+            break
+        if not run_code_review_fixer(report_path):
+            print("🛑 Fixer made no progress; not re-reviewing.")
+            break
+        attempt += 1
+
+    error_report = ERRORS_DIR / f"{Path(task_filename).stem}.review.md"
+    shutil.copyfile(report_path, error_report)
+    print(f"📝 Final review report copied to {error_report}")
+    return False, reason
 
 
 def push_branch(branch_name):
@@ -293,7 +337,7 @@ def process_tasks():
                     print(f"⏭️  Skipping code review for {task_path.name} (.ncr.md)")
                     review_passed, reason = True, ""
                 else:
-                    review_passed, reason = run_code_review(task_path.name)
+                    review_passed, reason = review_with_fixes(task_path.name)
 
                 if review_passed:
                     # Move the task file first so its relocation is part of the commit.
