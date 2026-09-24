@@ -1,5 +1,5 @@
 // ==========================================
-// GUIZZLY ENGINE - DATABASE SCHEMA (DBML)
+// GOGOFORM ENGINE - DATABASE SCHEMA (DBML)
 // ==========================================
 
 // ------------------------------------------
@@ -8,7 +8,7 @@
 
 Table tenants {
   id serial [pk]
-  name varchar(100) [not null] // Ex: "Guizzly B2B Client", "DevPrep App", "SnapQuiz App"
+  name varchar(100) [not null] // Ex: "Gogoform B2B Client", "DevPrep App", "SnapQuiz App"
   api_key varchar(100) [unique, not null]
   is_active boolean [default: true]
   created_at timestamp [default: `now()`]
