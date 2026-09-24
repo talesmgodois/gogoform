@@ -12,8 +12,12 @@ FINISHED_DIR = BASE_DIR / "finished"
 ERRORS_DIR = BASE_DIR / "errors"
 WORKDIR = PROJECT_ROOT / "workdir"
 
-FINISHED_DIR.mkdir(parents=True, exist_ok=True)
-ERRORS_DIR.mkdir(parents=True, exist_ok=True)
+# Git doesn't track empty directories, so once the last task file is moved out
+# tasks/ would vanish on the next branch switch. A tracked .gitkeep keeps it alive,
+# and mkdir recreates any directory that is missing anyway.
+for _dir in (TASKS_DIR, FINISHED_DIR, ERRORS_DIR):
+    _dir.mkdir(parents=True, exist_ok=True)
+(TASKS_DIR / ".gitkeep").touch(exist_ok=True)
 
 
 def run_command(command, cwd=WORKDIR, check=True):
@@ -28,6 +32,19 @@ def run_command(command, cwd=WORKDIR, check=True):
     if check and result.returncode != 0:
         raise RuntimeError(f"Command failed: {command}\nError: {result.stderr}")
     return result
+
+
+def git_status(cwd=PROJECT_ROOT):
+    """Returns 'git status --porcelain' output (empty string when the tree is clean)."""
+    return run_command("git status --porcelain", cwd=cwd, check=False).stdout.strip()
+
+
+def move_task(task_path, dest_dir):
+    """Moves a task file into dest_dir and returns its new path."""
+    dest = dest_dir / task_path.name
+    shutil.move(str(task_path), str(dest))
+    print(f"📁 Moved task file to {dest}")
+    return dest
 
 
 def extract_task_id(filename):
@@ -57,7 +74,7 @@ def handle_dirty_worktree(cwd=PROJECT_ROOT):
     edits could otherwise be silently carried into the wrong branch, or block
     the upcoming 'git checkout main'.
     """
-    status = run_command("git status --porcelain", cwd=cwd, check=False).stdout.strip()
+    status = git_status(cwd)
     if not status:
         print("🧹 Working tree is clean.")
         return
@@ -84,8 +101,7 @@ def handle_dirty_worktree(cwd=PROJECT_ROOT):
         if run_grouped_commits():
             print("✅ Changes committed.")
         else:
-            leftover = run_command("git status --porcelain", cwd=cwd, check=False).stdout.strip()
-            if leftover:
+            if git_status(cwd):
                 print("❌ Changes still remain uncommitted after /commits. Aborting run so nothing gets lost.")
                 raise SystemExit(1)
     elif choice == "3":
@@ -231,7 +247,7 @@ def run_grouped_commits():
     matches = COMMITS_RESULT_RE.findall(output)
     status = matches[-1][0] if matches else "UNKNOWN"
     print(f"🧾 Commits result: {status}")
-    leftover = run_command("git status --porcelain", cwd=PROJECT_ROOT, check=False).stdout.strip()
+    leftover = git_status()
     if leftover:
         print(f"⚠️  Uncommitted changes remain after /commits:\n{leftover}")
     return ok and status in ("OK", "NOTHING_TO_COMMIT")
@@ -257,13 +273,14 @@ def process_tasks():
         print("=" * 60)
 
         try:
-            # 1. Sync Git & Create Feature Branch
-            branch_name = prepare_git_branch(task_path.name)
-
+            # Check for empty tasks before touching Git, so they don't trigger a checkout/pull.
             prompt_content = task_path.read_text(encoding="utf-8").strip()
             if not prompt_content:
                 print(f"⚠️  Empty task {task_path.name}. Skipping...")
                 continue
+
+            # 1. Sync Git & Create Feature Branch
+            branch_name = prepare_git_branch(task_path.name)
 
             # 2. Execute Task Implementation
             print(f"\n🤖 Executing task implementation for '{task_path.name}'...")
@@ -280,8 +297,7 @@ def process_tasks():
 
                 if review_passed:
                     # Move the task file first so its relocation is part of the commit.
-                    shutil.move(str(task_path), str(FINISHED_DIR / task_path.name))
-                    print(f"📁 Moved task file to {FINISHED_DIR / task_path.name}")
+                    move_task(task_path, FINISHED_DIR)
                     if run_grouped_commits():
                         if push_branch(branch_name) and merge_to_main(branch_name):
                             print(f"✅ Completed: {task_path.name}")
@@ -294,11 +310,11 @@ def process_tasks():
                         failed.append(task_path.name)
                 else:
                     print(f"❌ Code review failed for: {task_path.name} — {reason}")
-                    shutil.move(str(task_path), str(ERRORS_DIR / task_path.name))
+                    move_task(task_path, ERRORS_DIR)
                     failed.append(task_path.name)
             else:
                 print(f"❌ Implementation failed for: {task_path.name}")
-                shutil.move(str(task_path), str(ERRORS_DIR / task_path.name))
+                move_task(task_path, ERRORS_DIR)
                 failed.append(task_path.name)
 
         except SystemExit:
@@ -306,8 +322,7 @@ def process_tasks():
         except Exception as exc:
             print(f"💥 Unexpected error while processing {task_path.name}: {exc}")
             if task_path.exists():
-                shutil.move(str(task_path), str(ERRORS_DIR / task_path.name))
-                print(f"📁 Moved task file to {ERRORS_DIR / task_path.name}")
+                move_task(task_path, ERRORS_DIR)
             failed.append(task_path.name)
 
     print("\n" + "=" * 60)
