@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SurveyBuilder Pro - Modern Form Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Scrollbar personalizada */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    
+    .gradient-border {
+      border-image: linear-gradient(to right, #6366f1, #a855f7) 1;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased h-screen flex flex-col overflow-hidden selection:bg-indigo-500 selection:text-white">
+
+  <!-- HEADER / NAVBAR -->
+  <header class="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="bg-gradient-to-tr from-indigo-600 to-purple-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-500/20">
+        <i data-lucide="layout-grid" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-base tracking-tight flex items-center gap-2">
+          SurveyBuilder <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono uppercase">v2.0</span>
+        </h1>
+        <p class="text-xs text-slate-400" id="survey-title-display">Novo Formulário de Satisfação</p>
+      </div>
+    </div>
+
+    <!-- TABS DE NAVEGAÇÃO -->
+    <div class="hidden md:flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+      <button class="px-4 py-1.5 rounded-lg bg-indigo-600 text-white shadow">Construtor</button>
+      <button class="px-4 py-1.5 rounded-lg text-slate-400 hover:text-white transition">Respostas (0)</button>
+      <button class="px-4 py-1.5 rounded-lg text-slate-400 hover:text-white transition">Configurações</button>
+    </div>
+
+    <!-- ACOES DE EXPORTACAO -->
+    <div class="flex items-center gap-3">
+      <button onclick="exportYAML()" class="text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 rounded-lg transition flex items-center gap-1.5">
+        <i data-lucide="file-code" class="w-4 h-4 text-purple-400"></i> Exportar YAML
+      </button>
+      <button onclick="previewForm()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/25">
+        <i data-lucide="play" class="w-4 h-4"></i> Testar Form
+      </button>
+    </div>
+  </header>
+
+  <!-- WORKSPACE PRINCIPAL -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- SIDEBAR ESQUERDA: COMPONENTES DISPONÍVEIS -->
+    <aside class="w-72 border-r border-slate-800 bg-slate-900/50 p-4 flex flex-col shrink-0 overflow-y-auto">
+      <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <i data-lucide="plus-circle" class="w-4 h-4 text-indigo-400"></i> Adicionar Pergunta
+      </h2>
+
+      <div class="space-y-2">
+        <button onclick="addQuestion('text')" class="w-full bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-indigo-500/50 p-3 rounded-xl flex items-center gap-3 text-left transition group">
+          <div class="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg group-hover:scale-110 transition"><i data-lucide="type" class="w-4 h-4"></i></div>
+          <div>
+            <div class="text-xs font-semibold text-white">Texto Curto</div>
+            <div class="text-[10px] text-slate-400">Respostas curtas, nomes, e-mails</div>
+          </div>
+        </button>
+
+        <button onclick="addQuestion('multiple_choice')" class="w-full bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-purple-500/50 p-3 rounded-xl flex items-center gap-3 text-left transition group">
+          <div class="p-2 bg-purple-500/10 text-purple-400 rounded-lg group-hover:scale-110 transition"><i data-lucide="check-square" class="w-4 h-4"></i></div>
+          <div>
+            <div class="text-xs font-semibold text-white">Múltipla Escolha</div>
+            <div class="text-[10px] text-slate-400">Seleção de opção única/múltipla</div>
+          </div>
+        </button>
+
+        <button onclick="addQuestion('rating')" class="w-full bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-amber-500/50 p-3 rounded-xl flex items-center gap-3 text-left transition group">
+          <div class="p-2 bg-amber-500/10 text-amber-400 rounded-lg group-hover:scale-110 transition"><i data-lucide="star" class="w-4 h-4"></i></div>
+          <div>
+            <div class="text-xs font-semibold text-white">Avaliação / Estrelas</div>
+            <div class="text-[10px] text-slate-400">Notas de satisfação de 1 a 5</div>
+          </div>
+        </button>
+
+        <button onclick="addQuestion('image_choice')" class="w-full bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-emerald-500/50 p-3 rounded-xl flex items-center gap-3 text-left transition group">
+          <div class="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:scale-110 transition"><i data-lucide="image" class="w-4 h-4"></i></div>
+          <div>
+            <div class="text-xs font-semibold text-white">Quiz de Imagem</div>
+            <div class="text-[10px] text-slate-400">Escolha com imagens de apoio</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="mt-auto pt-6 border-t border-slate-800/80">
+        <div class="p-3 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-xs text-indigo-300">
+          <i data-lucide="sparkles" class="w-4 h-4 mb-1 text-indigo-400"></i>
+          Dica: Exporte a estrutura em YAML para alimentar a API em Go!
+        </div>
+      </div>
+    </aside>
+
+    <!-- ÁREA CENTRAL: EDITOR DO FORMULÁRIO -->
+    <main class="flex-1 bg-slate-950 p-6 overflow-y-auto flex flex-col items-center">
+      <div class="w-full max-w-2xl space-y-4">
+        
+        <!-- CABEÇALHO DO FORMULÁRIO -->
+        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl relative shadow-xl">
+          <input type="text" id="survey-title-input" value="Pesquisa de Satisfação & Feedback" oninput="updateTitle(this.value)" class="w-full bg-transparent text-xl font-bold text-white border-b border-transparent hover:border-slate-700 focus:border-indigo-500 focus:outline-none pb-1 transition" placeholder="Título do Formulário..." />
+          <textarea id="survey-desc-input" class="w-full bg-transparent text-xs text-slate-400 border-b border-transparent hover:border-slate-700 focus:border-indigo-500 focus:outline-none mt-2 resize-none" rows="2" placeholder="Descrição do formulário..."></textarea>
+        </div>
+
+        <!-- LISTA DE PERGUNTAS DINÂMICAS -->
+        <div id="questions-container" class="space-y-4">
+          <!-- Perguntas injetadas via JavaScript -->
+        </div>
+
+        <!-- BOTÃO ADICIONAR RÁPIDO -->
+        <button onclick="addQuestion('multiple_choice')" class="w-full py-4 border-2 border-dashed border-slate-800 hover:border-indigo-500/50 rounded-2xl text-xs font-semibold text-slate-500 hover:text-indigo-400 flex items-center justify-center gap-2 transition">
+          <i data-lucide="plus" class="w-4 h-4"></i> Adicionar Nova Pergunta
+        </button>
+
+      </div>
+    </main>
+
+    <!-- PAINEL DIREITO: MODAL PREVIEW DE YAML -->
+    <div id="yaml-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+          <div class="flex items-center gap-2">
+            <i data-lucide="file-code" class="w-5 h-5 text-purple-400"></i>
+            <h3 class="font-bold text-sm text-white">Sintaxe YAML para API</h3>
+          </div>
+          <button onclick="closeYAMLModal()" class="text-slate-400 hover:text-white p-1 rounded-lg"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="p-6 overflow-y-auto bg-slate-950/60 font-mono text-xs text-slate-300">
+          <pre id="yaml-content" class="leading-relaxed"></pre>
+        </div>
+        <div class="p-4 border-t border-slate-800 bg-slate-900 flex justify-end gap-3">
+          <button onclick="copyYAML()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2">
+            <i data-lucide="copy" class="w-4 h-4"></i> Copiar YAML
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    // Estado do Formulário
+    let surveyState = {
+      title: "Pesquisa de Satisfação & Feedback",
+      description: "Ajude-nos a melhorar nossos produtos respondendo este rápido formulário.",
+      questions: [
+        {
+          id: "q_1",
+          type: "multiple_choice",
+          statement: "Qual canal você mais utiliza para atendimento?",
+          required: true,
+          options: ["WhatsApp", "E-mail", "Telefone", "Outros"]
+        },
+        {
+          id: "q_2",
+          type: "rating",
+          statement: "Como você avalia nosso suporte técnico?",
+          required: false,
+          options: []
+        }
+      ]
+    };
+
+    // Inicialização
+    document.addEventListener("DOMContentLoaded", () => {
+      renderQuestions();
+      lucide.createIcons();
+    });
+
+    function updateTitle(val) {
+      surveyState.title = val;
+      document.getElementById("survey-title-display").innerText = val || "Formulário sem título";
+    }
+
+    function renderQuestions() {
+      const container = document.getElementById("questions-container");
+      container.innerHTML = "";
+
+      surveyState.questions.forEach((q, index) => {
+        const card = document.createElement("div");
+        card.className = "bg-slate-900 border border-slate-800 hover:border-slate-700 p-6 rounded-2xl relative shadow-xl group transition";
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-4 mb-4">
+            <div class="flex items-center gap-2 w-full">
+              <span class="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md">#${index + 1}</span>
+              <input type="text" value="${q.statement}" onchange="updateQuestionStatement('${q.id}', this.value)" class="w-full bg-transparent text-sm font-semibold text-white border-b border-transparent hover:border-slate-700 focus:border-indigo-500 focus:outline-none pb-0.5" placeholder="Digite sua pergunta..." />
+            </div>
+            <button onclick="removeQuestion('${q.id}')" class="text-slate-500 hover:text-red-400 p-1 transition opacity-60 group-hover:opacity-100">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          ${renderFieldOptions(q)}
+
+          <div class="mt-4 pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" ${q.required ? 'checked' : ''} onchange="toggleRequired('${q.id}')" class="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+              <span>Obrigatória</span>
+            </label>
+            <span class="text-[10px] uppercase font-mono text-slate-500">${q.type}</span>
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+
+      lucide.createIcons();
+    }
+
+    function renderFieldOptions(q) {
+      if (q.type === 'multiple_choice' || q.type === 'image_choice') {
+        return `
+          <div class="space-y-2 pl-7">
+            ${q.options.map((opt, i) => `
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full border border-slate-600 shrink-0"></div>
+                <input type="text" value="${opt}" onchange="updateOption('${q.id}',${i}, this.value)" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none w-full" />
+                <button onclick="removeOption('${q.id}',${i})" class="text-slate-600 hover:text-slate-400"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+              </div>
+            `).join('')}
+            <button onclick="addOption('${q.id}')" class="text-xs text-indigo-400 hover:underline font-medium flex items-center gap-1 mt-2">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> Adicionar Opção
+            </button>
+          </div>
+        `;
+      } else if (q.type === 'rating') {
+        return `
+          <div class="flex gap-2 pl-7 my-2">
+            ${[1,2,3,4,5].map(n => `<div class="p-2 bg-slate-950 border border-slate-800 rounded-lg text-amber-400 text-xs font-bold flex items-center gap-1"><i data-lucide="star" class="w-3.5 h-3.5"></i> ${n}</div>`).join('')}
+          </div>
+        `;
+      } else {
+        return `
+          <div class="pl-7">
+            <input type="text" disabled placeholder="Resposta em texto do usuário..." class="bg-slate-950 border border-slate-800/80 rounded-lg px-3 py-2 text-xs text-slate-600 w-full cursor-not-allowed" />
+          </div>
+        `;
+      }
+    }
+
+    function addQuestion(type) {
+      const newQ = {
+        id: "q_" + Date.now(),
+        type: type,
+        statement: type === 'rating' ? "Qual sua nota para o serviço?" : "Sua nova pergunta aqui...",
+        required: false,
+        options: type === 'multiple_choice' || type === 'image_choice' ? ["Opção 1", "Opção 2"] : []
+      };
+      surveyState.questions.push(newQ);
+      renderQuestions();
+    }
+
+    function removeQuestion(id) {
+      surveyState.questions = surveyState.questions.filter(q => q.id !== id);
+      renderQuestions();
+    }
+
+    function updateQuestionStatement(id, val) {
+      const q = surveyState.questions.find(q => q.id === id);
+      if (q) q.statement = val;
+    }
+
+    function toggleRequired(id) {
+      const q = surveyState.questions.find(q => q.id === id);
+      if (q) q.required = !q.required;
+    }
+
+    function addOption(qId) {
+      const q = surveyState.questions.find(q => q.id === qId);
+      if (q) {
+        q.options.push(`Nova Opção ${q.options.length + 1}`);
+        renderQuestions();
+      }
+    }
+
+    function updateOption(qId, index, val) {
+      const q = surveyState.questions.find(q => q.id === qId);
+      if (q) q.options[index] = val;
+    }
+
+    function removeOption(qId, index) {
+      const q = surveyState.questions.find(q => q.id === qId);
+      if (q && q.options.length > 1) {
+        q.options.splice(index, 1);
+        renderQuestions();
+      }
+    }
+
+    // Exportação em YAML
+    function exportYAML() {
+      let yaml = `survey:\n  title: "${surveyState.title}"\n  description: "${surveyState.description}"\n\nquestions:\n`;
+
+      surveyState.questions.forEach((q, i) => {
+        yaml += `  - id: ${i + 1}\n    statement: "${q.statement}"\n    type: "${q.type}"\n    required: ${q.required}\n`;
+        if (q.options.length > 0) {
+          yaml += `    options:\n`;
+          q.options.forEach(opt => {
+            yaml += `      - "${opt}"\n`;
+          });
+        }
+      });
+
+      document.getElementById("yaml-content").textContent = yaml;
+      document.getElementById("yaml-modal").classList.remove("hidden");
+    }
+
+    function closeYAMLModal() {
+      document.getElementById("yaml-modal").classList.add("hidden");
+    }
+
+    function copyYAML() {
+      const content = document.getElementById("yaml-content").textContent;
+      navigator.clipboard.writeText(content);
+      alert("YAML copiado para a área de transferência!");
+    }
+
+    function previewForm() {
+      alert("Visualização do formulário ativo! Total de perguntas: " + surveyState.questions.length);
+    }
+  </script>
+</body>
+</html>
