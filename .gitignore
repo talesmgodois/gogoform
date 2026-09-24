@@ -1,3 +1,7 @@
 # Intermediate review reports written by runner.py. Kept out of git so the
 # next /code-review doesn't review its own previous report as a change.
 __ai_work/reviews/
+
+# Python bytecode (e.g. from running __ai_work/runner.py).
+__pycache__/
+*.pyc
