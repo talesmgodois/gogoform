@@ -5,6 +5,7 @@
 // Tabela principal de formulários
 Table forms {
   id integer [pk, increment]
+  tenant_id integer [not null] // Tenant dono do formulário (ver Ref abaixo)
   title varchar(255) [not null] // Nome/Título identificador do formulário
   slug varchar(255) [unique, not null] // URL amigável para acesso público
   description text
