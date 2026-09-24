@@ -1,0 +1,32 @@
+basePath: /
+definitions:
+  handler.HealthResponse:
+    properties:
+      status:
+        example: UP
+        type: string
+      timestamp:
+        example: "2026-01-01T00:00:00Z"
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: REST API of the application.
+  title: App API
+  version: "1.0"
+paths:
+  /healthz:
+    get:
+      description: Reports whether the service is up and running.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service is up
+          schema:
+            $ref: '#/definitions/handler.HealthResponse'
+      summary: Health check
+      tags:
+      - health
+swagger: "2.0"

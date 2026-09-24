@@ -1,0 +1,9 @@
+[server]
+port = 8080
+env = "development"
+
+[logger]
+level = "debug"
+
+[database]
+uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
