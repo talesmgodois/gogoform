@@ -35,7 +35,7 @@ definitions:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
-  main.CreateSubmissionRequest:
+  handlers.CreateSubmissionRequest:
     properties:
       completion_time_seconds:
         description: CompletionTimeSeconds is how long the respondent took to fill
@@ -47,13 +47,13 @@ definitions:
         description: Payload holds the answers; any JSON value but null.
         type: object
     type: object
-  main.CreateTenantRequest:
+  handlers.CreateTenantRequest:
     properties:
       name:
         example: Acme Inc.
         type: string
     type: object
-  main.CreateTenantResponse:
+  handlers.CreateTenantResponse:
     properties:
       api_key:
         example: 3f1c...e9a0
@@ -71,7 +71,7 @@ definitions:
         example: Acme Inc.
         type: string
     type: object
-  main.CreateWebhookRequest:
+  handlers.CreateWebhookRequest:
     properties:
       secret_token:
         description: SecretToken, when set, is used to sign deliveries. It is never
@@ -83,7 +83,7 @@ definitions:
         example: https://example.com/hooks/forms
         type: string
     type: object
-  main.FileResponse:
+  handlers.FileResponse:
     properties:
       checksum_sha256:
         description: Checksum is the hex-encoded SHA-256 of the content.
@@ -108,7 +108,7 @@ definitions:
         example: /files/0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10
         type: string
     type: object
-  main.FormDetailsResponse:
+  handlers.FormDetailsResponse:
     properties:
       content:
         type: object
@@ -146,11 +146,11 @@ definitions:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
-  main.FormListResponse:
+  handlers.FormListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/main.FormSummaryResponse'
+          $ref: '#/definitions/handlers.FormSummaryResponse'
         type: array
       limit:
         example: 20
@@ -162,7 +162,7 @@ definitions:
         example: 1
         type: integer
     type: object
-  main.FormRequest:
+  handlers.FormRequest:
     properties:
       content:
         description: Content is the form definition (fields, layout); any JSON value
@@ -188,7 +188,7 @@ definitions:
         example: Contact us
         type: string
     type: object
-  main.FormResponse:
+  handlers.FormResponse:
     properties:
       content:
         type: object
@@ -223,7 +223,7 @@ definitions:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
-  main.FormSummaryResponse:
+  handlers.FormSummaryResponse:
     properties:
       content:
         type: object
@@ -261,7 +261,7 @@ definitions:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
-  main.MetadataResponse:
+  handlers.MetadataResponse:
     properties:
       completion_time_seconds:
         example: 95
@@ -276,7 +276,7 @@ definitions:
         example: Mozilla/5.0
         type: string
     type: object
-  main.PublicFormResponse:
+  handlers.PublicFormResponse:
     properties:
       content:
         type: object
@@ -293,11 +293,11 @@ definitions:
         example: Contact us
         type: string
     type: object
-  main.SubmissionListResponse:
+  handlers.SubmissionListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/main.SubmissionResponse'
+          $ref: '#/definitions/handlers.SubmissionResponse'
         type: array
       limit:
         example: 20
@@ -306,7 +306,7 @@ definitions:
         example: 0
         type: integer
     type: object
-  main.SubmissionResponse:
+  handlers.SubmissionResponse:
     properties:
       form_id:
         example: 1
@@ -315,14 +315,14 @@ definitions:
         example: 1
         type: integer
       metadata:
-        $ref: '#/definitions/main.MetadataResponse'
+        $ref: '#/definitions/handlers.MetadataResponse'
       payload:
         type: object
       submitted_at:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
-  main.TenantResponse:
+  handlers.TenantResponse:
     properties:
       created_at:
         example: "2026-01-01T00:00:00Z"
@@ -337,14 +337,14 @@ definitions:
         example: Acme Inc.
         type: string
     type: object
-  main.WebhookListResponse:
+  handlers.WebhookListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/main.WebhookResponse'
+          $ref: '#/definitions/handlers.WebhookResponse'
         type: array
     type: object
-  main.WebhookResponse:
+  handlers.WebhookResponse:
     properties:
       created_at:
         example: "2026-01-01T00:00:00Z"
@@ -390,7 +390,7 @@ paths:
         "201":
           description: File uploaded
           schema:
-            $ref: '#/definitions/main.FileResponse'
+            $ref: '#/definitions/handlers.FileResponse'
         "400":
           description: Invalid, missing, empty or too large file
           schema:
@@ -499,7 +499,7 @@ paths:
         "200":
           description: Page of forms
           schema:
-            $ref: '#/definitions/main.FormListResponse'
+            $ref: '#/definitions/handlers.FormListResponse'
         "400":
           description: Invalid query parameters
           schema:
@@ -528,14 +528,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/main.FormRequest'
+          $ref: '#/definitions/handlers.FormRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Form created
           schema:
-            $ref: '#/definitions/main.FormResponse'
+            $ref: '#/definitions/handlers.FormResponse'
         "400":
           description: Invalid request
           schema:
@@ -611,7 +611,7 @@ paths:
         "200":
           description: Form
           schema:
-            $ref: '#/definitions/main.FormDetailsResponse'
+            $ref: '#/definitions/handlers.FormDetailsResponse'
         "400":
           description: Invalid form ID
           schema:
@@ -649,14 +649,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/main.FormRequest'
+          $ref: '#/definitions/handlers.FormRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Form updated
           schema:
-            $ref: '#/definitions/main.FormResponse'
+            $ref: '#/definitions/handlers.FormResponse'
         "400":
           description: Invalid request
           schema:
@@ -711,7 +711,7 @@ paths:
         "200":
           description: Page of submissions
           schema:
-            $ref: '#/definitions/main.SubmissionListResponse'
+            $ref: '#/definitions/handlers.SubmissionListResponse'
         "400":
           description: Invalid request
           schema:
@@ -749,7 +749,7 @@ paths:
         "200":
           description: Webhooks
           schema:
-            $ref: '#/definitions/main.WebhookListResponse'
+            $ref: '#/definitions/handlers.WebhookListResponse'
         "400":
           description: Invalid form ID
           schema:
@@ -787,14 +787,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/main.CreateWebhookRequest'
+          $ref: '#/definitions/handlers.CreateWebhookRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Webhook created
           schema:
-            $ref: '#/definitions/main.WebhookResponse'
+            $ref: '#/definitions/handlers.WebhookResponse'
         "400":
           description: Invalid request
           schema:
@@ -845,7 +845,7 @@ paths:
         "200":
           description: Form
           schema:
-            $ref: '#/definitions/main.PublicFormResponse'
+            $ref: '#/definitions/handlers.PublicFormResponse'
         "404":
           description: Form not found or not available
           schema:
@@ -874,14 +874,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/main.CreateSubmissionRequest'
+          $ref: '#/definitions/handlers.CreateSubmissionRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Submission stored
           schema:
-            $ref: '#/definitions/main.SubmissionResponse'
+            $ref: '#/definitions/handlers.SubmissionResponse'
         "400":
           description: Invalid request
           schema:
@@ -910,14 +910,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/main.CreateTenantRequest'
+          $ref: '#/definitions/handlers.CreateTenantRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Tenant created
           schema:
-            $ref: '#/definitions/main.CreateTenantResponse'
+            $ref: '#/definitions/handlers.CreateTenantResponse'
         "400":
           description: Invalid request
           schema:
@@ -938,7 +938,7 @@ paths:
         "200":
           description: Authenticated tenant
           schema:
-            $ref: '#/definitions/main.TenantResponse'
+            $ref: '#/definitions/handlers.TenantResponse'
         "401":
           description: Missing or invalid API key
           schema:
