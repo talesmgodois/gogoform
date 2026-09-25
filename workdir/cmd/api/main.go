@@ -37,7 +37,14 @@ func main() {
 
 func run() error {
 	configPath := flag.String("config", config.DefaultPath, "path to the TOML configuration file")
+	envPath := flag.String("env", config.DefaultEnvPath, "path to the dotenv file (ignored if missing)")
 	flag.Parse()
+
+	// Load .env before the config so its values override config.toml even when
+	// the server is started without make (go run, IDE, compiled binary).
+	if err := config.LoadDotEnv(*envPath); err != nil {
+		return err
+	}
 
 	cfg, err := config.Init(*configPath)
 	if err != nil {
