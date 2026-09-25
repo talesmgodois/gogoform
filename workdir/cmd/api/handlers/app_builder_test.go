@@ -16,7 +16,7 @@ func TestAppBuilderBlank(t *testing.T) {
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{`data-draft=""`, `id="palette"`, `id="canvas"`, `id="inspector"`, `aria-current="page">Form builder`, `<script nonce="`} {
+	for _, want := range []string{`data-draft=""`, `id="palette"`, `id="canvas"`, `id="inspector"`, `id="code-panel"`, `id="preview-dialog"`, `id="download-code"`, `aria-current="page">Form builder`, `<script nonce="`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
 		}
