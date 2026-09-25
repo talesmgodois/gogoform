@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": "notify",
+  "watcher": {
+    "ignore": [
+      ".git/**",
+      "__pycache__/**",
+      "**/*.pyc",
+      "node_modules/**",
+      "workdir/bin/**"
+    ]
+  }
+}

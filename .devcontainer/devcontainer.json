@@ -1,0 +1,58 @@
+{
+  "name": "gogoform",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.22"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+  // Applied when the dev container starts, so the key never lands in the image
+  // config. An unset host variable expands to an empty string, which both CLIs
+  // treat as "no key". Add OPENAI_API_KEY or other provider keys the same way.
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  },
+  "mounts": [
+    "source=gogoform-claude-config,target=/home/vscode/.claude,type=volume",
+    "source=gogoform-opencode-config,target=/home/vscode/.config/opencode,type=volume"
+  ],
+  "forwardPorts": [8080, 8088, 5432],
+  "portsAttributes": {
+    "8080": {
+      "label": "gogoform API",
+      "onAutoForward": "notify"
+    },
+    "8088": {
+      "label": "Adminer",
+      "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    }
+  },
+  "postCreateCommand": ".devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "golang.go",
+        "sst-dev.opencode"
+      ],
+      "settings": {
+        "go.toolsManagement.checkForUpdates": "local",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

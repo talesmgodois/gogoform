@@ -1,0 +1,19 @@
+{
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+      "version": "4.1.1",
+      "resolved": "ghcr.io/devcontainers/features/docker-in-docker@sha256:2b44bcb32e75d5a3c028479f7f957cf7d5e42d81761373025a8d501dd3748f88",
+      "integrity": "sha256:2b44bcb32e75d5a3c028479f7f957cf7d5e42d81761373025a8d501dd3748f88"
+    },
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.4.0",
+      "resolved": "ghcr.io/devcontainers/features/go@sha256:3b2c7acfdb24de88292283d10eb7517ccc45f60ae22a97030f1cf4fbd03634f3",
+      "integrity": "sha256:3b2c7acfdb24de88292283d10eb7517ccc45f60ae22a97030f1cf4fbd03634f3"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "1.8.0",
+      "resolved": "ghcr.io/devcontainers/features/python@sha256:fbcad6955caeecc5ad3f7886baf652e25cba5225a6c4c2287c536de2e5607511",
+      "integrity": "sha256:fbcad6955caeecc5ad3f7886baf652e25cba5225a6c4c2287c536de2e5607511"
+    }
+  }
+}
