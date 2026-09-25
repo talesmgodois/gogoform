@@ -42,7 +42,7 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 		t.Fatalf("Content-Type = %q", ct)
 	}
 	csp := rec.Header().Get("Content-Security-Policy")
-	nonce := regexp.MustCompile(`'nonce-([A-Za-z0-9+/=]{24})'`).FindStringSubmatch(csp)
+	nonce := regexp.MustCompile(`'nonce-([A-Za-z0-9_=-]{24})'`).FindStringSubmatch(csp)
 	if !strings.Contains(csp, "https://cdn.tailwindcss.com") || nonce == nil {
 		t.Fatalf("Content-Security-Policy = %q", csp)
 	}

@@ -75,8 +75,12 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", submissionsCtl.Create)
 
 	if appCfg.Enabled() {
-		appCtl := &appController{forms: svc.forms, files: svc.files}
+		appCtl := &appController{forms: svc.forms, files: svc.files, submissions: svc.submissions}
 		mux.HandleFunc("GET /app", basicAuth(appCfg, appCtl.Index))
+		mux.HandleFunc("GET /app/forms/{id}", basicAuth(appCfg, appCtl.Form))
+		mux.HandleFunc("GET /app/forms/{id}/submissions.json", basicAuth(appCfg, appCtl.ExportJSON))
+		mux.HandleFunc("GET /app/forms/{id}/submissions.csv", basicAuth(appCfg, appCtl.ExportCSV))
+		mux.HandleFunc("GET /app/builder", basicAuth(appCfg, appCtl.Builder))
 		mux.Handle("GET /app/{$}", http.RedirectHandler("/app", http.StatusMovedPermanently))
 	}
 	return mux

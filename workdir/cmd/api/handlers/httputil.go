@@ -54,7 +54,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 
 // pathID parses the positive int32 path value called name.
 func pathID(r *http.Request, name string) (int32, error) {
-	id, err := strconv.ParseInt(r.PathValue(name), 10, 32)
+	return parseID(name, r.PathValue(name))
+}
+
+// parseID parses v, the value of the parameter called name, as a positive
+// int32.
+func parseID(name, v string) (int32, error) {
+	id, err := strconv.ParseInt(v, 10, 32)
 	if err != nil || id < 1 {
 		return 0, apperrors.NewBadRequest(name + " must be a positive integer")
 	}
