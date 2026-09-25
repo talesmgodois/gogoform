@@ -14,3 +14,13 @@ uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
 [app]
 # username = "admin"
 # password = "change-me"
+
+# User accounts (JWT and HTTP Basic). Prefer the AUTH_* environment variables
+# for secrets. Without a jwt_secret (at least 32 bytes) a random one is
+# generated at startup, so tokens do not survive a restart.
+[auth]
+token_ttl_minutes = 60
+# jwt_secret = ""
+# Bootstrap ADMIN account, created at startup when the username is free.
+# admin_username = "admin"
+# admin_password = "change-me-now"

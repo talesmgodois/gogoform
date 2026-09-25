@@ -1,6 +1,6 @@
 -- name: CreateFormSubmission :one
-INSERT INTO form_submissions (form_id, payload)
-VALUES ($1, $2)
+INSERT INTO form_submissions (form_id, payload, user_id)
+VALUES ($1, $2, $3)
 RETURNING *;
 
 -- name: CreateSubmissionMetadata :one

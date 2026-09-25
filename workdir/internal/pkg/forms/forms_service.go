@@ -18,6 +18,7 @@ const (
 	msgSlugTaken      = "form slug already exists"
 	msgInUse          = "form has submissions or webhooks"
 	msgInvalidPage    = "page offset must be >= 0 and limit must be > 0"
+	msgPublicNotAnon  = "a public form must accept anonymous submissions"
 )
 
 var _ Repository = (*Service)(nil)
@@ -40,19 +41,27 @@ func (s *Service) Create(ctx context.Context, in CreateFormInput) (Form, error) 
 	if in.IsActive != nil {
 		isActive = *in.IsActive
 	}
+	public, anonymous, err := resolveAccess(in.PublicAvailable, in.AcceptAnonymous)
+	if err != nil {
+		return Form{}, err
+	}
 	row, err := s.q.CreateForm(ctx, db.CreateFormParams{
-		TenantID:    in.TenantID,
-		Title:       in.Title,
-		Slug:        in.Slug,
-		Description: in.Description,
-		IsActive:    &isActive,
-		StartDate:   in.StartDate,
-		EndDate:     in.EndDate,
-		FormContent: in.Content,
+		TenantID:        in.TenantID,
+		Title:           in.Title,
+		Slug:            in.Slug,
+		Description:     in.Description,
+		IsActive:        &isActive,
+		StartDate:       in.StartDate,
+		EndDate:         in.EndDate,
+		FormContent:     in.Content,
+		PublicAvailable: public,
+		AcceptAnonymous: anonymous,
 	})
 	switch {
 	case database.IsUniqueViolation(err):
 		return Form{}, apperrors.NewConflict(msgSlugTaken)
+	case database.IsCheckViolation(err):
+		return Form{}, apperrors.NewBadRequest(msgPublicNotAnon)
 	case database.IsForeignKeyViolation(err):
 		return Form{}, apperrors.NewNotFound(msgTenantNotFound)
 	case err != nil:
@@ -69,17 +78,19 @@ func (s *Service) GetByID(ctx context.Context, tenantID, id int32) (FormDetails,
 	}
 	return FormDetails{
 		Form: toForm(db.Form{
-			ID:          row.ID,
-			TenantID:    row.TenantID,
-			Title:       row.Title,
-			Slug:        row.Slug,
-			Description: row.Description,
-			IsActive:    row.IsActive,
-			StartDate:   row.StartDate,
-			EndDate:     row.EndDate,
-			FormContent: row.FormContent,
-			CreatedAt:   row.CreatedAt,
-			UpdatedAt:   row.UpdatedAt,
+			ID:              row.ID,
+			TenantID:        row.TenantID,
+			Title:           row.Title,
+			Slug:            row.Slug,
+			Description:     row.Description,
+			IsActive:        row.IsActive,
+			StartDate:       row.StartDate,
+			EndDate:         row.EndDate,
+			FormContent:     row.FormContent,
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+			PublicAvailable: row.PublicAvailable,
+			AcceptAnonymous: row.AcceptAnonymous,
 		}),
 		TenantName: row.TenantName,
 	}, nil
@@ -114,17 +125,19 @@ func (s *Service) List(ctx context.Context, filter ListFormsFilter, page Page) (
 	for i, row := range rows {
 		forms[i] = FormSummary{
 			Form: toForm(db.Form{
-				ID:          row.ID,
-				TenantID:    row.TenantID,
-				Title:       row.Title,
-				Slug:        row.Slug,
-				Description: row.Description,
-				IsActive:    row.IsActive,
-				StartDate:   row.StartDate,
-				EndDate:     row.EndDate,
-				FormContent: row.FormContent,
-				CreatedAt:   row.CreatedAt,
-				UpdatedAt:   row.UpdatedAt,
+				ID:              row.ID,
+				TenantID:        row.TenantID,
+				Title:           row.Title,
+				Slug:            row.Slug,
+				Description:     row.Description,
+				IsActive:        row.IsActive,
+				StartDate:       row.StartDate,
+				EndDate:         row.EndDate,
+				FormContent:     row.FormContent,
+				CreatedAt:       row.CreatedAt,
+				UpdatedAt:       row.UpdatedAt,
+				PublicAvailable: row.PublicAvailable,
+				AcceptAnonymous: row.AcceptAnonymous,
 			}),
 			SubmissionCount: row.SubmissionCount,
 		}
@@ -159,17 +172,19 @@ func (s *Service) ListAll(ctx context.Context, page Page) ([]FormOverview, error
 		forms[i] = FormOverview{
 			FormSummary: FormSummary{
 				Form: toForm(db.Form{
-					ID:          row.ID,
-					TenantID:    row.TenantID,
-					Title:       row.Title,
-					Slug:        row.Slug,
-					Description: row.Description,
-					IsActive:    row.IsActive,
-					StartDate:   row.StartDate,
-					EndDate:     row.EndDate,
-					FormContent: row.FormContent,
-					CreatedAt:   row.CreatedAt,
-					UpdatedAt:   row.UpdatedAt,
+					ID:              row.ID,
+					TenantID:        row.TenantID,
+					Title:           row.Title,
+					Slug:            row.Slug,
+					Description:     row.Description,
+					IsActive:        row.IsActive,
+					StartDate:       row.StartDate,
+					EndDate:         row.EndDate,
+					FormContent:     row.FormContent,
+					CreatedAt:       row.CreatedAt,
+					UpdatedAt:       row.UpdatedAt,
+					PublicAvailable: row.PublicAvailable,
+					AcceptAnonymous: row.AcceptAnonymous,
 				}),
 				SubmissionCount: row.SubmissionCount,
 			},
@@ -197,17 +212,19 @@ func (s *Service) GetAnyByID(ctx context.Context, id int32) (FormOverview, error
 	return FormOverview{
 		FormSummary: FormSummary{
 			Form: toForm(db.Form{
-				ID:          row.ID,
-				TenantID:    row.TenantID,
-				Title:       row.Title,
-				Slug:        row.Slug,
-				Description: row.Description,
-				IsActive:    row.IsActive,
-				StartDate:   row.StartDate,
-				EndDate:     row.EndDate,
-				FormContent: row.FormContent,
-				CreatedAt:   row.CreatedAt,
-				UpdatedAt:   row.UpdatedAt,
+				ID:              row.ID,
+				TenantID:        row.TenantID,
+				Title:           row.Title,
+				Slug:            row.Slug,
+				Description:     row.Description,
+				IsActive:        row.IsActive,
+				StartDate:       row.StartDate,
+				EndDate:         row.EndDate,
+				FormContent:     row.FormContent,
+				CreatedAt:       row.CreatedAt,
+				UpdatedAt:       row.UpdatedAt,
+				PublicAvailable: row.PublicAvailable,
+				AcceptAnonymous: row.AcceptAnonymous,
 			}),
 			SubmissionCount: row.SubmissionCount,
 		},
@@ -217,20 +234,28 @@ func (s *Service) GetAnyByID(ctx context.Context, id int32) (FormOverview, error
 
 // Update replaces the stored state of a form and returns it.
 func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) {
+	public, anonymous, err := resolveAccess(in.PublicAvailable, in.AcceptAnonymous)
+	if err != nil {
+		return Form{}, err
+	}
 	row, err := s.q.UpdateForm(ctx, db.UpdateFormParams{
-		ID:          in.ID,
-		TenantID:    in.TenantID,
-		Title:       in.Title,
-		Slug:        in.Slug,
-		Description: in.Description,
-		IsActive:    &in.IsActive,
-		StartDate:   in.StartDate,
-		EndDate:     in.EndDate,
-		FormContent: in.Content,
+		ID:              in.ID,
+		TenantID:        in.TenantID,
+		Title:           in.Title,
+		Slug:            in.Slug,
+		Description:     in.Description,
+		IsActive:        &in.IsActive,
+		StartDate:       in.StartDate,
+		EndDate:         in.EndDate,
+		FormContent:     in.Content,
+		PublicAvailable: public,
+		AcceptAnonymous: anonymous,
 	})
 	switch {
 	case database.IsUniqueViolation(err):
 		return Form{}, apperrors.NewConflict(msgSlugTaken)
+	case database.IsCheckViolation(err):
+		return Form{}, apperrors.NewBadRequest(msgPublicNotAnon)
 	case err != nil:
 		return Form{}, mapGetError(err)
 	}
@@ -252,6 +277,24 @@ func (s *Service) Delete(ctx context.Context, tenantID, id int32) error {
 	return nil
 }
 
+// resolveAccess applies the defaults of the access flags: forms are public
+// and accept anonymous submissions unless told otherwise. A public form must
+// accept anonymous submissions, which the forms_public_accepts_anonymous
+// constraint enforces as well.
+func resolveAccess(publicAvailable, acceptAnonymous *bool) (public, anonymous bool, err error) {
+	public, anonymous = true, true
+	if publicAvailable != nil {
+		public = *publicAvailable
+	}
+	if acceptAnonymous != nil {
+		anonymous = *acceptAnonymous
+	}
+	if public && !anonymous {
+		return false, false, apperrors.NewBadRequest(msgPublicNotAnon)
+	}
+	return public, anonymous, nil
+}
+
 // mapGetError translates the error of a single-row form query.
 func mapGetError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -262,17 +305,19 @@ func mapGetError(err error) error {
 
 func toForm(row db.Form) Form {
 	return Form{
-		ID:          row.ID,
-		TenantID:    row.TenantID,
-		Title:       row.Title,
-		Slug:        row.Slug,
-		Description: row.Description,
-		IsActive:    deref(row.IsActive),
-		StartDate:   row.StartDate,
-		EndDate:     row.EndDate,
-		Content:     row.FormContent,
-		CreatedAt:   deref(row.CreatedAt),
-		UpdatedAt:   deref(row.UpdatedAt),
+		ID:              row.ID,
+		TenantID:        row.TenantID,
+		Title:           row.Title,
+		Slug:            row.Slug,
+		Description:     row.Description,
+		IsActive:        deref(row.IsActive),
+		StartDate:       row.StartDate,
+		EndDate:         row.EndDate,
+		Content:         row.FormContent,
+		CreatedAt:       deref(row.CreatedAt),
+		UpdatedAt:       deref(row.UpdatedAt),
+		PublicAvailable: row.PublicAvailable,
+		AcceptAnonymous: row.AcceptAnonymous,
 	}
 }
 

@@ -8,7 +8,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
 {{end}}
 
-{{/* nav is the top bar; it expects the page, whose Active names the current tab. */}}
+{{/* nav is the top bar; it expects the page, whose Active names the current tab,
+    Tabs lists the tabs the viewer may open and User is the signed-in viewer. */}}
 {{define "nav"}}
   <header class="sticky top-0 z-20 shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
     <div class="px-6 h-16 flex items-center justify-between gap-6">
@@ -22,11 +23,22 @@
           <p class="text-xs text-slate-400 hidden sm:block">Forms and files across every tenant</p>
         </div>
       </a>
-      <nav class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
-        {{range $tab := navTabs}}
-        <a href="{{$tab.Href}}" class="px-4 py-1.5 rounded-lg transition {{if eq $tab.Key $.Active}}bg-indigo-600 text-white shadow{{else}}text-slate-400 hover:text-white{{end}}"{{if eq $tab.Key $.Active}} aria-current="page"{{end}}>{{$tab.Label}}</a>
-        {{end}}
-      </nav>
+      <div class="flex items-center gap-4">
+        <nav class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+          {{range $tab := .Tabs}}
+          <a href="{{$tab.Href}}" class="px-4 py-1.5 rounded-lg transition {{if eq $tab.Key $.Active}}bg-indigo-600 text-white shadow{{else}}text-slate-400 hover:text-white{{end}}"{{if eq $tab.Key $.Active}} aria-current="page"{{end}}>{{$tab.Label}}</a>
+          {{end}}
+        </nav>
+        {{with .User}}
+        <a href="/app/account" class="hidden sm:flex items-center gap-2 text-xs text-slate-300 hover:text-white" title="Signed in as {{.Username}}">
+          <span class="grid h-7 w-7 place-items-center rounded-full bg-slate-800 font-semibold uppercase">{{slice .Username 0 1}}</span>
+          <span class="font-medium">{{.Username}}</span>
+          <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-[10px] text-indigo-300 ring-1 ring-inset ring-indigo-500/20">{{.Role}}</span>
+        </a>
+        {{else}}{{if ne $.Active "signin"}}
+        <a href="/app/signin" class="text-xs font-semibold text-slate-300 hover:text-white">Sign in</a>
+        {{end}}{{end}}
+      </div>
     </div>
   </header>
 {{end}}

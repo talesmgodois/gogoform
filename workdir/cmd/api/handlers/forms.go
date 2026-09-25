@@ -32,21 +32,29 @@ type FormRequest struct {
 	EndDate   *time.Time `json:"end_date" example:"2026-12-31T23:59:59Z"`
 	// Content is the form definition (fields, layout); any JSON value but null.
 	Content json.RawMessage `json:"content" swaggertype:"object"`
+	// PublicAvailable forms can be read and filled in without signing in;
+	// defaults to true.
+	PublicAvailable *bool `json:"public_available" example:"true"`
+	// AcceptAnonymous forms store submissions without the submitter's
+	// identity; defaults to true and must be true for public forms.
+	AcceptAnonymous *bool `json:"accept_anonymous" example:"true"`
 }
 
 // FormResponse is a form as returned by the API.
 type FormResponse struct {
-	ID          int32           `json:"id" example:"1"`
-	TenantID    int32           `json:"tenant_id" example:"1"`
-	Title       string          `json:"title" example:"Contact us"`
-	Slug        string          `json:"slug" example:"contact-us"`
-	Description *string         `json:"description" example:"Get in touch with our team"`
-	IsActive    bool            `json:"is_active" example:"true"`
-	StartDate   *time.Time      `json:"start_date" example:"2026-01-01T00:00:00Z"`
-	EndDate     *time.Time      `json:"end_date" example:"2026-12-31T23:59:59Z"`
-	Content     json.RawMessage `json:"content" swaggertype:"object"`
-	CreatedAt   time.Time       `json:"created_at" example:"2026-01-01T00:00:00Z"`
-	UpdatedAt   time.Time       `json:"updated_at" example:"2026-01-01T00:00:00Z"`
+	ID              int32           `json:"id" example:"1"`
+	TenantID        int32           `json:"tenant_id" example:"1"`
+	Title           string          `json:"title" example:"Contact us"`
+	Slug            string          `json:"slug" example:"contact-us"`
+	Description     *string         `json:"description" example:"Get in touch with our team"`
+	IsActive        bool            `json:"is_active" example:"true"`
+	StartDate       *time.Time      `json:"start_date" example:"2026-01-01T00:00:00Z"`
+	EndDate         *time.Time      `json:"end_date" example:"2026-12-31T23:59:59Z"`
+	Content         json.RawMessage `json:"content" swaggertype:"object"`
+	PublicAvailable bool            `json:"public_available" example:"true"`
+	AcceptAnonymous bool            `json:"accept_anonymous" example:"true"`
+	CreatedAt       time.Time       `json:"created_at" example:"2026-01-01T00:00:00Z"`
+	UpdatedAt       time.Time       `json:"updated_at" example:"2026-01-01T00:00:00Z"`
 }
 
 // FormDetailsResponse is a form together with the name of its tenant.
@@ -68,6 +76,10 @@ type PublicFormResponse struct {
 	Description *string         `json:"description" example:"Get in touch with our team"`
 	EndDate     *time.Time      `json:"end_date" example:"2026-12-31T23:59:59Z"`
 	Content     json.RawMessage `json:"content" swaggertype:"object"`
+	// PublicAvailable is false for forms that require signing in.
+	PublicAvailable bool `json:"public_available" example:"true"`
+	// AcceptAnonymous is false for forms recording who submitted them.
+	AcceptAnonymous bool `json:"accept_anonymous" example:"true"`
 }
 
 // FormListResponse is a page of forms.
@@ -85,7 +97,7 @@ type formsController struct {
 // Create creates a form for the authenticated tenant.
 //
 //	@Summary		Create a form
-//	@Description	Creates a form owned by the authenticated tenant. The slug must be unique across all forms.
+//	@Description	Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.
 //	@Tags			forms
 //	@Accept			json
 //	@Produce		json
@@ -104,14 +116,16 @@ func (c *formsController) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f, err := c.forms.Create(r.Context(), forms.CreateFormInput{
-		TenantID:    tenantFrom(r.Context()).ID,
-		Title:       req.Title,
-		Slug:        req.Slug,
-		Description: req.Description,
-		IsActive:    req.IsActive,
-		StartDate:   req.StartDate,
-		EndDate:     req.EndDate,
-		Content:     req.Content,
+		TenantID:        tenantFrom(r.Context()).ID,
+		Title:           req.Title,
+		Slug:            req.Slug,
+		Description:     req.Description,
+		IsActive:        req.IsActive,
+		StartDate:       req.StartDate,
+		EndDate:         req.EndDate,
+		Content:         req.Content,
+		PublicAvailable: req.PublicAvailable,
+		AcceptAnonymous: req.AcceptAnonymous,
 	})
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
@@ -208,7 +222,7 @@ func (c *formsController) Get(w http.ResponseWriter, r *http.Request) {
 // Update replaces one of the authenticated tenant's forms.
 //
 //	@Summary		Update a form
-//	@Description	Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active makes the form active.
+//	@Description	Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true.
 //	@Tags			forms
 //	@Accept			json
 //	@Produce		json
@@ -235,15 +249,17 @@ func (c *formsController) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	isActive := req.IsActive == nil || *req.IsActive
 	f, err := c.forms.Update(r.Context(), forms.UpdateFormInput{
-		ID:          id,
-		TenantID:    tenantFrom(r.Context()).ID,
-		Title:       req.Title,
-		Slug:        req.Slug,
-		Description: req.Description,
-		IsActive:    isActive,
-		StartDate:   req.StartDate,
-		EndDate:     req.EndDate,
-		Content:     req.Content,
+		ID:              id,
+		TenantID:        tenantFrom(r.Context()).ID,
+		Title:           req.Title,
+		Slug:            req.Slug,
+		Description:     req.Description,
+		IsActive:        isActive,
+		StartDate:       req.StartDate,
+		EndDate:         req.EndDate,
+		Content:         req.Content,
+		PublicAvailable: req.PublicAvailable,
+		AcceptAnonymous: req.AcceptAnonymous,
 	})
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
@@ -282,28 +298,46 @@ func (c *formsController) Delete(w http.ResponseWriter, r *http.Request) {
 
 // GetPublic returns a form that can currently be filled in.
 //
-//	@Summary		Get a public form
-//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window.
+//	@Summary		Get a form to fill in
+//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.
 //	@Tags			public
 //	@Produce		json
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			slug	path		string						true	"Form slug"
 //	@Success		200		{object}	PublicFormResponse			"Form"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Private form and not signed in, or invalid credentials"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found or not available"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug} [get]
 func (c *formsController) GetPublic(w http.ResponseWriter, r *http.Request) {
-	f, err := c.forms.GetPublicBySlug(r.Context(), r.PathValue("slug"))
+	f, err := availableForm(r, c.forms)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		unauthorized(w, r, err)
 		return
 	}
 	writeJSON(w, r, http.StatusOK, PublicFormResponse{
-		Title:       f.Title,
-		Slug:        f.Slug,
-		Description: f.Description,
-		EndDate:     f.EndDate,
-		Content:     f.Content,
+		Title:           f.Title,
+		Slug:            f.Slug,
+		Description:     f.Description,
+		EndDate:         f.EndDate,
+		Content:         f.Content,
+		PublicAvailable: f.PublicAvailable,
+		AcceptAnonymous: f.AcceptAnonymous,
 	})
+}
+
+// availableForm returns the form of the slug path value if it can be filled
+// in by the user of the request, which Guard(auth.Public, ...) resolved.
+func availableForm(r *http.Request, repo forms.Repository) (forms.Form, error) {
+	f, err := repo.GetPublicBySlug(r.Context(), r.PathValue("slug"))
+	if err != nil {
+		return forms.Form{}, err
+	}
+	if !f.PublicAvailable && userFrom(r.Context()) == nil {
+		return forms.Form{}, apperrors.NewUnauthorized("sign in to access this form")
+	}
+	return f, nil
 }
 
 // decodeFormRequest decodes and validates a FormRequest. Dates are
@@ -341,16 +375,18 @@ func utc(t *time.Time) *time.Time {
 
 func toFormResponse(f forms.Form) FormResponse {
 	return FormResponse{
-		ID:          f.ID,
-		TenantID:    f.TenantID,
-		Title:       f.Title,
-		Slug:        f.Slug,
-		Description: f.Description,
-		IsActive:    f.IsActive,
-		StartDate:   f.StartDate,
-		EndDate:     f.EndDate,
-		Content:     f.Content,
-		CreatedAt:   f.CreatedAt,
-		UpdatedAt:   f.UpdatedAt,
+		ID:              f.ID,
+		TenantID:        f.TenantID,
+		Title:           f.Title,
+		Slug:            f.Slug,
+		Description:     f.Description,
+		IsActive:        f.IsActive,
+		StartDate:       f.StartDate,
+		EndDate:         f.EndDate,
+		Content:         f.Content,
+		PublicAvailable: f.PublicAvailable,
+		AcceptAnonymous: f.AcceptAnonymous,
+		CreatedAt:       f.CreatedAt,
+		UpdatedAt:       f.UpdatedAt,
 	}
 }

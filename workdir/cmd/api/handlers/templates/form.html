@@ -17,6 +17,7 @@
           <h1 class="text-xl font-bold tracking-tight flex flex-wrap items-center gap-3">
             <span class="truncate">{{.Title}}</span>
             {{with status .Form}}<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
+            {{with access .Form}}<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
           </h1>
           <p class="mt-1 font-mono text-xs text-indigo-400">/{{.Slug}} <span class="text-slate-500">· {{.TenantName}} · created {{datetime .CreatedAt}}</span></p>
           {{with .Description}}<p class="mt-2 max-w-2xl text-sm text-slate-400">{{.}}</p>{{end}}

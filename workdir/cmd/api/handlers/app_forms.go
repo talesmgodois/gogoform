@@ -148,19 +148,24 @@ func submissionsJSON(subs []submissions.Submission) ([]byte, error) {
 	return json.MarshalIndent(items, "", "  ")
 }
 
-// submissionsCSV encodes t as CSV: the submission ID and date, the payload
-// columns, then the metadata columns.
+// submissionsCSV encodes t as CSV: the submission ID and date, the ID of the
+// signed-in submitter (empty for anonymous submissions), the payload columns,
+// then the metadata columns.
 func submissionsCSV(t submissionTable) ([]byte, error) {
 	var buf bytes.Buffer
 	cw := csv.NewWriter(&buf)
-	header := append([]string{"submission_id", "submitted_at"}, t.Columns...)
+	header := append([]string{"submission_id", "submitted_at", "user_id"}, t.Columns...)
 	if err := cw.Write(append(header, submissionMetaColumns...)); err != nil {
 		return nil, err
 	}
 	for _, row := range t.Rows {
 		s := row.Submission
 		record := make([]string, 0, len(header)+len(submissionMetaColumns))
-		record = append(record, strconv.Itoa(int(s.ID)), s.SubmittedAt.UTC().Format(time.RFC3339))
+		userID := ""
+		if s.UserID != nil {
+			userID = strconv.Itoa(int(*s.UserID))
+		}
+		record = append(record, strconv.Itoa(int(s.ID)), s.SubmittedAt.UTC().Format(time.RFC3339), userID)
 		for _, cell := range row.Cells {
 			record = append(record, csvSafe(cell))
 		}

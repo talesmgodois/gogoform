@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "head" "Account"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "nav" .}}
+
+  <main class="mx-auto max-w-4xl px-6 py-8 space-y-8">
+    {{with .User}}
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Signed in as</p>
+          <h1 class="mt-1 flex items-center gap-3 text-xl font-bold tracking-tight">
+            {{.Username}}
+            <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-xs font-medium text-indigo-300 ring-1 ring-inset ring-indigo-500/20">{{.Role}}</span>
+          </h1>
+          <p class="mt-1 text-xs text-slate-500">User #{{.ID}} · member since {{datetime .CreatedAt}}</p>
+        </div>
+        <button type="button" id="signout" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Sign out</button>
+      </div>
+      <p class="mt-4 text-sm text-slate-400">This page only opens for signed-in users: its route is declared with <span class="font-mono text-slate-300">auth.SignedIn()</span> in <span class="font-mono text-slate-300">app_routes.go</span>.</p>
+    </section>
+    {{end}}
+
+    <section>
+      <div class="mb-4 flex items-end justify-between">
+        <h2 class="text-lg font-semibold tracking-tight">Pages and who may open them</h2>
+        <p class="text-xs text-slate-500">From the /app route table</p>
+      </div>
+      <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-900 text-left text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-semibold">Route</th>
+              <th class="px-4 py-3 font-semibold">Access</th>
+              <th class="px-4 py-3 font-semibold">You</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {{range .Routes}}
+            <tr>
+              <td class="px-4 py-3 font-mono text-xs text-slate-200">{{.Pattern}}</td>
+              <td class="px-4 py-3 text-xs text-slate-400">{{.Access}}</td>
+              <td class="px-4 py-3 text-xs">{{if .Allowed}}<span class="text-emerald-400">Allowed</span>{{else}}<span class="text-rose-400">Denied</span>{{end}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script nonce="{{.Nonce}}">
+    document.getElementById("signout").addEventListener("click", () => {
+      fetch("/app/signout", { method: "POST", credentials: "same-origin" }).finally(() => location.assign("/app/signin"));
+    });
+  </script>
+</body>
+</html>

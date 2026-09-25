@@ -20,10 +20,12 @@ type appBuilderPage struct {
 // builderDraft is the state the form builder starts from: the parts of a
 // FormRequest it edits.
 type builderDraft struct {
-	Title       string          `json:"title"`
-	Slug        string          `json:"slug"`
-	Description *string         `json:"description"`
-	Content     json.RawMessage `json:"content"`
+	Title           string          `json:"title"`
+	Slug            string          `json:"slug"`
+	Description     *string         `json:"description"`
+	Content         json.RawMessage `json:"content"`
+	PublicAvailable bool            `json:"public_available"`
+	AcceptAnonymous bool            `json:"accept_anonymous"`
 }
 
 // Builder renders the form builder. With ?form={id} it starts from a copy of
@@ -37,10 +39,12 @@ func (c *appController) Builder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		draft, err := json.Marshal(builderDraft{
-			Title:       f.Title,
-			Slug:        copySlug(f.Slug),
-			Description: f.Description,
-			Content:     f.Content,
+			Title:           f.Title,
+			Slug:            copySlug(f.Slug),
+			Description:     f.Description,
+			Content:         f.Content,
+			PublicAvailable: f.PublicAvailable,
+			AcceptAnonymous: f.AcceptAnonymous,
 		})
 		if err != nil {
 			apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))

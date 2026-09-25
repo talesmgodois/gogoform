@@ -37,3 +37,13 @@ func TestPgErrorClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCheckViolation(t *testing.T) {
+	check := &pgconn.PgError{Code: sqlStateCheckViolation}
+	if !IsCheckViolation(check) || !IsCheckViolation(fmt.Errorf("insert: %w", check)) {
+		t.Fatal("IsCheckViolation = false for a check violation")
+	}
+	if IsCheckViolation(&pgconn.PgError{Code: sqlStateUniqueViolation}) || IsCheckViolation(nil) {
+		t.Fatal("IsCheckViolation = true for another error")
+	}
+}

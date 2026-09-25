@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "head" "Users"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "nav" .}}
+
+  <main class="mx-auto max-w-4xl px-6 py-8 space-y-4">
+    <div class="flex items-end justify-between">
+      <h1 class="text-lg font-semibold tracking-tight">Users</h1>
+      <p class="text-xs text-slate-500">Only admins can open this page: <span class="font-mono">auth.SignedIn(auth.RoleAdmin)</span></p>
+    </div>
+    <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-900 text-left text-xs uppercase tracking-wider text-slate-400">
+          <tr>
+            <th class="px-4 py-3 font-semibold">ID</th>
+            <th class="px-4 py-3 font-semibold">Username</th>
+            <th class="px-4 py-3 font-semibold">Role</th>
+            <th class="px-4 py-3 font-semibold">Status</th>
+            <th class="px-4 py-3 font-semibold">Created</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800">
+          {{range .Users}}
+          <tr>
+            <td class="px-4 py-3 text-xs text-slate-400">{{.ID}}</td>
+            <td class="px-4 py-3 font-medium">{{.Username}}</td>
+            <td class="px-4 py-3 font-mono text-xs text-indigo-300">{{.Role}}</td>
+            <td class="px-4 py-3 text-xs">{{if .IsActive}}<span class="text-emerald-400">Active</span>{{else}}<span class="text-slate-500">Inactive</span>{{end}}</td>
+            <td class="px-4 py-3 text-xs text-slate-400">{{datetime .CreatedAt}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="5" class="px-4 py-10 text-center text-sm text-slate-500">No users yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

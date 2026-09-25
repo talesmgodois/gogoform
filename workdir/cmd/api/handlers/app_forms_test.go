@@ -38,7 +38,7 @@ func formWithSubmissions() Services {
 	})
 	svc.submissions.(*fakeSubmissions).list = []submissions.Submission{
 		{
-			ID: 2, FormID: 1, SubmittedAt: submittedAt,
+			ID: 2, FormID: 1, SubmittedAt: submittedAt, UserID: ptrTo(int32(5)),
 			Payload:  json.RawMessage(`{"name":"Ada <Lovelace>","email":"ada@example.com","age":36,"tags":["a","b"],"formula":"=SUM(A1)"}`),
 			Metadata: &submissions.Metadata{IPAddress: &testIP, CompletionTimeSeconds: &testSeconds},
 		},
@@ -129,9 +129,9 @@ func TestAppExportCSV(t *testing.T) {
 		t.Fatalf("parse CSV: %v", err)
 	}
 	want := [][]string{
-		{"submission_id", "submitted_at", "email", "name", "age", "formula", "tags", "ip_address", "user_agent", "completion_time_seconds", "referer"},
-		{"2", "2026-09-24T12:00:00Z", "ada@example.com", "Ada <Lovelace>", "36", "'=SUM(A1)", `["a","b"]`, testIP, "", "95", ""},
-		{"1", "2026-09-24T11:00:00Z", "", "Bob", "", "", "", "", "", "", ""},
+		{"submission_id", "submitted_at", "user_id", "email", "name", "age", "formula", "tags", "ip_address", "user_agent", "completion_time_seconds", "referer"},
+		{"2", "2026-09-24T12:00:00Z", "5", "ada@example.com", "Ada <Lovelace>", "36", "'=SUM(A1)", `["a","b"]`, testIP, "", "95", ""},
+		{"1", "2026-09-24T11:00:00Z", "", "", "Bob", "", "", "", "", "", "", ""},
 	}
 	if !reflect.DeepEqual(records, want) {
 		t.Fatalf("CSV =\n%q\nwant\n%q", records, want)
@@ -209,3 +209,5 @@ func TestCSVSafe(t *testing.T) {
 		}
 	}
 }
+
+func ptrTo[T any](v T) *T { return &v }

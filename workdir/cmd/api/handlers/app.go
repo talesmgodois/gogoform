@@ -14,6 +14,7 @@ import (
 
 	"app/internal/config"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -40,7 +41,7 @@ var appFuncs = template.FuncMap{
 	"bytes":    formatBytes,
 	"datetime": formatDateTime,
 	"status":   formStatus,
-	"navTabs":  func() []navTab { return appNavTabs },
+	"access":   formAccess,
 	"add":      func(a, b int) int { return a + b },
 }
 
@@ -48,6 +49,10 @@ var (
 	appTemplate        = parseAppPage("app.html")
 	appFormTemplate    = parseAppPage("form.html")
 	appBuilderTemplate = parseAppPage("builder.html")
+	appSignInTemplate  = parseAppPage("signin.html")
+	appAccountTemplate = parseAppPage("account.html")
+	appUsersTemplate   = parseAppPage("users.html")
+	appMessageTemplate = parseAppPage("message.html")
 )
 
 // parseAppPage parses the page template called name along with the shared
@@ -56,14 +61,9 @@ func parseAppPage(name string) *template.Template {
 	return template.Must(template.New(name).Funcs(appFuncs).ParseFS(templatesFS, "templates/layout.html", "templates/"+name))
 }
 
-// navTab is an entry of the /app navigation bar.
+// navTab is an entry of the /app navigation bar; see appRoute.Nav.
 type navTab struct {
 	Key, Label, Href string
-}
-
-var appNavTabs = []navTab{
-	{"dashboard", "Dashboard", "/app"},
-	{"builder", "Form builder", "/app/builder"},
 }
 
 // appLayout holds the data every /app page shares.
@@ -72,6 +72,10 @@ type appLayout struct {
 	Active string
 	// Nonce authorizes the page's inline scripts in the Content-Security-Policy.
 	Nonce string
+	// User is the signed-in viewer; nil when anonymous.
+	User *auth.User
+	// Tabs are the navigation entries the viewer may open.
+	Tabs []navTab
 }
 
 func (l *appLayout) layout() *appLayout { return l }
@@ -91,12 +95,16 @@ type appPage struct {
 	GeneratedAt time.Time
 }
 
-// appController serves the /app dashboard listing the forms and files of
-// every tenant, the submissions of each form and the form builder.
+// appController serves the /app pages: the dashboard listing the forms and
+// files of every tenant, the submissions of each form, the form builder and
+// the account pages. Its routes are listed in app_routes.go.
 type appController struct {
 	forms       forms.Repository
 	files       files.Repository
 	submissions submissions.Repository
+	auth        *auth.Service
+	// mounted are the routes registered by mount.
+	mounted []appRoute
 }
 
 // Index renders the dashboard.
@@ -110,15 +118,21 @@ func (c *appController) Index(w http.ResponseWriter, r *http.Request) {
 	renderAppPage(w, r, appTemplate, &page)
 }
 
-// renderAppPage renders t with page, which it gives a fresh nonce, along
-// with the security headers of every /app page.
+// renderAppPage renders t with page, which it gives a fresh nonce and the
+// viewer set by guardPage, along with the security headers of every /app page.
 func renderAppPage(w http.ResponseWriter, r *http.Request, t *template.Template, page appPageData) {
+	renderAppPageStatus(w, r, http.StatusOK, t, page)
+}
+
+// renderAppPageStatus is renderAppPage with a custom status code.
+func renderAppPageStatus(w http.ResponseWriter, r *http.Request, status int, t *template.Template, page appPageData) {
 	nonce, err := newNonce()
 	if err != nil {
 		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
 		return
 	}
-	page.layout().Nonce = nonce
+	l := page.layout()
+	l.Nonce, l.User, l.Tabs = nonce, userFrom(r.Context()), tabsFrom(r.Context())
 	// Render to a buffer first so a template error still yields a clean 500.
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, page); err != nil {
@@ -129,7 +143,7 @@ func renderAppPage(w http.ResponseWriter, r *http.Request, t *template.Template,
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Content-Security-Policy", fmt.Sprintf(appContentSecurityPolicy, nonce))
 	setAppNoStoreHeaders(h)
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	buf.WriteTo(w)
 }
 
@@ -236,5 +250,17 @@ func formStatus(f forms.Form) badge {
 		return badge{"Ended", "bg-rose-500/10 text-rose-400 ring-rose-500/20"}
 	default:
 		return badge{"Live", "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"}
+	}
+}
+
+// formAccess describes who can fill f in and whether submitters are recorded.
+func formAccess(f forms.Form) badge {
+	switch {
+	case f.PublicAvailable:
+		return badge{"Public", "bg-sky-500/10 text-sky-400 ring-sky-500/20"}
+	case f.AcceptAnonymous:
+		return badge{"Private · anonymous", "bg-violet-500/10 text-violet-400 ring-violet-500/20"}
+	default:
+		return badge{"Private · identified", "bg-fuchsia-500/10 text-fuchsia-400 ring-fuchsia-500/20"}
 	}
 }

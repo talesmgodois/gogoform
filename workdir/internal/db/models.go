@@ -5,9 +5,54 @@
 package db
 
 import (
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
+
+type UserRole string
+
+const (
+	UserRoleADMIN       UserRole = "ADMIN"
+	UserRoleFORMCREATOR UserRole = "FORM_CREATOR"
+	UserRoleBASIC       UserRole = "BASIC"
+)
+
+func (e *UserRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserRole(s)
+	case string:
+		*e = UserRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserRole: %T", src)
+	}
+	return nil
+}
+
+type NullUserRole struct {
+	UserRole UserRole `json:"user_role"`
+	Valid    bool     `json:"valid"` // Valid is true if UserRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserRole), nil
+}
 
 type File struct {
 	ID             string    `db:"id" json:"id"`
@@ -21,17 +66,19 @@ type File struct {
 }
 
 type Form struct {
-	ID          int32           `db:"id" json:"id"`
-	TenantID    int32           `db:"tenant_id" json:"tenant_id"`
-	Title       string          `db:"title" json:"title"`
-	Slug        string          `db:"slug" json:"slug"`
-	Description *string         `db:"description" json:"description"`
-	IsActive    *bool           `db:"is_active" json:"is_active"`
-	StartDate   *time.Time      `db:"start_date" json:"start_date"`
-	EndDate     *time.Time      `db:"end_date" json:"end_date"`
-	FormContent json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt   *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt   *time.Time      `db:"updated_at" json:"updated_at"`
+	ID              int32           `db:"id" json:"id"`
+	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
+	Title           string          `db:"title" json:"title"`
+	Slug            string          `db:"slug" json:"slug"`
+	Description     *string         `db:"description" json:"description"`
+	IsActive        *bool           `db:"is_active" json:"is_active"`
+	StartDate       *time.Time      `db:"start_date" json:"start_date"`
+	EndDate         *time.Time      `db:"end_date" json:"end_date"`
+	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
 }
 
 type FormSubmission struct {
@@ -39,6 +86,7 @@ type FormSubmission struct {
 	FormID      int32           `db:"form_id" json:"form_id"`
 	Payload     json.RawMessage `db:"payload" json:"payload"`
 	SubmittedAt *time.Time      `db:"submitted_at" json:"submitted_at"`
+	UserID      *int32          `db:"user_id" json:"user_id"`
 }
 
 type FormWebhook struct {
@@ -66,4 +114,14 @@ type Tenant struct {
 	ApiKey    string     `db:"api_key" json:"api_key"`
 	IsActive  *bool      `db:"is_active" json:"is_active"`
 	CreatedAt *time.Time `db:"created_at" json:"created_at"`
+}
+
+type User struct {
+	ID           int32     `db:"id" json:"id"`
+	Username     string    `db:"username" json:"username"`
+	PasswordHash string    `db:"password_hash" json:"password_hash"`
+	Role         UserRole  `db:"role" json:"role"`
+	IsActive     bool      `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }

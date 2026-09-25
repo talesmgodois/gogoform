@@ -1,5 +1,17 @@
 basePath: /
 definitions:
+  auth.Role:
+    enum:
+    - ADMIN
+    - FORM_CREATOR
+    - BASIC
+    - BASIC
+    type: string
+    x-enum-varnames:
+    - RoleAdmin
+    - RoleFormCreator
+    - RoleBasic
+    - DefaultRole
   errors.Code:
     enum:
     - invalid_argument
@@ -110,6 +122,9 @@ definitions:
     type: object
   handlers.FormDetailsResponse:
     properties:
+      accept_anonymous:
+        example: true
+        type: boolean
       content:
         type: object
       created_at:
@@ -125,6 +140,9 @@ definitions:
         example: 1
         type: integer
       is_active:
+        example: true
+        type: boolean
+      public_available:
         example: true
         type: boolean
       slug:
@@ -164,6 +182,12 @@ definitions:
     type: object
   handlers.FormRequest:
     properties:
+      accept_anonymous:
+        description: |-
+          AcceptAnonymous forms store submissions without the submitter's
+          identity; defaults to true and must be true for public forms.
+        example: true
+        type: boolean
       content:
         description: Content is the form definition (fields, layout); any JSON value
           but null.
@@ -178,6 +202,12 @@ definitions:
         description: IsActive defaults to true when omitted.
         example: true
         type: boolean
+      public_available:
+        description: |-
+          PublicAvailable forms can be read and filled in without signing in;
+          defaults to true.
+        example: true
+        type: boolean
       slug:
         example: contact-us
         type: string
@@ -190,6 +220,9 @@ definitions:
     type: object
   handlers.FormResponse:
     properties:
+      accept_anonymous:
+        example: true
+        type: boolean
       content:
         type: object
       created_at:
@@ -205,6 +238,9 @@ definitions:
         example: 1
         type: integer
       is_active:
+        example: true
+        type: boolean
+      public_available:
         example: true
         type: boolean
       slug:
@@ -225,6 +261,9 @@ definitions:
     type: object
   handlers.FormSummaryResponse:
     properties:
+      accept_anonymous:
+        example: true
+        type: boolean
       content:
         type: object
       created_at:
@@ -240,6 +279,9 @@ definitions:
         example: 1
         type: integer
       is_active:
+        example: true
+        type: boolean
+      public_available:
         example: true
         type: boolean
       slug:
@@ -278,6 +320,10 @@ definitions:
     type: object
   handlers.PublicFormResponse:
     properties:
+      accept_anonymous:
+        description: AcceptAnonymous is false for forms recording who submitted them.
+        example: true
+        type: boolean
       content:
         type: object
       description:
@@ -286,11 +332,52 @@ definitions:
       end_date:
         example: "2026-12-31T23:59:59Z"
         type: string
+      public_available:
+        description: PublicAvailable is false for forms that require signing in.
+        example: true
+        type: boolean
       slug:
         example: contact-us
         type: string
       title:
         example: Contact us
+        type: string
+    type: object
+  handlers.SampleResponse:
+    properties:
+      message:
+        example: Hello, alice
+        type: string
+      policy:
+        description: Policy describes who may call the endpoint.
+        example: signed in
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/handlers.UserResponse'
+        description: User is the signed-in caller; null for anonymous calls.
+    type: object
+  handlers.SetRoleRequest:
+    properties:
+      role:
+        allOf:
+        - $ref: '#/definitions/auth.Role'
+        enum:
+        - ADMIN
+        - FORM_CREATOR
+        - BASIC
+        example: FORM_CREATOR
+    type: object
+  handlers.SignUpRequest:
+    properties:
+      password:
+        description: Password is 8 to 72 bytes long.
+        example: correct horse battery
+        type: string
+      username:
+        description: 'Username is case-insensitive: 3 to 50 letters, digits, ''.'',
+          ''_'' or ''-''.'
+        example: alice
         type: string
     type: object
   handlers.SubmissionListResponse:
@@ -321,6 +408,10 @@ definitions:
       submitted_at:
         example: "2026-01-01T00:00:00Z"
         type: string
+      user_id:
+        description: UserID is the signed-in submitter; null for anonymous submissions.
+        example: 3
+        type: integer
     type: object
   handlers.TenantResponse:
     properties:
@@ -335,6 +426,57 @@ definitions:
         type: boolean
       name:
         example: Acme Inc.
+        type: string
+    type: object
+  handlers.TokenResponse:
+    properties:
+      access_token:
+        description: 'AccessToken is a JWT; send it as "Authorization: Bearer <token>".'
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      expires_at:
+        example: "2026-01-01T01:00:00Z"
+        type: string
+      token_type:
+        example: Bearer
+        type: string
+      user:
+        $ref: '#/definitions/handlers.UserResponse'
+    type: object
+  handlers.UserListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.UserResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+    type: object
+  handlers.UserResponse:
+    properties:
+      created_at:
+        example: "2026-01-01T00:00:00Z"
+        type: string
+      id:
+        example: 1
+        type: integer
+      is_active:
+        example: true
+        type: boolean
+      role:
+        allOf:
+        - $ref: '#/definitions/auth.Role'
+        enum:
+        - ADMIN
+        - FORM_CREATOR
+        - BASIC
+        example: BASIC
+      username:
+        example: alice
         type: string
     type: object
   handlers.WebhookListResponse:
@@ -368,10 +510,94 @@ definitions:
 host: localhost:8080
 info:
   contact: {}
-  description: REST API of the application.
+  description: 'Username and password of a user: "Basic " + btoa(username + ":" +
+    password).'
   title: App API
   version: "1.0"
 paths:
+  /auth/me:
+    get:
+      description: Returns the user authenticated by the bearer token or Basic credentials.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Signed-in user
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+        "401":
+          description: Not signed in
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Get the current user
+      tags:
+      - auth
+  /auth/signin:
+    post:
+      description: 'Checks the HTTP Basic credentials ("Authorization: Basic " + btoa(username
+        + ":" + password)) and returns a JWT access token to send as "Authorization:
+        Bearer <token>".'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Signed in
+          schema:
+            $ref: '#/definitions/handlers.TokenResponse'
+        "401":
+          description: Missing or invalid credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BasicAuth: []
+      summary: Sign in
+      tags:
+      - auth
+  /auth/signup:
+    post:
+      consumes:
+      - application/json
+      description: Creates an account with the BASIC role. Usernames are case-insensitive.
+      parameters:
+      - description: Credentials of the new account
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SignUpRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Account created
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+        "400":
+          description: Invalid username or password
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "409":
+          description: Username already taken
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: Sign up
+      tags:
+      - auth
   /files:
     post:
       consumes:
@@ -526,7 +752,9 @@ paths:
       consumes:
       - application/json
       description: Creates a form owned by the authenticated tenant. The slug must
-        be unique across all forms.
+        be unique across all forms. Forms are public and accept anonymous submissions
+        unless public_available or accept_anonymous is false; a public form must accept
+        anonymous submissions.
       parameters:
       - description: Form to create
         in: body
@@ -642,7 +870,8 @@ paths:
       consumes:
       - application/json
       description: Replaces every field of one of the authenticated tenant's forms.
-        Omitted optional fields are cleared; an omitted is_active makes the form active.
+        Omitted optional fields are cleared; an omitted is_active, public_available
+        or accept_anonymous is true.
       parameters:
       - description: Form ID
         in: path
@@ -837,7 +1066,9 @@ paths:
   /public/forms/{slug}:
     get:
       description: Returns the form with the given slug if it is active, its tenant
-        is active and now is inside its availability window.
+        is active and now is inside its availability window. Forms that are not public_available
+        require a signed-in user (bearer token or Basic credentials); credentials
+        are optional otherwise.
       parameters:
       - description: Form slug
         in: path
@@ -851,6 +1082,10 @@ paths:
           description: Form
           schema:
             $ref: '#/definitions/handlers.PublicFormResponse'
+        "401":
+          description: Private form and not signed in, or invalid credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
           description: Form not found or not available
           schema:
@@ -859,7 +1094,10 @@ paths:
           description: Internal error
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
-      summary: Get a public form
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Get a form to fill in
       tags:
       - public
   /public/forms/{slug}/submissions:
@@ -867,7 +1105,9 @@ paths:
       consumes:
       - application/json
       description: Stores the answers to a form that can currently be filled in, along
-        with the client's IP address, user agent and referer.
+        with the client's IP address, user agent and referer. Forms that are not public_available
+        require a signed-in user (bearer token or Basic credentials). The submitter's
+        user ID is recorded only by forms that do not accept_anonymous.
       parameters:
       - description: Form slug
         in: path
@@ -891,6 +1131,10 @@ paths:
           description: Invalid request
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
+        "401":
+          description: Sign-in required, or invalid credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
           description: Form not found or not available
           schema:
@@ -899,10 +1143,99 @@ paths:
           description: Internal error
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Submit a form
       tags:
       - submissions
       - public
+  /samples/admin:
+    get:
+      description: Requires the ADMIN role.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Greeting
+          schema:
+            $ref: '#/definitions/handlers.SampleResponse'
+        "401":
+          description: Not signed in
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Role not allowed
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Admin sample
+      tags:
+      - samples
+  /samples/form-creator:
+    get:
+      description: Requires the FORM_CREATOR role (ADMIN passes every role check).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Greeting
+          schema:
+            $ref: '#/definitions/handlers.SampleResponse'
+        "401":
+          description: Not signed in
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Role not allowed
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Form creator sample
+      tags:
+      - samples
+  /samples/public:
+    get:
+      description: Can be called by anyone. Credentials are optional, but rejected
+        when invalid.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Greeting
+          schema:
+            $ref: '#/definitions/handlers.SampleResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: Public sample
+      tags:
+      - samples
+  /samples/signed-in:
+    get:
+      description: Requires a signed-in user of any role.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Greeting
+          schema:
+            $ref: '#/definitions/handlers.SampleResponse'
+        "401":
+          description: Not signed in
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Signed-in sample
+      tags:
+      - samples
   /tenants:
     post:
       consumes:
@@ -958,10 +1291,114 @@ paths:
       summary: Get the current tenant
       tags:
       - tenants
+  /users:
+    get:
+      description: Lists every user by ID. Requires the ADMIN role.
+      parameters:
+      - default: 0
+        description: Number of users to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - default: 20
+        description: Maximum number of users to return
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Page of users
+          schema:
+            $ref: '#/definitions/handlers.UserListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "401":
+          description: Not signed in
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Not an admin
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: List users
+      tags:
+      - users
+  /users/{id}/role:
+    put:
+      consumes:
+      - application/json
+      description: Sets the role of another user. Requires the ADMIN role; admins
+        cannot change their own role.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SetRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User updated
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "401":
+          description: Not signed in
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Not an admin
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Change the role of a user
+      tags:
+      - users
 securityDefinitions:
   ApiKeyAuth:
     description: API key of the tenant, returned when the tenant is created.
     in: header
     name: X-API-Key
+    type: apiKey
+  BasicAuth:
+    type: basic
+  BearerAuth:
+    description: JWT returned by POST /auth/signin, sent as "Bearer <token>".
+    in: header
+    name: Authorization
     type: apiKey
 swagger: "2.0"

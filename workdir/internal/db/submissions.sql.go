@@ -12,24 +12,26 @@ import (
 )
 
 const createFormSubmission = `-- name: CreateFormSubmission :one
-INSERT INTO form_submissions (form_id, payload)
-VALUES ($1, $2)
-RETURNING id, form_id, payload, submitted_at
+INSERT INTO form_submissions (form_id, payload, user_id)
+VALUES ($1, $2, $3)
+RETURNING id, form_id, payload, submitted_at, user_id
 `
 
 type CreateFormSubmissionParams struct {
 	FormID  int32           `db:"form_id" json:"form_id"`
 	Payload json.RawMessage `db:"payload" json:"payload"`
+	UserID  *int32          `db:"user_id" json:"user_id"`
 }
 
 func (q *Queries) CreateFormSubmission(ctx context.Context, arg CreateFormSubmissionParams) (FormSubmission, error) {
-	row := q.db.QueryRow(ctx, createFormSubmission, arg.FormID, arg.Payload)
+	row := q.db.QueryRow(ctx, createFormSubmission, arg.FormID, arg.Payload, arg.UserID)
 	var i FormSubmission
 	err := row.Scan(
 		&i.ID,
 		&i.FormID,
 		&i.Payload,
 		&i.SubmittedAt,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -70,7 +72,7 @@ func (q *Queries) CreateSubmissionMetadata(ctx context.Context, arg CreateSubmis
 }
 
 const listAllSubmissionsByForm = `-- name: ListAllSubmissionsByForm :many
-SELECT s.id, s.form_id, s.payload, s.submitted_at, m.ip_address, m.user_agent, m.completion_time_seconds, m.referer
+SELECT s.id, s.form_id, s.payload, s.submitted_at, s.user_id, m.ip_address, m.user_agent, m.completion_time_seconds, m.referer
 FROM form_submissions s
 JOIN forms f ON f.id = s.form_id
 LEFT JOIN submission_metadata m ON m.submission_id = s.id
@@ -88,6 +90,7 @@ type ListAllSubmissionsByFormRow struct {
 	FormID                int32           `db:"form_id" json:"form_id"`
 	Payload               json.RawMessage `db:"payload" json:"payload"`
 	SubmittedAt           *time.Time      `db:"submitted_at" json:"submitted_at"`
+	UserID                *int32          `db:"user_id" json:"user_id"`
 	IpAddress             *string         `db:"ip_address" json:"ip_address"`
 	UserAgent             *string         `db:"user_agent" json:"user_agent"`
 	CompletionTimeSeconds *int32          `db:"completion_time_seconds" json:"completion_time_seconds"`
@@ -109,6 +112,7 @@ func (q *Queries) ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmi
 			&i.FormID,
 			&i.Payload,
 			&i.SubmittedAt,
+			&i.UserID,
 			&i.IpAddress,
 			&i.UserAgent,
 			&i.CompletionTimeSeconds,
@@ -125,7 +129,7 @@ func (q *Queries) ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmi
 }
 
 const listSubmissionsByForm = `-- name: ListSubmissionsByForm :many
-SELECT s.id, s.form_id, s.payload, s.submitted_at, m.ip_address, m.user_agent, m.completion_time_seconds, m.referer
+SELECT s.id, s.form_id, s.payload, s.submitted_at, s.user_id, m.ip_address, m.user_agent, m.completion_time_seconds, m.referer
 FROM form_submissions s
 JOIN forms f ON f.id = s.form_id
 LEFT JOIN submission_metadata m ON m.submission_id = s.id
@@ -146,6 +150,7 @@ type ListSubmissionsByFormRow struct {
 	FormID                int32           `db:"form_id" json:"form_id"`
 	Payload               json.RawMessage `db:"payload" json:"payload"`
 	SubmittedAt           *time.Time      `db:"submitted_at" json:"submitted_at"`
+	UserID                *int32          `db:"user_id" json:"user_id"`
 	IpAddress             *string         `db:"ip_address" json:"ip_address"`
 	UserAgent             *string         `db:"user_agent" json:"user_agent"`
 	CompletionTimeSeconds *int32          `db:"completion_time_seconds" json:"completion_time_seconds"`
@@ -172,6 +177,7 @@ func (q *Queries) ListSubmissionsByForm(ctx context.Context, arg ListSubmissions
 			&i.FormID,
 			&i.Payload,
 			&i.SubmittedAt,
+			&i.UserID,
 			&i.IpAddress,
 			&i.UserAgent,
 			&i.CompletionTimeSeconds,

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "head" "Sign in"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "nav" .}}
+
+  <main class="mx-auto max-w-sm px-6 py-16">
+    <div id="signin" data-next="{{.Next}}" class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl">
+      <div role="tablist" aria-label="Account" class="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950 p-1 text-xs font-semibold">
+        <button type="button" role="tab" data-mode="signin" class="rounded-lg px-4 py-1.5">Sign in</button>
+        <button type="button" role="tab" data-mode="signup" class="rounded-lg px-4 py-1.5">Create account</button>
+      </div>
+      <form id="signin-form" class="space-y-4" novalidate>
+        <label class="block space-y-1.5">
+          <span class="block text-xs font-medium text-slate-300">Username</span>
+          <input id="username" name="username" type="text" autocomplete="username" required minlength="3" maxlength="50" autofocus
+            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none">
+        </label>
+        <label class="block space-y-1.5">
+          <span class="block text-xs font-medium text-slate-300">Password</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="72"
+            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none">
+          <span id="password-hint" class="hidden text-[11px] text-slate-500">8 to 72 characters.</span>
+        </label>
+        <p id="signin-error" role="alert" class="hidden rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>
+        <button id="signin-submit" type="submit" class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50">Sign in</button>
+      </form>
+      <p class="mt-6 text-[11px] leading-snug text-slate-500">New accounts get the BASIC role; an admin can grant FORM_CREATOR or ADMIN through <span class="font-mono">PUT /users/{id}/role</span>.</p>
+    </div>
+  </main>
+
+  <script nonce="{{.Nonce}}">
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const next = $("signin").dataset.next;
+      let mode = "signin";
+
+      // basic returns the HTTP Basic credentials; btoa only takes Latin-1, so
+      // the UTF-8 bytes are passed through as characters.
+      const basic = (user, pass) =>
+        "Basic " + btoa(String.fromCharCode(...new TextEncoder().encode(user + ":" + pass)));
+
+      const setMode = (m) => {
+        mode = m;
+        document.querySelectorAll("[data-mode]").forEach((b) => {
+          const active = b.dataset.mode === m;
+          b.setAttribute("aria-selected", String(active));
+          b.className = "rounded-lg px-4 py-1.5 transition " + (active ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white");
+        });
+        $("signin-submit").textContent = m === "signin" ? "Sign in" : "Create account";
+        $("password").autocomplete = m === "signin" ? "current-password" : "new-password";
+        $("password-hint").classList.toggle("hidden", m === "signin");
+        showError("");
+      };
+      const showError = (msg) => {
+        $("signin-error").textContent = msg;
+        $("signin-error").classList.toggle("hidden", !msg);
+      };
+      const request = (url, init) =>
+        fetch(url, Object.assign({ credentials: "same-origin" }, init)).then((res) =>
+          res.json().catch(() => ({})).then((data) => {
+            if (!res.ok) throw new Error(data.message || "HTTP " + res.status);
+            return data;
+          }));
+
+      document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+      $("signin-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const user = $("username").value.trim();
+        const pass = $("password").value;
+        if (!user || !pass) return showError("Enter your username and password.");
+        $("signin-submit").disabled = true;
+        showError("");
+        const signUp = mode === "signup"
+          ? request("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user, password: pass }) })
+          : Promise.resolve();
+        signUp
+          .then(() => request("/app/signin", { method: "POST", headers: { Authorization: basic(user, pass) } }))
+          .then(() => { location.assign(next); })
+          .catch((err) => { showError(err.message); })
+          .finally(() => { $("signin-submit").disabled = false; });
+      });
+      setMode("signin");
+    })();
+  </script>
+</body>
+</html>

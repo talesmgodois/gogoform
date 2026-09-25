@@ -1,6 +1,7 @@
 -- name: CreateForm :one
-INSERT INTO forms (tenant_id, title, slug, description, is_active, start_date, end_date, form_content)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO forms (tenant_id, title, slug, description, is_active, start_date, end_date, form_content,
+                   public_available, accept_anonymous)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: GetFormByID :one
@@ -11,7 +12,9 @@ JOIN tenants t ON t.id = f.tenant_id
 WHERE f.id = $1 AND f.tenant_id = $2;
 
 -- name: GetPublicFormBySlug :one
--- Public access: the form and its tenant must be active and inside the availability window.
+-- Open for submissions: the form and its tenant must be active and inside the
+-- availability window. Whether signing in is required is up to the caller
+-- (public_available, accept_anonymous).
 SELECT f.*
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
@@ -48,6 +51,8 @@ SET title = $3,
     start_date = $7,
     end_date = $8,
     form_content = $9,
+    public_available = $10,
+    accept_anonymous = $11,
     updated_at = now()
 WHERE id = $1 AND tenant_id = $2
 RETURNING *;

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -29,6 +30,29 @@ type Config struct {
 	} `toml:"logger"`
 	Database DatabaseConfig `toml:"database"`
 	App      AppConfig      `toml:"app"`
+	Auth     AuthConfig     `toml:"auth"`
+}
+
+// minJWTSecretLen is the minimum length of AuthConfig.JWTSecret: 256 bits,
+// the size of the HS256 key.
+const minJWTSecretLen = 32
+
+// AuthConfig holds the settings of user authentication.
+type AuthConfig struct {
+	// JWTSecret signs the access tokens. When unset, a random secret is
+	// generated at startup, so tokens do not survive a restart.
+	JWTSecret string `toml:"jwt_secret" env:"AUTH_JWT_SECRET"`
+	// TokenTTLMinutes is how long access tokens are valid.
+	TokenTTLMinutes int `toml:"token_ttl_minutes" env:"AUTH_TOKEN_TTL_MINUTES"`
+	// AdminUsername and AdminPassword bootstrap an ADMIN user at startup
+	// when no user with that username exists yet.
+	AdminUsername string `toml:"admin_username" env:"AUTH_ADMIN_USERNAME"`
+	AdminPassword string `toml:"admin_password" env:"AUTH_ADMIN_PASSWORD"`
+}
+
+// TokenTTL returns TokenTTLMinutes as a duration.
+func (c AuthConfig) TokenTTL() time.Duration {
+	return time.Duration(c.TokenTTLMinutes) * time.Minute
 }
 
 // AppConfig holds the HTTP Basic credentials of the read-only /app
@@ -103,6 +127,7 @@ func defaults() *Config {
 	cfg.Server.Port = 8080
 	cfg.Server.Env = "development"
 	cfg.Logger.Level = "info"
+	cfg.Auth.TokenTTLMinutes = 60
 	return cfg
 }
 
@@ -162,6 +187,15 @@ func (c *Config) validate() error {
 	}
 	if strings.Contains(c.App.Username, ":") {
 		return fmt.Errorf("app.username: must not contain ':'")
+	}
+	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < minJWTSecretLen {
+		return fmt.Errorf("auth.jwt_secret: must be at least %d bytes", minJWTSecretLen)
+	}
+	if c.Auth.TokenTTLMinutes < 1 {
+		return fmt.Errorf("auth.token_ttl_minutes: must be >= 1")
+	}
+	if (c.Auth.AdminUsername == "") != (c.Auth.AdminPassword == "") {
+		return fmt.Errorf("auth: admin_username and admin_password must be set together")
 	}
 	return nil
 }

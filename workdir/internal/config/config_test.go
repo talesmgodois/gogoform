@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 const sample = `
@@ -78,6 +80,30 @@ func TestAppCredentials(t *testing.T) {
 	}
 }
 
+func TestAuthConfig(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.JWTSecret != "" || cfg.Auth.TokenTTL() != time.Hour {
+		t.Fatalf("unexpected auth defaults: %+v", cfg.Auth)
+	}
+
+	secret := strings.Repeat("s", minJWTSecretLen)
+	t.Setenv("AUTH_JWT_SECRET", secret)
+	t.Setenv("AUTH_TOKEN_TTL_MINUTES", "15")
+	t.Setenv("AUTH_ADMIN_USERNAME", "root")
+	t.Setenv("AUTH_ADMIN_PASSWORD", "change-me-now")
+	cfg, err = Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.JWTSecret != secret || cfg.Auth.TokenTTL() != 15*time.Minute ||
+		cfg.Auth.AdminUsername != "root" || cfg.Auth.AdminPassword != "change-me-now" {
+		t.Fatalf("auth overrides not applied: %+v", cfg.Auth)
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -93,6 +119,9 @@ func TestLoadErrors(t *testing.T) {
 		{name: "app username without password", content: sample, env: map[string]string{"APP_USERNAME": "admin"}},
 		{name: "app password without username", content: sample, env: map[string]string{"APP_PASSWORD": "s3cret"}},
 		{name: "app username with colon", content: sample, env: map[string]string{"APP_USERNAME": "a:b", "APP_PASSWORD": "s3cret"}},
+		{name: "short jwt secret", content: sample, env: map[string]string{"AUTH_JWT_SECRET": "too-short"}},
+		{name: "zero token ttl", content: sample, env: map[string]string{"AUTH_TOKEN_TTL_MINUTES": "0"}},
+		{name: "admin username without password", content: sample, env: map[string]string{"AUTH_ADMIN_USERNAME": "admin"}},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
 	}
 	for _, tt := range tests {

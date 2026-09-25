@@ -10,7 +10,7 @@ import (
 
 // ownForm belongs to testTenant; otherForm to another tenant.
 var (
-	ownForm   = forms.Form{ID: 1, TenantID: testTenant.ID, Title: "Contact", Slug: "contact", IsActive: true, Content: []byte(`{"fields":[]}`)}
+	ownForm   = forms.Form{ID: 1, TenantID: testTenant.ID, Title: "Contact", Slug: "contact", IsActive: true, Content: []byte(`{"fields":[]}`), PublicAvailable: true, AcceptAnonymous: true}
 	otherForm = forms.Form{ID: 2, TenantID: 99, Title: "Other", Slug: "other", IsActive: true, Content: []byte(`{}`)}
 )
 

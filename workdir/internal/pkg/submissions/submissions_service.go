@@ -33,6 +33,7 @@ func (s *Service) Create(ctx context.Context, in CreateSubmissionInput) (Submiss
 	row, err := s.q.CreateFormSubmission(ctx, db.CreateFormSubmissionParams{
 		FormID:  in.FormID,
 		Payload: in.Payload,
+		UserID:  in.UserID,
 	})
 	switch {
 	case database.IsForeignKeyViolation(err):
@@ -45,6 +46,7 @@ func (s *Service) Create(ctx context.Context, in CreateSubmissionInput) (Submiss
 		FormID:      row.FormID,
 		Payload:     row.Payload,
 		SubmittedAt: deref(row.SubmittedAt),
+		UserID:      row.UserID,
 	}, nil
 }
 
@@ -118,6 +120,7 @@ func toSubmission(row db.ListSubmissionsByFormRow) Submission {
 		FormID:      row.FormID,
 		Payload:     row.Payload,
 		SubmittedAt: deref(row.SubmittedAt),
+		UserID:      row.UserID,
 	}
 	// All metadata columns NULL means there is none (or none worth reporting).
 	if row.IpAddress != nil || row.UserAgent != nil || row.CompletionTimeSeconds != nil || row.Referer != nil {

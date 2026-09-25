@@ -20,6 +20,9 @@ type Querier interface {
 	CreateFormWebhook(ctx context.Context, arg CreateFormWebhookParams) (FormWebhook, error)
 	CreateSubmissionMetadata(ctx context.Context, arg CreateSubmissionMetadataParams) (SubmissionMetadatum, error)
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// For bootstrapping accounts: an existing user is left untouched.
+	CreateUserIfNotExists(ctx context.Context, arg CreateUserIfNotExistsParams) (int64, error)
 	// Scoped by tenant so one tenant can never remove another tenant's file.
 	DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error)
 	DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, error)
@@ -28,9 +31,13 @@ type Querier interface {
 	GetFileByID(ctx context.Context, id string) (File, error)
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
-	// Public access: the form and its tenant must be active and inside the availability window.
+	// Open for submissions: the form and its tenant must be active and inside the
+	// availability window. Whether signing in is required is up to the caller
+	// (public_available, accept_anonymous).
 	GetPublicFormBySlug(ctx context.Context, slug string) (Form, error)
 	GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant, error)
+	GetUserByID(ctx context.Context, id int32) (User, error)
+	GetUserByUsername(ctx context.Context, username string) (User, error)
 	ListActiveWebhooksByForm(ctx context.Context, formID int32) ([]FormWebhook, error)
 	// Metadata only, across every tenant, for the read-only /app dashboard.
 	ListAllFiles(ctx context.Context, arg ListAllFilesParams) ([]ListAllFilesRow, error)
@@ -42,7 +49,9 @@ type Querier interface {
 	ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error)
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).
 	ListSubmissionsByForm(ctx context.Context, arg ListSubmissionsByFormParams) ([]ListSubmissionsByFormRow, error)
+	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error)
+	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)

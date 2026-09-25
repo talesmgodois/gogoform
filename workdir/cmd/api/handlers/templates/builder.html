@@ -116,7 +116,9 @@
       const INPUT = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none";
       const PREVIEW = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300 placeholder:text-slate-600";
 
-      const state = { title: "", slug: "", slugEdited: false, description: "", fields: [], selected: null };
+      // publicAvailable forms can be filled in without signing in, so they
+      // always accept anonymous submissions (the API rejects anything else).
+      const state = { title: "", slug: "", slugEdited: false, description: "", publicAvailable: true, acceptAnonymous: true, fields: [], selected: null };
       let dirty = false;
       let nextID = 1;
 
@@ -224,6 +226,8 @@
         title: state.title.trim(),
         slug: state.slug,
         description: state.description.trim() || null,
+        public_available: state.publicAvailable,
+        accept_anonymous: state.publicAvailable || state.acceptAnonymous,
         content: { version: 1, fields: state.fields.map(fieldJSON) },
       });
 
@@ -524,6 +528,20 @@
           section("Form settings",
             row("Slug", text(state.slug, (v) => { state.slug = v.trim(); state.slugEdited = true; changed(); }, { id: "form-slug", maxLength: 255, class: INPUT + " font-mono" }),
               "Public address: /public/forms/{slug}. Must be unique.")),
+          section("Access",
+            check(state.publicAvailable, "Public: anyone can fill it in", (v) => { state.publicAvailable = v; changed(true); }),
+            h("label", { class: "flex items-center gap-2 text-xs " + (state.publicAvailable ? "cursor-not-allowed text-slate-500" : "cursor-pointer text-slate-300") },
+              h("input", {
+                type: "checkbox", checked: state.publicAvailable || state.acceptAnonymous, disabled: state.publicAvailable,
+                class: "h-4 w-4 rounded border-slate-700 bg-slate-950 accent-indigo-600",
+                onchange: (e) => { state.acceptAnonymous = e.target.checked; changed(true); },
+              }),
+              "Accept anonymous submissions"),
+            h("p", { class: "text-[11px] leading-snug text-slate-500" }, state.publicAvailable
+              ? "Public forms always accept anonymous submissions."
+              : state.acceptAnonymous
+                ? "Only signed-in users can fill it in; who submitted is not recorded."
+                : "Only signed-in users can fill it in; each submission records who sent it.")),
           section("Checks", h("div", { id: "checks" })),
           section("Create form",
             h("p", { class: "text-xs leading-snug text-slate-500" }, "The form is created for the tenant owning the API key. The key is only sent with this request and is not stored."),
@@ -852,6 +870,8 @@
         state.slug = d.slug || "";
         state.slugEdited = true;
         state.description = d.description || "";
+        state.publicAvailable = d.public_available !== false;
+        state.acceptAnonymous = d.accept_anonymous !== false;
         const fields = d.content && Array.isArray(d.content.fields) ? d.content.fields : [];
         state.fields = fields.map(fromJSON).filter(Boolean);
         if (state.fields.length < fields.length || !(d.content && Array.isArray(d.content.fields))) {

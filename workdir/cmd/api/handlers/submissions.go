@@ -23,11 +23,13 @@ type CreateSubmissionRequest struct {
 
 // SubmissionResponse is a submission as returned by the API.
 type SubmissionResponse struct {
-	ID          int32             `json:"id" example:"1"`
-	FormID      int32             `json:"form_id" example:"1"`
-	Payload     json.RawMessage   `json:"payload" swaggertype:"object"`
-	SubmittedAt time.Time         `json:"submitted_at" example:"2026-01-01T00:00:00Z"`
-	Metadata    *MetadataResponse `json:"metadata,omitempty"`
+	ID          int32           `json:"id" example:"1"`
+	FormID      int32           `json:"form_id" example:"1"`
+	Payload     json.RawMessage `json:"payload" swaggertype:"object"`
+	SubmittedAt time.Time       `json:"submitted_at" example:"2026-01-01T00:00:00Z"`
+	// UserID is the signed-in submitter; null for anonymous submissions.
+	UserID   *int32            `json:"user_id" example:"3"`
+	Metadata *MetadataResponse `json:"metadata,omitempty"`
 }
 
 // MetadataResponse describes the client that sent a submission.
@@ -53,14 +55,17 @@ type submissionsController struct {
 // Create stores a submission of a public form.
 //
 //	@Summary		Submit a form
-//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer.
+//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous.
 //	@Tags			submissions,public
 //	@Accept			json
 //	@Produce		json
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			slug	path		string						true	"Form slug"
 //	@Param			body	body		CreateSubmissionRequest		true	"Answers"
 //	@Success		201		{object}	SubmissionResponse			"Submission stored"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found or not available"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug}/submissions [post]
@@ -79,12 +84,21 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := c.forms.GetPublicBySlug(r.Context(), r.PathValue("slug"))
+	f, err := availableForm(r, c.forms)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		unauthorized(w, r, err)
 		return
 	}
-	sub, err := c.submissions.Create(r.Context(), submissions.CreateSubmissionInput{FormID: f.ID, Payload: req.Payload})
+	in := submissions.CreateSubmissionInput{FormID: f.ID, Payload: req.Payload}
+	if !f.AcceptAnonymous {
+		u := userFrom(r.Context())
+		if u == nil {
+			unauthorized(w, r, apperrors.NewUnauthorized("sign in to submit this form"))
+			return
+		}
+		in.UserID = &u.ID
+	}
+	sub, err := c.submissions.Create(r.Context(), in)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -176,7 +190,7 @@ func headerPtr(r *http.Request, name string) *string {
 }
 
 func toSubmissionResponse(s submissions.Submission) SubmissionResponse {
-	resp := SubmissionResponse{ID: s.ID, FormID: s.FormID, Payload: s.Payload, SubmittedAt: s.SubmittedAt}
+	resp := SubmissionResponse{ID: s.ID, FormID: s.FormID, Payload: s.Payload, SubmittedAt: s.SubmittedAt, UserID: s.UserID}
 	if s.Metadata != nil {
 		resp.Metadata = &MetadataResponse{
 			IPAddress:             s.Metadata.IPAddress,

@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"app/internal/config"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -157,7 +161,7 @@ type fakeSubmissions struct {
 
 func (f *fakeSubmissions) Create(_ context.Context, in submissions.CreateSubmissionInput) (submissions.Submission, error) {
 	f.created = in
-	return submissions.Submission{ID: 11, FormID: in.FormID, Payload: in.Payload}, nil
+	return submissions.Submission{ID: 11, FormID: in.FormID, Payload: in.Payload, UserID: in.UserID}, nil
 }
 
 func (f *fakeSubmissions) AddMetadata(_ context.Context, _ int32, m submissions.Metadata) (submissions.Metadata, error) {
@@ -239,9 +243,107 @@ func (f *fakeFiles) Delete(ctx context.Context, tenantID int32, id string) error
 	return nil
 }
 
-// testServices returns Services backed by fakes, with forms holding fs.
+// testPassword is the password of every user created by newTestAuth.
+const testPassword = "correct horse"
+
+// fakeUsers is an in-memory auth.Repository.
+type fakeUsers struct {
+	users []auth.StoredUser
+}
+
+func (f *fakeUsers) Create(_ context.Context, in auth.CreateUserInput) (auth.User, error) {
+	for _, u := range f.users {
+		if u.Username == in.Username {
+			return auth.User{}, apperrors.NewConflict("username already taken")
+		}
+	}
+	u := auth.StoredUser{User: auth.User{ID: int32(len(f.users) + 1), Username: in.Username, Role: in.Role, IsActive: true}, PasswordHash: in.PasswordHash}
+	f.users = append(f.users, u)
+	return u.User, nil
+}
+
+func (f *fakeUsers) CreateIfNotExists(ctx context.Context, in auth.CreateUserInput) (bool, error) {
+	_, err := f.Create(ctx, in)
+	return err == nil, nil
+}
+
+func (f *fakeUsers) GetByUsername(_ context.Context, username string) (auth.StoredUser, error) {
+	for _, u := range f.users {
+		if u.Username == username {
+			return u, nil
+		}
+	}
+	return auth.StoredUser{}, apperrors.NewNotFound("user not found")
+}
+
+func (f *fakeUsers) GetByID(_ context.Context, id int32) (auth.User, error) {
+	for _, u := range f.users {
+		if u.ID == id {
+			return u.User, nil
+		}
+	}
+	return auth.User{}, apperrors.NewNotFound("user not found")
+}
+
+func (f *fakeUsers) List(context.Context, auth.Page) ([]auth.User, error) {
+	out := make([]auth.User, len(f.users))
+	for i, u := range f.users {
+		out[i] = u.User
+	}
+	return out, nil
+}
+
+func (f *fakeUsers) UpdateRole(_ context.Context, id int32, role auth.Role) (auth.User, error) {
+	for i := range f.users {
+		if f.users[i].ID == id {
+			f.users[i].Role = role
+			return f.users[i].User, nil
+		}
+	}
+	return auth.User{}, apperrors.NewNotFound("user not found")
+}
+
+// newTestAuth returns an auth.Service over a fakeUsers holding one user per
+// role: "admin" (ID 1), "creator" (ID 2) and "basic" (ID 3), all with
+// testPassword.
+func newTestAuth() *auth.Service {
+	svc, err := auth.NewService(&fakeUsers{}, auth.Options{Secret: []byte(strings.Repeat("k", auth.MinSecretLen)), PasswordCost: bcrypt.MinCost})
+	if err != nil {
+		panic(err)
+	}
+	for _, u := range []struct {
+		name string
+		role auth.Role
+	}{{"admin", auth.RoleAdmin}, {"creator", auth.RoleFormCreator}, {"basic", auth.RoleBasic}} {
+		if _, err := svc.EnsureUser(context.Background(), u.name, testPassword, u.role); err != nil {
+			panic(err)
+		}
+	}
+	return svc
+}
+
+// tokenFor signs in as username and returns the access token.
+func tokenFor(t *testing.T, svc Services, username string) string {
+	t.Helper()
+	tok, err := svc.auth.SignIn(context.Background(), username, testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok.AccessToken
+}
+
+// serve sends req through Routes(svc, testAppConfig).
+func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	Routes(svc, testAppConfig).ServeHTTP(rec, req)
+	return rec
+}
+
+// testServices returns Services backed by fakes, with forms holding fs and
+// the users of newTestAuth.
 func testServices(fs ...forms.Form) Services {
 	return Services{
+		auth:        newTestAuth(),
 		tenants:     &fakeTenants{},
 		forms:       newFakeForms(fs...),
 		submissions: &fakeSubmissions{},

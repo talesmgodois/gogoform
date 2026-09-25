@@ -15,6 +15,135 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/auth/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Returns the user authenticated by the bearer token or Basic credentials.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get the current user",
+                "responses": {
+                    "200": {
+                        "description": "Signed-in user",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.UserResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/signin": {
+            "post": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Checks the HTTP Basic credentials (\"Authorization: Basic \" + btoa(username + \":\" + password)) and returns a JWT access token to send as \"Authorization: Bearer \u003ctoken\u003e\".",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Sign in",
+                "responses": {
+                    "200": {
+                        "description": "Signed in",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TokenResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/signup": {
+            "post": {
+                "description": "Creates an account with the BASIC role. Usernames are case-insensitive.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Sign up",
+                "parameters": [
+                    {
+                        "description": "Credentials of the new account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.SignUpRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Account created",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.UserResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid username or password",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Username already taken",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/files": {
             "post": {
                 "security": [
@@ -243,7 +372,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms.",
+                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.",
                 "consumes": [
                     "application/json"
                 ],
@@ -362,7 +491,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active makes the form active.",
+                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true.",
                 "consumes": [
                     "application/json"
                 ],
@@ -713,14 +842,22 @@ const docTemplate = `{
         },
         "/public/forms/{slug}": {
             "get": {
-                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window.",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "public"
                 ],
-                "summary": "Get a public form",
+                "summary": "Get a form to fill in",
                 "parameters": [
                     {
                         "type": "string",
@@ -735,6 +872,12 @@ const docTemplate = `{
                         "description": "Form",
                         "schema": {
                             "$ref": "#/definitions/handlers.PublicFormResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Private form and not signed in, or invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
                     "404": {
@@ -754,7 +897,15 @@ const docTemplate = `{
         },
         "/public/forms/{slug}/submissions": {
             "post": {
-                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer.",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous.",
                 "consumes": [
                     "application/json"
                 ],
@@ -797,6 +948,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "401": {
+                        "description": "Sign-in required, or invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Form not found or not available",
                         "schema": {
@@ -805,6 +962,146 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/samples/admin": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Requires the ADMIN role.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Admin sample",
+                "responses": {
+                    "200": {
+                        "description": "Greeting",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.SampleResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Role not allowed",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/samples/form-creator": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Requires the FORM_CREATOR role (ADMIN passes every role check).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Form creator sample",
+                "responses": {
+                    "200": {
+                        "description": "Greeting",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.SampleResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Role not allowed",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/samples/public": {
+            "get": {
+                "description": "Can be called by anyone. Credentials are optional, but rejected when invalid.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Public sample",
+                "responses": {
+                    "200": {
+                        "description": "Greeting",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.SampleResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/samples/signed-in": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Requires a signed-in user of any role.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Signed-in sample",
+                "responses": {
+                    "200": {
+                        "description": "Greeting",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.SampleResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -894,9 +1191,174 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/users": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Lists every user by ID. Requires the ADMIN role.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "List users",
+                "parameters": [
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of users to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of users to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of users",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.UserListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not an admin",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/role": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Sets the role of another user. Requires the ADMIN role; admins cannot change their own role.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Change the role of a user",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New role",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.SetRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "User updated",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.UserResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not an admin",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "auth.Role": {
+            "type": "string",
+            "enum": [
+                "ADMIN",
+                "FORM_CREATOR",
+                "BASIC",
+                "BASIC"
+            ],
+            "x-enum-varnames": [
+                "RoleAdmin",
+                "RoleFormCreator",
+                "RoleBasic",
+                "DefaultRole"
+            ]
+        },
         "errors.Code": {
             "type": "string",
             "enum": [
@@ -1047,6 +1509,10 @@ const docTemplate = `{
         "handlers.FormDetailsResponse": {
             "type": "object",
             "properties": {
+                "accept_anonymous": {
+                    "type": "boolean",
+                    "example": true
+                },
                 "content": {
                     "type": "object"
                 },
@@ -1067,6 +1533,10 @@ const docTemplate = `{
                     "example": 1
                 },
                 "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "public_available": {
                     "type": "boolean",
                     "example": true
                 },
@@ -1122,6 +1592,11 @@ const docTemplate = `{
         "handlers.FormRequest": {
             "type": "object",
             "properties": {
+                "accept_anonymous": {
+                    "description": "AcceptAnonymous forms store submissions without the submitter's\nidentity; defaults to true and must be true for public forms.",
+                    "type": "boolean",
+                    "example": true
+                },
                 "content": {
                     "description": "Content is the form definition (fields, layout); any JSON value but null.",
                     "type": "object"
@@ -1136,6 +1611,11 @@ const docTemplate = `{
                 },
                 "is_active": {
                     "description": "IsActive defaults to true when omitted.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "public_available": {
+                    "description": "PublicAvailable forms can be read and filled in without signing in;\ndefaults to true.",
                     "type": "boolean",
                     "example": true
                 },
@@ -1156,6 +1636,10 @@ const docTemplate = `{
         "handlers.FormResponse": {
             "type": "object",
             "properties": {
+                "accept_anonymous": {
+                    "type": "boolean",
+                    "example": true
+                },
                 "content": {
                     "type": "object"
                 },
@@ -1176,6 +1660,10 @@ const docTemplate = `{
                     "example": 1
                 },
                 "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "public_available": {
                     "type": "boolean",
                     "example": true
                 },
@@ -1204,6 +1692,10 @@ const docTemplate = `{
         "handlers.FormSummaryResponse": {
             "type": "object",
             "properties": {
+                "accept_anonymous": {
+                    "type": "boolean",
+                    "example": true
+                },
                 "content": {
                     "type": "object"
                 },
@@ -1224,6 +1716,10 @@ const docTemplate = `{
                     "example": 1
                 },
                 "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "public_available": {
                     "type": "boolean",
                     "example": true
                 },
@@ -1277,6 +1773,11 @@ const docTemplate = `{
         "handlers.PublicFormResponse": {
             "type": "object",
             "properties": {
+                "accept_anonymous": {
+                    "description": "AcceptAnonymous is false for forms recording who submitted them.",
+                    "type": "boolean",
+                    "example": true
+                },
                 "content": {
                     "type": "object"
                 },
@@ -1288,6 +1789,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "2026-12-31T23:59:59Z"
                 },
+                "public_available": {
+                    "description": "PublicAvailable is false for forms that require signing in.",
+                    "type": "boolean",
+                    "example": true
+                },
                 "slug": {
                     "type": "string",
                     "example": "contact-us"
@@ -1295,6 +1801,61 @@ const docTemplate = `{
                 "title": {
                     "type": "string",
                     "example": "Contact us"
+                }
+            }
+        },
+        "handlers.SampleResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "Hello, alice"
+                },
+                "policy": {
+                    "description": "Policy describes who may call the endpoint.",
+                    "type": "string",
+                    "example": "signed in"
+                },
+                "user": {
+                    "description": "User is the signed-in caller; null for anonymous calls.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/handlers.UserResponse"
+                        }
+                    ]
+                }
+            }
+        },
+        "handlers.SetRoleRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "enum": [
+                        "ADMIN",
+                        "FORM_CREATOR",
+                        "BASIC"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/auth.Role"
+                        }
+                    ],
+                    "example": "FORM_CREATOR"
+                }
+            }
+        },
+        "handlers.SignUpRequest": {
+            "type": "object",
+            "properties": {
+                "password": {
+                    "description": "Password is 8 to 72 bytes long.",
+                    "type": "string",
+                    "example": "correct horse battery"
+                },
+                "username": {
+                    "description": "Username is case-insensitive: 3 to 50 letters, digits, '.', '_' or '-'.",
+                    "type": "string",
+                    "example": "alice"
                 }
             }
         },
@@ -1337,6 +1898,11 @@ const docTemplate = `{
                 "submitted_at": {
                     "type": "string",
                     "example": "2026-01-01T00:00:00Z"
+                },
+                "user_id": {
+                    "description": "UserID is the signed-in submitter; null for anonymous submissions.",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -1358,6 +1924,80 @@ const docTemplate = `{
                 "name": {
                     "type": "string",
                     "example": "Acme Inc."
+                }
+            }
+        },
+        "handlers.TokenResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "description": "AccessToken is a JWT; send it as \"Authorization: Bearer \u003ctoken\u003e\".",
+                    "type": "string",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                },
+                "expires_at": {
+                    "type": "string",
+                    "example": "2026-01-01T01:00:00Z"
+                },
+                "token_type": {
+                    "type": "string",
+                    "example": "Bearer"
+                },
+                "user": {
+                    "$ref": "#/definitions/handlers.UserResponse"
+                }
+            }
+        },
+        "handlers.UserListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.UserResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
+        "handlers.UserResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-01-01T00:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "role": {
+                    "enum": [
+                        "ADMIN",
+                        "FORM_CREATOR",
+                        "BASIC"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/auth.Role"
+                        }
+                    ],
+                    "example": "BASIC"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "alice"
                 }
             }
         },
@@ -1408,6 +2048,15 @@ const docTemplate = `{
             "type": "apiKey",
             "name": "X-API-Key",
             "in": "header"
+        },
+        "BasicAuth": {
+            "type": "basic"
+        },
+        "BearerAuth": {
+            "description": "JWT returned by POST /auth/signin, sent as \"Bearer \u003ctoken\u003e\".",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
         }
     }
 }`
@@ -1419,7 +2068,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "App API",
-	Description:      "REST API of the application.",
+	Description:      "Username and password of a user: \"Basic \" + btoa(username + \":\" + password).",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

@@ -10,10 +10,19 @@
 //	@in							header
 //	@name						X-API-Key
 //	@description				API key of the tenant, returned when the tenant is created.
+//
+//	@securityDefinitions.apikey	BearerAuth
+//	@in							header
+//	@name						Authorization
+//	@description				JWT returned by POST /auth/signin, sent as "Bearer <token>".
+//
+//	@securityDefinitions.basic	BasicAuth
+//	@description				Username and password of a user: "Basic " + btoa(username + ":" + password).
 package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,6 +39,7 @@ import (
 	"app/internal/database"
 	"app/internal/db"
 	"app/internal/logger"
+	"app/internal/pkg/auth"
 )
 
 func main() {
@@ -69,12 +79,18 @@ func run() error {
 	log.Info("database connected",
 		"host", pool.Config().ConnConfig.Host, "port", pool.Config().ConnConfig.Port, "database", pool.Config().ConnConfig.Database)
 
+	queries := db.New(pool)
+	authSvc, err := newAuthService(ctx, log, queries, cfg.Auth)
+	if err != nil {
+		return err
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	docs.SwaggerInfo.Host = fmt.Sprintf("localhost:%d", cfg.Server.Port)
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(db.New(pool)), cfg.App),
+		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc), cfg.App),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -104,4 +120,32 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// newAuthService builds the user authentication service and creates the
+// bootstrap admin of cfg, if any. Without a configured secret, tokens are
+// signed with a random one and do not survive a restart.
+func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, cfg config.AuthConfig) (*auth.Service, error) {
+	secret := []byte(cfg.JWTSecret)
+	if len(secret) == 0 {
+		log.Warn("auth: AUTH_JWT_SECRET is not set; using a random secret, so tokens are invalidated on restart")
+		secret = make([]byte, auth.MinSecretLen)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, fmt.Errorf("auth: generate secret: %w", err)
+		}
+	}
+	svc, err := auth.NewService(auth.NewUserStore(q), auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL()})
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AdminUsername != "" {
+		created, err := svc.EnsureUser(ctx, cfg.AdminUsername, cfg.AdminPassword, auth.RoleAdmin)
+		if err != nil {
+			return nil, fmt.Errorf("auth: bootstrap admin: %w", err)
+		}
+		if created {
+			log.Info("auth: bootstrap admin created", "username", auth.NormalizeUsername(cfg.AdminUsername))
+		}
+	}
+	return svc, nil
 }

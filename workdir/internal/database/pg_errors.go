@@ -10,6 +10,7 @@ import (
 const (
 	sqlStateForeignKeyViolation = "23503"
 	sqlStateUniqueViolation     = "23505"
+	sqlStateCheckViolation      = "23514"
 )
 
 // IsUniqueViolation reports whether err is a PostgreSQL unique constraint violation.
@@ -20,6 +21,11 @@ func IsUniqueViolation(err error) bool {
 // IsForeignKeyViolation reports whether err is a PostgreSQL foreign key violation.
 func IsForeignKeyViolation(err error) bool {
 	return hasSQLState(err, sqlStateForeignKeyViolation)
+}
+
+// IsCheckViolation reports whether err is a PostgreSQL check constraint violation.
+func IsCheckViolation(err error) bool {
+	return hasSQLState(err, sqlStateCheckViolation)
 }
 
 func hasSQLState(err error, code string) bool {

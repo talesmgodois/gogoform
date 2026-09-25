@@ -142,6 +142,7 @@ func TestCreate(t *testing.T) {
 			want := db.CreateFormParams{
 				TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
 				IsActive: ptr(true), StartDate: &now, FormContent: content,
+				PublicAvailable: true, AcceptAnonymous: true,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("params = %+v, want %+v", got, want)
@@ -151,6 +152,53 @@ func TestCreate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAccessFlags(t *testing.T) {
+	tests := []struct {
+		name              string
+		public, anonymous *bool
+		wantPublic        bool
+		wantAnonymous     bool
+		wantCode          apperrors.Code
+	}{
+		{"defaults", nil, nil, true, true, ""},
+		{"private defaults to anonymous", ptr(false), nil, false, true, ""},
+		{"private and identified", ptr(false), ptr(false), false, false, ""},
+		{"public and anonymous", ptr(true), ptr(true), true, true, ""},
+		{"public requires anonymous", ptr(true), ptr(false), false, false, apperrors.CodeInvalidArgument},
+		{"default public requires anonymous", nil, ptr(false), false, false, apperrors.CodeInvalidArgument},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var created db.CreateFormParams
+			var updated db.UpdateFormParams
+			svc := NewService(&fakeQuerier{
+				createForm: func(arg db.CreateFormParams) (db.Form, error) { created = arg; return dbForm, nil },
+				updateForm: func(arg db.UpdateFormParams) (db.Form, error) { updated = arg; return dbForm, nil },
+			})
+
+			_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, PublicAvailable: tt.public, AcceptAnonymous: tt.anonymous})
+			assertCode(t, err, tt.wantCode)
+			if created.PublicAvailable != tt.wantPublic || created.AcceptAnonymous != tt.wantAnonymous {
+				t.Fatalf("create params = %+v", created)
+			}
+
+			_, err = svc.Update(context.Background(), UpdateFormInput{ID: 7, TenantID: 3, PublicAvailable: tt.public, AcceptAnonymous: tt.anonymous})
+			assertCode(t, err, tt.wantCode)
+			if updated.PublicAvailable != tt.wantPublic || updated.AcceptAnonymous != tt.wantAnonymous {
+				t.Fatalf("update params = %+v", updated)
+			}
+		})
+	}
+}
+
+func TestCreateCheckViolation(t *testing.T) {
+	svc := NewService(&fakeQuerier{createForm: func(db.CreateFormParams) (db.Form, error) {
+		return db.Form{}, &pgconn.PgError{Code: "23514"}
+	}})
+	_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3})
+	assertCode(t, err, apperrors.CodeInvalidArgument)
 }
 
 func TestCreateIsActive(t *testing.T) {
@@ -466,6 +514,7 @@ func TestUpdate(t *testing.T) {
 			want := db.UpdateFormParams{
 				ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
 				IsActive: ptr(false), StartDate: &now, FormContent: content,
+				PublicAvailable: true, AcceptAnonymous: true,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("params = %+v, want %+v", got, want)

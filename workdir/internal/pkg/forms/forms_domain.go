@@ -19,9 +19,15 @@ type Form struct {
 	StartDate *time.Time
 	EndDate   *time.Time
 	// Content is the form definition (fields, layout) as raw JSON.
-	Content   json.RawMessage
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Content json.RawMessage
+	// PublicAvailable forms can be read and filled in without signing in;
+	// the others require a signed-in user.
+	PublicAvailable bool
+	// AcceptAnonymous forms store submissions without the submitter's
+	// identity. Public forms always accept anonymous submissions.
+	AcceptAnonymous bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // FormDetails is a Form together with the name of its tenant.
@@ -54,6 +60,10 @@ type CreateFormInput struct {
 	StartDate *time.Time
 	EndDate   *time.Time
 	Content   json.RawMessage
+	// PublicAvailable and AcceptAnonymous default to true when nil. A public
+	// form that does not accept anonymous submissions is rejected.
+	PublicAvailable *bool
+	AcceptAnonymous *bool
 }
 
 // UpdateFormInput holds the full new state of an existing form. ID and
@@ -68,6 +78,10 @@ type UpdateFormInput struct {
 	StartDate   *time.Time
 	EndDate     *time.Time
 	Content     json.RawMessage
+	// PublicAvailable and AcceptAnonymous default to true when nil, as in
+	// CreateFormInput.
+	PublicAvailable *bool
+	AcceptAnonymous *bool
 }
 
 // ListFormsFilter selects the forms of a tenant.

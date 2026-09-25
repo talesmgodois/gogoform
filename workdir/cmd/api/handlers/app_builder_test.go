@@ -27,7 +27,8 @@ func TestAppBuilderFromForm(t *testing.T) {
 	desc := `Say "hi"`
 	svc := testServices(forms.Form{
 		ID: 1, TenantID: 7, Title: "Survey", Slug: "survey", Description: &desc,
-		Content: json.RawMessage(`{"version":1,"fields":[{"type":"toggle","name":"ok"}]}`),
+		Content:         json.RawMessage(`{"version":1,"fields":[{"type":"toggle","name":"ok"}]}`),
+		AcceptAnonymous: true,
 	})
 
 	rec := getAppPath(svc, "/app/builder?form=1")
@@ -40,7 +41,7 @@ func TestAppBuilderFromForm(t *testing.T) {
 	if err := json.Unmarshal([]byte(html.UnescapeString(body[start:end])), &got); err != nil {
 		t.Fatalf("decode draft %q: %v", body[start:end], err)
 	}
-	want := builderDraft{Title: "Survey", Slug: "survey-copy", Description: &desc, Content: json.RawMessage(`{"version":1,"fields":[{"type":"toggle","name":"ok"}]}`)}
+	want := builderDraft{Title: "Survey", Slug: "survey-copy", Description: &desc, Content: json.RawMessage(`{"version":1,"fields":[{"type":"toggle","name":"ok"}]}`), AcceptAnonymous: true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("draft = %+v, want %+v", got, want)
 	}

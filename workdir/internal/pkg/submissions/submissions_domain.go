@@ -15,6 +15,8 @@ type Submission struct {
 	// Payload holds the submitted answers as raw JSON.
 	Payload     json.RawMessage
 	SubmittedAt time.Time
+	// UserID is the signed-in submitter; nil for anonymous submissions.
+	UserID *int32
 	// Metadata is nil when no metadata was recorded for the submission.
 	Metadata *Metadata
 }
@@ -32,6 +34,8 @@ type Metadata struct {
 type CreateSubmissionInput struct {
 	FormID  int32
 	Payload json.RawMessage
+	// UserID is the signed-in submitter; nil stores an anonymous submission.
+	UserID *int32
 }
 
 // ListSubmissionsFilter selects the submissions of one of a tenant's forms.
