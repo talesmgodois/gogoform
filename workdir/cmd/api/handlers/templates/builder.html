@@ -16,16 +16,36 @@
       </div>
       <div class="flex items-center gap-2 text-xs font-medium">
         <button type="button" id="issues-badge" class="rounded-lg px-3 py-2"></button>
-        <button type="button" id="show-json" class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 hover:bg-slate-700">View JSON</button>
-        <button type="button" id="download-json" class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 hover:bg-slate-700">Download JSON</button>
+        <button type="button" id="show-preview" data-icon="eye" class="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 hover:bg-slate-700">Preview</button>
+        <button type="button" id="download-code" data-icon="download" class="grid h-8 w-8 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"></button>
       </div>
     </div>
 
     <div class="flex-1 flex overflow-hidden">
 
-      <aside class="w-72 shrink-0 overflow-y-auto border-r border-slate-800 bg-slate-900/50 p-4" aria-labelledby="palette-title">
-        <h2 id="palette-title" class="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400">Components</h2>
-        <div id="palette" class="space-y-2"></div>
+      <aside id="sidebar" class="w-72 shrink-0 flex flex-col overflow-hidden border-r border-slate-800 bg-slate-900/50 transition-[width]">
+        <div role="tablist" aria-label="Sidebar" class="mx-4 mt-4 grid shrink-0 grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950 p-1 text-xs font-semibold">
+          <button type="button" role="tab" id="tab-components" aria-controls="panel-components" data-panel="components" data-icon="squares" class="flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5">Components</button>
+          <button type="button" role="tab" id="tab-code" aria-controls="panel-code" data-panel="code" data-icon="code" class="flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5">Code</button>
+        </div>
+        <div id="panel-components" role="tabpanel" aria-labelledby="tab-components" class="flex-1 overflow-y-auto p-4">
+          <p class="mb-3 text-[11px] text-slate-500">Click a component to add it, or drag it onto the form.</p>
+          <div id="palette" class="space-y-2"></div>
+        </div>
+        <div id="panel-code" role="tabpanel" aria-labelledby="tab-code" class="hidden flex-1 flex-col gap-3 overflow-hidden p-4">
+          <div class="flex shrink-0 items-center justify-between gap-2">
+            <div class="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px] font-semibold" role="group" aria-label="Format">
+              <button type="button" data-format="json" class="rounded-md px-2.5 py-1">JSON</button>
+              <button type="button" data-format="yaml" class="rounded-md px-2.5 py-1">YAML</button>
+            </div>
+            <div class="flex items-center gap-0.5">
+              <button type="button" data-copy data-icon="copy" title="Copy" aria-label="Copy" class="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
+              <button type="button" id="expand-code" data-icon="expand" title="Open in a larger view" aria-label="Open in a larger view" class="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
+            </div>
+          </div>
+          <p class="shrink-0 text-[11px] leading-snug text-slate-500">The <span class="font-mono">POST /forms</span> request body. Its <span class="font-mono">content</span> is what respondents' clients render.</p>
+          <pre id="code-panel" class="flex-1 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300"></pre>
+        </div>
       </aside>
 
       <main id="stage" class="flex-1 overflow-y-auto p-6">
@@ -43,18 +63,36 @@
     </div>
   </div>
 
-  <dialog id="json-dialog" aria-labelledby="json-dialog-title" class="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+  <dialog id="code-dialog" aria-labelledby="code-dialog-title" class="w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
     <div class="flex items-center justify-between gap-4 border-b border-slate-800 px-5 py-3">
       <div>
-        <h3 id="json-dialog-title" class="text-sm font-semibold">POST /forms request body</h3>
+        <h3 id="code-dialog-title" class="text-sm font-semibold">POST /forms request body</h3>
         <p class="text-xs text-slate-500">The <span class="font-mono">content</span> is what respondents' clients render.</p>
       </div>
       <div class="flex shrink-0 items-center gap-2 text-xs font-medium">
-        <button type="button" id="copy-json" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-white hover:bg-indigo-500">Copy</button>
-        <button type="button" id="close-json" aria-label="Close" class="rounded-lg px-2 py-1.5 text-lg leading-none text-slate-400 hover:bg-slate-800 hover:text-slate-100">&times;</button>
+        <div class="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px] font-semibold" role="group" aria-label="Format">
+          <button type="button" data-format="json" class="rounded-md px-2.5 py-1">JSON</button>
+          <button type="button" data-format="yaml" class="rounded-md px-2.5 py-1">YAML</button>
+        </div>
+        <button type="button" data-copy data-icon="copy" title="Copy" aria-label="Copy" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
+        <button type="button" data-download data-icon="download" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
+        <button type="button" data-close data-icon="close" title="Close" aria-label="Close" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
       </div>
     </div>
-    <pre id="json-content" class="max-h-[70vh] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-slate-300"></pre>
+    <pre id="code-dialog-content" class="max-h-[70vh] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-slate-300"></pre>
+  </dialog>
+
+  <dialog id="preview-dialog" aria-labelledby="preview-dialog-title" class="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    <div class="flex max-h-[85vh] flex-col">
+      <div class="flex shrink-0 items-center justify-between gap-4 border-b border-slate-800 bg-slate-900 px-5 py-3">
+        <div>
+          <h3 id="preview-dialog-title" class="text-sm font-semibold">Preview</h3>
+          <p class="text-xs text-slate-500">The form as respondents see it. Try it out: answers are checked but never sent.</p>
+        </div>
+        <button type="button" data-close data-icon="close" title="Close" aria-label="Close" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
+      </div>
+      <form id="preview-form" class="flex-1 space-y-5 overflow-y-auto p-6"></form>
+    </div>
   </dialog>
 
   <script nonce="{{.Nonce}}">
@@ -99,6 +137,34 @@
         return el;
       };
       const $ = (id) => document.getElementById(id);
+
+      // Outline icons (Heroicons), each a list of SVG path data.
+      const ICONS = {
+        "trash": ["m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"],
+        "download": ["M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"],
+        "eye": ["M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z", "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"],
+        "copy": ["M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"],
+        "check": ["m4.5 12.75 6 6 9-13.5"],
+        "expand": ["M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"],
+        "close": ["M6 18 18 6M6 6l12 12"],
+        "up": ["M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18"],
+        "down": ["M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3"],
+        "duplicate": ["M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6"],
+        "code": ["M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"],
+        "squares": ["M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z"],
+      };
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const icon = (name, size) => {
+        const svg = document.createElementNS(SVG_NS, "svg");
+        const attrs = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", class: "shrink-0 " + (size || "h-4 w-4") };
+        for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v);
+        for (const d of ICONS[name]) {
+          const path = document.createElementNS(SVG_NS, "path");
+          path.setAttribute("d", d);
+          svg.append(path);
+        }
+        return svg;
+      };
 
       // slugify turns a label into a snake_case field name.
       const slugify = (text, sep) => {
@@ -161,6 +227,32 @@
         content: { version: 1, fields: state.fields.map(fieldJSON) },
       });
 
+      // toYAML renders a JSON value as block-style YAML. Strings that YAML
+      // would read as something else are written as JSON strings, which are
+      // valid YAML too.
+      const YAML_RESERVED = /^(true|false|yes|no|on|off|y|n|null|~|[-+]?\.(inf|nan))$/i;
+      const yamlScalar = (v) => {
+        if (v === null) return "null";
+        if (Array.isArray(v)) return "[]";
+        if (typeof v === "object") return "{}";
+        if (typeof v !== "string") return String(v);
+        const plain = v !== "" && !/^[\s\-?:,[\]{}#&*!|>'"%@`]/.test(v) && !/^[-+.]?[0-9]/.test(v) &&
+          !/:(\s|$)|\s#|\s$|[\n\t]/.test(v) && !YAML_RESERVED.test(v);
+        return plain ? v : JSON.stringify(v);
+      };
+      const nested = (v) => v !== null && typeof v === "object" && Object.keys(v).length > 0;
+      const toYAML = (v, pad) => {
+        pad = pad || "";
+        if (Array.isArray(v)) {
+          return v.map((item) => nested(item)
+            ? pad + "- " + toYAML(item, pad + "  ").slice(pad.length + 2)
+            : pad + "- " + yamlScalar(item)).join("\n");
+        }
+        return Object.entries(v).map(([k, val]) => nested(val)
+          ? pad + yamlScalar(k) + ":\n" + toYAML(val, pad + "  ")
+          : pad + yamlScalar(k) + ": " + yamlScalar(val)).join("\n");
+      };
+
       // fromJSON maps a content field back to builder state; unknown types yield null.
       const fromJSON = (o) => {
         if (!o || !TYPES[o.type]) return null;
@@ -220,31 +312,48 @@
 
       // ---- Canvas (the form as respondents see it) ------------------------
 
-      const preview = (f) => {
+      // preview renders the control of a field. On the canvas it is a static
+      // picture; live (in the preview dialog) it is a working form control.
+      const preview = (f, live) => {
         const ph = f.placeholder || null;
+        const attrs = live ? { id: "preview-" + f.uid, name: f.name, required: f.required } : { tabIndex: -1 };
+        const control = (tag, props, ...children) => h(tag, Object.assign({}, attrs, props), ...children);
+        const source = (text) => h("p", { class: "font-mono text-[11px] text-slate-500 truncate" }, text);
         switch (f.type) {
           case "textfield":
-            return h("input", { type: f.inputType, placeholder: ph, class: PREVIEW, tabIndex: -1 });
+            return control("input", { type: f.inputType, placeholder: ph, class: PREVIEW });
           case "textarea":
-            return h("textarea", { rows: f.rows, placeholder: ph, class: PREVIEW + " resize-none", tabIndex: -1 });
+            return control("textarea", { rows: f.rows, placeholder: ph, class: PREVIEW + " resize-none" });
           case "select":
-            return h("select", { class: PREVIEW, tabIndex: -1 },
-              h("option", null, ph || "Select an option…"),
-              f.options.map((opt) => h("option", null, opt.label)));
+            return control("select", { class: PREVIEW },
+              h("option", { value: "" }, ph || "Select an option…"),
+              f.options.map((opt) => h("option", { value: opt.value }, opt.label)));
           case "select-data":
             return h("div", { class: "space-y-1.5" },
-              h("select", { class: PREVIEW, tabIndex: -1 }, h("option", null, ph || "Select an option…")),
-              h("p", { class: "font-mono text-[11px] text-slate-500 truncate" }, "options ← " + (f.source.url || "(no URL yet)")));
+              control("select", { class: PREVIEW }, h("option", { value: "" }, ph || "Select an option…")),
+              source("options ← " + (f.source.url || "(no URL yet)")));
           case "autocomplete-data":
             return h("div", { class: "space-y-1.5" },
-              h("input", { type: "search", placeholder: ph || "Start typing to search…", class: PREVIEW, tabIndex: -1 }),
-              h("p", { class: "font-mono text-[11px] text-slate-500 truncate" },
-                "suggestions ← " + (f.source.url || "(no URL yet)") + "?" + f.source.searchParam + "=… after " + f.minChars + " characters"));
-          case "file":
+              control("input", { type: "search", placeholder: ph || "Start typing to search…", class: PREVIEW }),
+              source("suggestions ← " + (f.source.url || "(no URL yet)") + "?" + f.source.searchParam + "=… after " + f.minChars + " characters"));
+          case "file": {
+            const limits = (f.accept || "Any file type") + " · up to " + f.maxSizeMb + " MB" + (f.multiple ? " each" : "");
+            if (live) {
+              return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-4" },
+                control("input", { type: "file", accept: f.accept || null, multiple: f.multiple, class: "block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-200 hover:file:bg-slate-700" }),
+                h("p", { class: "mt-2 text-[11px] text-slate-500" }, limits));
+            }
             return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-6 text-center" },
               h("p", { class: "text-sm text-slate-300" }, f.multiple ? "Drop files here or browse" : "Drop a file here or browse"),
-              h("p", { class: "mt-1 text-[11px] text-slate-500" }, (f.accept || "Any file type") + " · up to " + f.maxSizeMb + " MB" + (f.multiple ? " each" : "")));
+              h("p", { class: "mt-1 text-[11px] text-slate-500" }, limits));
+          }
           case "toggle":
+            if (live) {
+              return h("label", { class: "inline-flex cursor-pointer items-center gap-3" },
+                control("input", { type: "checkbox", checked: f.defaultValue, class: "peer sr-only" }),
+                h("span", { class: "relative h-6 w-11 shrink-0 rounded-full bg-slate-700 transition peer-checked:bg-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-400 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-all peer-checked:after:translate-x-5" }),
+                h("span", { class: "text-sm text-slate-400" }, "Yes"));
+            }
             return h("div", { class: "flex items-center gap-3" },
               h("span", { class: "relative inline-flex h-6 w-11 shrink-0 rounded-full transition " + (f.defaultValue ? "bg-indigo-600" : "bg-slate-700") },
                 h("span", { class: "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " + (f.defaultValue ? "left-[1.375rem]" : "left-0.5") })),
@@ -252,12 +361,12 @@
         }
       };
 
-      const iconButton = (label, glyph, onclick, danger) =>
+      const iconButton = (label, name, onclick, danger) =>
         h("button", {
           type: "button", title: label, "aria-label": label,
-          class: "grid h-7 w-7 place-items-center rounded-lg text-sm text-slate-500 transition " + (danger ? "hover:bg-rose-500/10 hover:text-rose-400" : "hover:bg-slate-800 hover:text-slate-200"),
+          class: "grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-500 transition " + (danger ? "hover:bg-rose-500/10 hover:text-rose-400" : "hover:bg-slate-800 hover:text-slate-200"),
           onclick: (e) => { e.stopPropagation(); onclick(); },
-        }, glyph);
+        }, icon(name));
 
       const renderCanvas = (problems) => {
         const withIssues = new Set(problems.filter((p) => p.uid).map((p) => p.uid));
@@ -284,10 +393,10 @@
                 h("p", { class: "text-sm font-semibold text-white break-words" }, f.label || "Untitled field", f.required ? h("span", { class: "text-rose-400" }, " *") : null),
                 f.help ? h("p", { class: "mt-0.5 text-xs text-slate-400 break-words" }, f.help) : null),
               h("div", { class: "flex shrink-0 items-center gap-0.5 " + (selected ? "" : "opacity-60 group-hover:opacity-100") },
-                iconButton("Move up", "↑", () => move(i, i - 1)),
-                iconButton("Move down", "↓", () => move(i, i + 2)),
-                iconButton("Duplicate", "⧉", () => duplicate(f.uid)),
-                iconButton("Delete", "✕", () => remove(f.uid), true))),
+                iconButton("Move up", "up", () => move(i, i - 1)),
+                iconButton("Move down", "down", () => move(i, i + 2)),
+                iconButton("Duplicate", "duplicate", () => duplicate(f.uid)),
+                iconButton("Delete", "trash", () => remove(f.uid), true))),
             h("div", { class: "pointer-events-none select-none", inert: true }, preview(f)),
             h("div", { class: "mt-3 flex items-center justify-between text-[10px] font-mono uppercase text-slate-500" },
               h("span", { class: "normal-case" }, f.name),
@@ -323,7 +432,7 @@
           changed();
         }, { placeholder: "Label", "aria-label": "Option " + (i + 1) + " label" });
         return h("div", { class: "flex items-center gap-1.5" }, label, value,
-          iconButton("Remove option", "✕", () => { f.options.splice(i, 1); changed(true); }, true));
+          iconButton("Remove option", "close", () => { f.options.splice(i, 1); changed(true); }, true));
       };
       const optionsEditor = (f) =>
         h("div", { class: "space-y-2" },
@@ -403,7 +512,7 @@
               row("Help text", text(f.help, (v) => { f.help = v; changed(); })),
               check(f.required, "Required", (v) => { f.required = v; changed(); })),
             section("Settings", ...typeInputs(f)),
-            h("button", { type: "button", class: "w-full rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-500/10", onclick: () => remove(f.uid) }, "Delete component")),
+            h("button", { type: "button", class: "flex w-full items-center justify-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-500/10", onclick: () => remove(f.uid) }, icon("trash"), "Delete component")),
         ];
       };
 
@@ -468,6 +577,7 @@
         const problems = issues();
         renderCanvas(problems);
         renderBadge(problems);
+        renderCode();
         if (rebuildInspector) renderInspector(problems);
         else renderStatus(problems);
       };
@@ -578,29 +688,127 @@
           });
       };
 
-      const dialog = $("json-dialog");
-      $("show-json").addEventListener("click", () => {
-        $("json-content").textContent = bodyText();
-        dialog.showModal();
-      });
-      $("close-json").addEventListener("click", () => dialog.close());
-      dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
-      $("copy-json").addEventListener("click", (e) => {
-        const button = e.currentTarget;
-        navigator.clipboard.writeText(bodyText()).then(
-          () => { button.textContent = "Copied"; },
-          () => { button.textContent = "Copy failed"; },
-        );
-        setTimeout(() => { button.textContent = "Copy"; }, 2000);
-      });
-      $("download-json").addEventListener("click", () => {
-        const url = URL.createObjectURL(new Blob([bodyText() + "\n"], { type: "application/json" }));
-        const a = h("a", { href: url, download: (state.slug || "form") + ".json" });
+      // ---- Code (the request body as JSON or YAML) ------------------------
+
+      const FORMATS = {
+        json: { label: "JSON", ext: "json", mime: "application/json", text: () => bodyText() },
+        yaml: { label: "YAML", ext: "yaml", mime: "application/yaml", text: () => toYAML(requestBody()) },
+      };
+      let format = localStorage.getItem("builder.format") === "yaml" ? "yaml" : "json";
+      let sidebarPanel = "components";
+      const codeDialog = $("code-dialog");
+
+      // renderCode refreshes the code views that are on screen.
+      const renderCode = () => {
+        if (sidebarPanel !== "code" && !codeDialog.open) return;
+        const text = FORMATS[format].text();
+        if (sidebarPanel === "code") $("code-panel").textContent = text;
+        if (codeDialog.open) $("code-dialog-content").textContent = text;
+      };
+      const setFormat = (f) => {
+        format = f;
+        localStorage.setItem("builder.format", f);
+        document.querySelectorAll("[data-format]").forEach((b) => {
+          const active = b.dataset.format === f;
+          b.setAttribute("aria-pressed", String(active));
+          b.className = "rounded-md px-2.5 py-1 transition " + (active ? "bg-slate-800 text-white" : "text-slate-500 hover:text-slate-200");
+        });
+        document.querySelectorAll("#download-code, [data-download]").forEach((b) => {
+          b.title = "Download " + FORMATS[f].label;
+          b.setAttribute("aria-label", b.title);
+        });
+        renderCode();
+      };
+      const showPanel = (panel) => {
+        sidebarPanel = panel;
+        document.querySelectorAll("[data-panel]").forEach((tab) => {
+          const active = tab.dataset.panel === panel;
+          tab.setAttribute("aria-selected", String(active));
+          tab.tabIndex = active ? 0 : -1;
+          tab.className = "flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 transition " + (active ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white");
+          const el = $(tab.getAttribute("aria-controls"));
+          el.hidden = !active;
+          el.classList.toggle("hidden", !active);
+          if (el.id === "panel-code") el.classList.toggle("flex", active);
+        });
+        $("sidebar").classList.toggle("w-72", panel !== "code");
+        $("sidebar").classList.toggle("w-96", panel === "code");
+        renderCode();
+      };
+
+      const download = () => {
+        const f = FORMATS[format];
+        const url = URL.createObjectURL(new Blob([f.text() + "\n"], { type: f.mime }));
+        const a = h("a", { href: url, download: (state.slug || "form") + "." + f.ext });
         document.body.append(a);
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 0);
+      };
+      // copy puts the code on the clipboard and briefly shows the outcome on button.
+      const copy = (button) => {
+        const done = (name, label) => {
+          button.replaceChildren(icon(name));
+          button.title = label;
+          setTimeout(() => { button.replaceChildren(icon("copy")); button.title = "Copy"; }, 2000);
+        };
+        navigator.clipboard.writeText(FORMATS[format].text()).then(
+          () => done("check", "Copied"),
+          () => done("close", "Copy failed"),
+        );
+      };
+
+      // ---- Preview (the form as respondents see it, working) --------------
+
+      const previewDialog = $("preview-dialog");
+      const renderPreview = () => {
+        const result = h("div", { "aria-live": "polite" });
+        $("preview-form").replaceChildren(
+          h("div", null,
+            h("h2", { class: "text-xl font-bold text-white break-words" }, state.title.trim() || "Untitled form"),
+            state.description.trim() ? h("p", { class: "mt-1 whitespace-pre-line text-sm text-slate-400 break-words" }, state.description.trim()) : null),
+          ...(state.fields.length
+            ? state.fields.map((f) => h("div", { class: "space-y-1.5" },
+              h(f.type === "toggle" ? "p" : "label", { class: "block text-sm font-semibold text-white break-words", htmlFor: f.type === "toggle" ? null : "preview-" + f.uid },
+                f.label || "Untitled field", f.required ? h("span", { class: "text-rose-400" }, " *") : null),
+              f.help ? h("p", { class: "text-xs text-slate-400 break-words" }, f.help) : null,
+              preview(f, true)))
+            : [h("p", { class: "rounded-xl border-2 border-dashed border-slate-800 px-6 py-10 text-center text-sm text-slate-500" }, "This form has no fields yet.")]),
+          h("div", { class: "flex items-center gap-3 border-t border-slate-800 pt-5" },
+            h("button", { type: "submit", class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500" }, "Submit"),
+            h("button", { type: "reset", class: "rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-100", onclick: () => result.replaceChildren() }, "Reset")),
+          result);
+      };
+      $("preview-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        e.currentTarget.lastChild.replaceChildren(h("p", { class: "rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300" },
+          "All answers are valid. This is a preview, so nothing was sent."));
       });
+
+      document.querySelectorAll("[data-icon]").forEach((el) => el.prepend(icon(el.dataset.icon)));
+      document.querySelectorAll("[data-panel]").forEach((tab) => tab.addEventListener("click", () => showPanel(tab.dataset.panel)));
+      $("sidebar").querySelector("[role=tablist]").addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        const next = sidebarPanel === "code" ? "components" : "code";
+        showPanel(next);
+        $("tab-" + next).focus();
+      });
+      document.querySelectorAll("[data-format]").forEach((b) => b.addEventListener("click", () => setFormat(b.dataset.format)));
+      document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copy(b)));
+      document.querySelectorAll("#download-code, [data-download]").forEach((b) => b.addEventListener("click", download));
+      $("expand-code").addEventListener("click", () => {
+        codeDialog.showModal();
+        renderCode();
+      });
+      $("show-preview").addEventListener("click", () => {
+        renderPreview();
+        previewDialog.showModal();
+        $("preview-form").scrollTop = 0;
+      });
+      for (const d of [codeDialog, previewDialog]) {
+        d.querySelector("[data-close]").addEventListener("click", () => d.close());
+        d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
+      }
       $("issues-badge").addEventListener("click", () => select(null));
 
       // ---- Form header, palette and start-up -----------------------------
@@ -619,7 +827,7 @@
       });
       $("canvas").addEventListener("click", () => select(null));
       document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && state.selected && !dialog.open) select(null);
+        if (e.key === "Escape" && state.selected && !codeDialog.open && !previewDialog.open) select(null);
       });
       window.addEventListener("beforeunload", (e) => {
         if (dirty) e.preventDefault();
@@ -653,6 +861,8 @@
       }
       $("form-title").value = state.title;
       $("form-description").value = state.description;
+      setFormat(format);
+      showPanel("components");
       render(true);
     })();
   </script>
