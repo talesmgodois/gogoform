@@ -11,12 +11,17 @@ import (
 type Querier interface {
 	// Same filters as ListFormsByTenant, for pagination totals.
 	CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error)
+	// Returns the metadata only: the blob was just sent by the caller.
+	CreateFile(ctx context.Context, arg CreateFileParams) (CreateFileRow, error)
 	CreateForm(ctx context.Context, arg CreateFormParams) (Form, error)
 	CreateFormSubmission(ctx context.Context, arg CreateFormSubmissionParams) (FormSubmission, error)
 	CreateFormWebhook(ctx context.Context, arg CreateFormWebhookParams) (FormWebhook, error)
 	CreateSubmissionMetadata(ctx context.Context, arg CreateSubmissionMetadataParams) (SubmissionMetadatum, error)
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error)
+	// Scoped by tenant so one tenant can never remove another tenant's file.
+	DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error)
 	DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, error)
+	GetFileByID(ctx context.Context, id string) (File, error)
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
 	// Public access: the form and its tenant must be active and inside the availability window.

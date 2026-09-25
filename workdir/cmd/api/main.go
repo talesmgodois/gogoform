@@ -32,6 +32,7 @@ import (
 	"app/internal/db"
 	"app/internal/handler"
 	"app/internal/logger"
+	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
@@ -114,6 +115,7 @@ type services struct {
 	forms       forms.Repository
 	submissions submissions.Repository
 	webhooks    webhooks.Repository
+	files       files.Repository
 }
 
 // newServices returns the sqlc-backed implementation of every repository.
@@ -123,6 +125,7 @@ func newServices(q db.Querier) services {
 		forms:       forms.NewService(q),
 		submissions: submissions.NewService(q),
 		webhooks:    webhooks.NewService(q),
+		files:       files.NewService(q),
 	}
 }
 
@@ -131,6 +134,7 @@ func routes(svc services) http.Handler {
 	formsCtl := &formsController{forms: svc.forms}
 	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
+	filesCtl := &filesController{files: svc.files}
 	auth := tenantsCtl.Authenticate
 
 	mux := http.NewServeMux()
@@ -150,6 +154,10 @@ func routes(svc services) http.Handler {
 
 	mux.HandleFunc("POST /forms/{id}/webhooks", auth(webhooksCtl.Create))
 	mux.HandleFunc("GET /forms/{id}/webhooks", auth(webhooksCtl.List))
+
+	mux.HandleFunc("POST /files", auth(filesCtl.Create))
+	mux.HandleFunc("GET /files/{id}", filesCtl.Get)
+	mux.HandleFunc("DELETE /files/{id}", auth(filesCtl.Delete))
 
 	mux.HandleFunc("GET /public/forms/{slug}", formsCtl.GetPublic)
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", submissionsCtl.Create)

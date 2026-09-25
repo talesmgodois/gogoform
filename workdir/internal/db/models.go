@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+type File struct {
+	ID             string    `db:"id" json:"id"`
+	TenantID       int32     `db:"tenant_id" json:"tenant_id"`
+	Name           string    `db:"name" json:"name"`
+	ContentType    string    `db:"content_type" json:"content_type"`
+	SizeBytes      int64     `db:"size_bytes" json:"size_bytes"`
+	ChecksumSha256 string    `db:"checksum_sha256" json:"checksum_sha256"`
+	Data           []byte    `db:"data" json:"data"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+}
+
 type Form struct {
 	ID          int32           `db:"id" json:"id"`
 	TenantID    int32           `db:"tenant_id" json:"tenant_id"`

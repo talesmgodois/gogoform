@@ -83,6 +83,31 @@ definitions:
         example: https://example.com/hooks/forms
         type: string
     type: object
+  main.FileResponse:
+    properties:
+      checksum_sha256:
+        description: Checksum is the hex-encoded SHA-256 of the content.
+        example: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+        type: string
+      content_type:
+        example: image/png
+        type: string
+      created_at:
+        example: "2026-01-01T00:00:00Z"
+        type: string
+      id:
+        example: 0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10
+        type: string
+      name:
+        example: logo.png
+        type: string
+      size:
+        example: 2048
+        type: integer
+      url:
+        example: /files/0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10
+        type: string
+    type: object
   main.FormDetailsResponse:
     properties:
       content:
@@ -347,6 +372,101 @@ info:
   title: App API
   version: "1.0"
 paths:
+  /files:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Stores the file sent in the "file" field of a multipart form. Files
+        are limited to 10 MiB and can then be read publicly at the returned url.
+      parameters:
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: File uploaded
+          schema:
+            $ref: '#/definitions/main.FileResponse'
+        "400":
+          description: Invalid, missing, empty or too large file
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Upload a file
+      tags:
+      - files
+  /files/{id}:
+    delete:
+      description: Deletes one of the authenticated tenant's files.
+      parameters:
+      - description: File ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: File deleted
+        "401":
+          description: Missing or invalid API key
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a file
+      tags:
+      - files
+    get:
+      description: 'Returns the raw content of a file, with its stored content type.
+        Supports HEAD, Range and conditional (ETag) requests. No API key is needed:
+        the file ID is unguessable.'
+      parameters:
+      - description: File ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: file
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: Download a file
+      tags:
+      - files
   /forms:
     get:
       description: Lists the authenticated tenant's forms, newest first, with their
