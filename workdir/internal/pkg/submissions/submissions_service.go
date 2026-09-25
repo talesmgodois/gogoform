@@ -74,7 +74,6 @@ func (s *Service) AddMetadata(ctx context.Context, submissionID int32, m Metadat
 }
 
 // ListByForm returns the submissions of the tenant's form, newest first.
-// Submissions without metadata have a nil Metadata.
 func (s *Service) ListByForm(ctx context.Context, filter ListSubmissionsFilter, page Page) ([]Submission, error) {
 	if page.Offset < 0 || page.Limit < 1 {
 		return nil, apperrors.NewBadRequest(msgInvalidPage)
@@ -90,24 +89,46 @@ func (s *Service) ListByForm(ctx context.Context, filter ListSubmissionsFilter, 
 	}
 	subs := make([]Submission, len(rows))
 	for i, row := range rows {
-		subs[i] = Submission{
-			ID:          row.ID,
-			FormID:      row.FormID,
-			Payload:     row.Payload,
-			SubmittedAt: deref(row.SubmittedAt),
-		}
-		// The metadata is LEFT JOINed: all columns NULL means there is none
-		// (or none worth reporting).
-		if row.IpAddress != nil || row.UserAgent != nil || row.CompletionTimeSeconds != nil || row.Referer != nil {
-			subs[i].Metadata = &Metadata{
-				IPAddress:             row.IpAddress,
-				UserAgent:             row.UserAgent,
-				CompletionTimeSeconds: row.CompletionTimeSeconds,
-				Referer:               row.Referer,
-			}
-		}
+		subs[i] = toSubmission(row)
 	}
 	return subs, nil
+}
+
+// ListAllByForm returns every submission of the tenant's form, newest first.
+func (s *Service) ListAllByForm(ctx context.Context, filter ListSubmissionsFilter) ([]Submission, error) {
+	rows, err := s.q.ListAllSubmissionsByForm(ctx, db.ListAllSubmissionsByFormParams{
+		FormID:   filter.FormID,
+		TenantID: filter.TenantID,
+	})
+	if err != nil {
+		return nil, apperrors.NewInternal(err)
+	}
+	subs := make([]Submission, len(rows))
+	for i, row := range rows {
+		subs[i] = toSubmission(db.ListSubmissionsByFormRow(row))
+	}
+	return subs, nil
+}
+
+// toSubmission maps a submission row LEFT JOINed with its metadata.
+// Submissions without metadata have a nil Metadata.
+func toSubmission(row db.ListSubmissionsByFormRow) Submission {
+	sub := Submission{
+		ID:          row.ID,
+		FormID:      row.FormID,
+		Payload:     row.Payload,
+		SubmittedAt: deref(row.SubmittedAt),
+	}
+	// All metadata columns NULL means there is none (or none worth reporting).
+	if row.IpAddress != nil || row.UserAgent != nil || row.CompletionTimeSeconds != nil || row.Referer != nil {
+		sub.Metadata = &Metadata{
+			IPAddress:             row.IpAddress,
+			UserAgent:             row.UserAgent,
+			CompletionTimeSeconds: row.CompletionTimeSeconds,
+			Referer:               row.Referer,
+		}
+	}
+	return sub
 }
 
 // deref returns *p, or the zero value when p is nil.

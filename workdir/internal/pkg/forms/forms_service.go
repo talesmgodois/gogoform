@@ -188,6 +188,33 @@ func (s *Service) CountAll(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// GetAnyByID returns the form with the given ID whatever its tenant.
+func (s *Service) GetAnyByID(ctx context.Context, id int32) (FormOverview, error) {
+	row, err := s.q.GetAnyFormByID(ctx, id)
+	if err != nil {
+		return FormOverview{}, mapGetError(err)
+	}
+	return FormOverview{
+		FormSummary: FormSummary{
+			Form: toForm(db.Form{
+				ID:          row.ID,
+				TenantID:    row.TenantID,
+				Title:       row.Title,
+				Slug:        row.Slug,
+				Description: row.Description,
+				IsActive:    row.IsActive,
+				StartDate:   row.StartDate,
+				EndDate:     row.EndDate,
+				FormContent: row.FormContent,
+				CreatedAt:   row.CreatedAt,
+				UpdatedAt:   row.UpdatedAt,
+			}),
+			SubmissionCount: row.SubmissionCount,
+		},
+		TenantName: row.TenantName,
+	}, nil
+}
+
 // Update replaces the stored state of a form and returns it.
 func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) {
 	row, err := s.q.UpdateForm(ctx, db.UpdateFormParams{

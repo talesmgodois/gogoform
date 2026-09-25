@@ -18,4 +18,6 @@ type Repository interface {
 	// with their metadata. A form that does not belong to the tenant yields an
 	// empty list.
 	ListByForm(ctx context.Context, filter ListSubmissionsFilter, page Page) ([]Submission, error)
+	// ListAllByForm is ListByForm without pagination, for exports.
+	ListAllByForm(ctx context.Context, filter ListSubmissionsFilter) ([]Submission, error)
 }

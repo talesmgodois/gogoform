@@ -67,3 +67,11 @@ LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountAllForms :one
 SELECT count(*) FROM forms;
+
+-- name: GetAnyFormByID :one
+-- Across every tenant, for the read-only /app dashboard.
+SELECT f.*, t.name AS tenant_name,
+       (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+WHERE f.id = $1;

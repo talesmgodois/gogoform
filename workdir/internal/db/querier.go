@@ -23,6 +23,8 @@ type Querier interface {
 	// Scoped by tenant so one tenant can never remove another tenant's file.
 	DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error)
 	DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, error)
+	// Across every tenant, for the read-only /app dashboard.
+	GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDRow, error)
 	GetFileByID(ctx context.Context, id string) (File, error)
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
@@ -34,6 +36,8 @@ type Querier interface {
 	ListAllFiles(ctx context.Context, arg ListAllFilesParams) ([]ListAllFilesRow, error)
 	// Across every tenant, for the read-only /app dashboard.
 	ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]ListAllFormsRow, error)
+	// Same as ListSubmissionsByForm without pagination, for exports.
+	ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmissionsByFormParams) ([]ListAllSubmissionsByFormRow, error)
 	// Optional filters: is_active (nil = any) and search (case-insensitive title match).
 	ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error)
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).

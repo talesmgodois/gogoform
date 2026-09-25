@@ -107,6 +107,52 @@ func (q *Queries) DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const getAnyFormByID = `-- name: GetAnyFormByID :one
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, t.name AS tenant_name,
+       (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+WHERE f.id = $1
+`
+
+type GetAnyFormByIDRow struct {
+	ID              int32           `db:"id" json:"id"`
+	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
+	Title           string          `db:"title" json:"title"`
+	Slug            string          `db:"slug" json:"slug"`
+	Description     *string         `db:"description" json:"description"`
+	IsActive        *bool           `db:"is_active" json:"is_active"`
+	StartDate       *time.Time      `db:"start_date" json:"start_date"`
+	EndDate         *time.Time      `db:"end_date" json:"end_date"`
+	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
+	TenantName      string          `db:"tenant_name" json:"tenant_name"`
+	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+}
+
+// Across every tenant, for the read-only /app dashboard.
+func (q *Queries) GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDRow, error) {
+	row := q.db.QueryRow(ctx, getAnyFormByID, id)
+	var i GetAnyFormByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Title,
+		&i.Slug,
+		&i.Description,
+		&i.IsActive,
+		&i.StartDate,
+		&i.EndDate,
+		&i.FormContent,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TenantName,
+		&i.SubmissionCount,
+	)
+	return i, err
+}
+
 const getFormByID = `-- name: GetFormByID :one
 SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, t.name AS tenant_name
 FROM forms f

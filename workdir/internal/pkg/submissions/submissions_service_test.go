@@ -21,6 +21,7 @@ type fakeQuerier struct {
 	createFormSubmission     func(db.CreateFormSubmissionParams) (db.FormSubmission, error)
 	createSubmissionMetadata func(db.CreateSubmissionMetadataParams) (db.SubmissionMetadatum, error)
 	listSubmissionsByForm    func(db.ListSubmissionsByFormParams) ([]db.ListSubmissionsByFormRow, error)
+	listAllSubmissions       func(db.ListAllSubmissionsByFormParams) ([]db.ListAllSubmissionsByFormRow, error)
 }
 
 func (f *fakeQuerier) CreateFormSubmission(_ context.Context, arg db.CreateFormSubmissionParams) (db.FormSubmission, error) {
@@ -33,6 +34,10 @@ func (f *fakeQuerier) CreateSubmissionMetadata(_ context.Context, arg db.CreateS
 
 func (f *fakeQuerier) ListSubmissionsByForm(_ context.Context, arg db.ListSubmissionsByFormParams) ([]db.ListSubmissionsByFormRow, error) {
 	return f.listSubmissionsByForm(arg)
+}
+
+func (f *fakeQuerier) ListAllSubmissionsByForm(_ context.Context, arg db.ListAllSubmissionsByFormParams) ([]db.ListAllSubmissionsByFormRow, error) {
+	return f.listAllSubmissions(arg)
 }
 
 var (
@@ -170,6 +175,44 @@ func TestListByForm(t *testing.T) {
 			}})
 
 			got, err := svc.ListByForm(context.Background(), filter, tt.page)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("submissions = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListAllByForm(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+		want     []Submission
+	}{
+		{"ok", nil, "", []Submission{
+			{ID: 2, FormID: 7, Payload: payload, SubmittedAt: now, Metadata: &Metadata{UserAgent: &agent, CompletionTimeSeconds: &seconds}},
+			{ID: 1, FormID: 7, Payload: payload},
+		}},
+		{"db failure", errDB, apperrors.CodeInternal, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{listAllSubmissions: func(arg db.ListAllSubmissionsByFormParams) ([]db.ListAllSubmissionsByFormRow, error) {
+				if want := (db.ListAllSubmissionsByFormParams{FormID: 7, TenantID: 3}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				if tt.err != nil {
+					return nil, tt.err
+				}
+				return []db.ListAllSubmissionsByFormRow{
+					{ID: 2, FormID: 7, Payload: payload, SubmittedAt: &now, UserAgent: &agent, CompletionTimeSeconds: &seconds},
+					{ID: 1, FormID: 7, Payload: payload},
+				}, nil
+			}})
+
+			got, err := svc.ListAllByForm(context.Background(), ListSubmissionsFilter{TenantID: 3, FormID: 7})
 
 			assertCode(t, err, tt.wantCode)
 			if !reflect.DeepEqual(got, tt.want) {

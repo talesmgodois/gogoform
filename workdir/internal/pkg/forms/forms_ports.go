@@ -26,6 +26,9 @@ type Repository interface {
 	ListAll(ctx context.Context, page Page) ([]FormOverview, error)
 	// CountAll returns how many forms exist across every tenant.
 	CountAll(ctx context.Context) (int64, error)
+	// GetAnyByID returns the form with the given ID whatever its tenant. It
+	// is not scoped by tenant: only use it behind operator-level access.
+	GetAnyByID(ctx context.Context, id int32) (FormOverview, error)
 	// Update replaces the stored state of a form and returns it.
 	Update(ctx context.Context, in UpdateFormInput) (Form, error)
 	// Delete removes the tenant's form with the given ID.

@@ -26,6 +26,7 @@ type fakeQuerier struct {
 	countFormsByTenant  func(db.CountFormsByTenantParams) (int64, error)
 	listAllForms        func(db.ListAllFormsParams) ([]db.ListAllFormsRow, error)
 	countAllForms       func() (int64, error)
+	getAnyFormByID      func(int32) (db.GetAnyFormByIDRow, error)
 	updateForm          func(db.UpdateFormParams) (db.Form, error)
 	deleteForm          func(db.DeleteFormParams) (int64, error)
 }
@@ -56,6 +57,10 @@ func (f *fakeQuerier) ListAllForms(_ context.Context, arg db.ListAllFormsParams)
 
 func (f *fakeQuerier) CountAllForms(context.Context) (int64, error) {
 	return f.countAllForms()
+}
+
+func (f *fakeQuerier) GetAnyFormByID(_ context.Context, id int32) (db.GetAnyFormByIDRow, error) {
+	return f.getAnyFormByID(id)
 }
 
 func (f *fakeQuerier) UpdateForm(_ context.Context, arg db.UpdateFormParams) (db.Form, error) {
@@ -393,6 +398,40 @@ func TestCountAll(t *testing.T) {
 			assertCode(t, err, tt.wantCode)
 			if got != tt.want {
 				t.Fatalf("count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAnyByID(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+	}{
+		{"ok", nil, ""},
+		{"missing", pgx.ErrNoRows, apperrors.CodeNotFound},
+		{"db failure", errDB, apperrors.CodeInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{getAnyFormByID: func(id int32) (db.GetAnyFormByIDRow, error) {
+				if id != 7 {
+					t.Fatalf("id = %d, want 7", id)
+				}
+				return db.GetAnyFormByIDRow{
+					ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
+					IsActive: ptr(true), StartDate: &now, FormContent: content,
+					CreatedAt: &now, UpdatedAt: &now, TenantName: "Acme", SubmissionCount: 12,
+				}, tt.err
+			}})
+
+			got, err := svc.GetAnyByID(context.Background(), 7)
+
+			assertCode(t, err, tt.wantCode)
+			want := FormOverview{FormSummary: FormSummary{Form: wantForm, SubmissionCount: 12}, TenantName: "Acme"}
+			if err == nil && !reflect.DeepEqual(got, want) {
+				t.Fatalf("form = %+v, want %+v", got, want)
 			}
 		})
 	}
