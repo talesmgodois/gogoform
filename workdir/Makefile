@@ -5,6 +5,7 @@ export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
 endif
 
 BIN        := bin/api
+PKG        := ./cmd/api
 MAIN       := cmd/api/main.go
 COMPOSE    := docker compose
 
@@ -28,7 +29,7 @@ help: ## Show commands and descriptions
 	@awk 'BEGIN {FS = ":.*?## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 dev: db-up ## Start the database, wait until healthy, then run the app locally
-	go run $(MAIN)
+	go run $(PKG)
 
 db-up: ## Start PostgreSQL in the background and wait for its healthcheck
 	$(COMPOSE) up -d --wait postgres
@@ -40,7 +41,7 @@ db-logs: ## Tail PostgreSQL logs
 	$(COMPOSE) logs -f postgres
 
 build: ## Compile the API binary to ./bin/api
-	go build -o $(BIN) ./cmd/api
+	go build -o $(BIN) $(PKG)
 
 run: build ## Build and execute the compiled binary
 	./$(BIN)
