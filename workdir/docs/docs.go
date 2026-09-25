@@ -316,6 +316,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Only drafts (true) or published forms (false)",
+                        "name": "is_draft",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Case-insensitive title substring",
                         "name": "search",
@@ -372,7 +378,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.",
+                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions. With is_draft the form is saved as a draft: it is not available publicly until it is published by an update with is_draft false, and its content may be omitted. end_date is the deadline after which no submissions are accepted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -491,7 +497,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true.",
+                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true and an omitted is_draft is false, so saving a draft again needs is_draft true while omitting it publishes the form.",
                 "consumes": [
                     "application/json"
                 ],
@@ -850,7 +856,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.",
+                "description": "Returns the form with the given slug if it is published, active, its tenant is active and now is inside its availability window. Forms past their end_date (deadline) yield 410. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.",
                 "produces": [
                     "application/json"
                 ],
@@ -882,6 +888,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Form not found or not available",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "Form closed: its end_date has passed",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -956,6 +968,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Form not found or not available",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "Form closed: its end_date has passed",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1367,6 +1385,7 @@ const docTemplate = `{
                 "forbidden",
                 "not_found",
                 "conflict",
+                "gone",
                 "internal"
             ],
             "x-enum-varnames": [
@@ -1375,6 +1394,7 @@ const docTemplate = `{
                 "CodeForbidden",
                 "CodeNotFound",
                 "CodeConflict",
+                "CodeGone",
                 "CodeInternal"
             ]
         },
@@ -1536,6 +1556,10 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "is_draft": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "public_available": {
                     "type": "boolean",
                     "example": true
@@ -1614,6 +1638,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "is_draft": {
+                    "description": "IsDraft saves the form without publishing it: drafts cannot be read or\nfilled in publicly, and their content may be omitted. Defaults to false.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "public_available": {
                     "description": "PublicAvailable forms can be read and filled in without signing in;\ndefaults to true.",
                     "type": "boolean",
@@ -1662,6 +1691,10 @@ const docTemplate = `{
                 "is_active": {
                     "type": "boolean",
                     "example": true
+                },
+                "is_draft": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "public_available": {
                     "type": "boolean",
@@ -1718,6 +1751,10 @@ const docTemplate = `{
                 "is_active": {
                     "type": "boolean",
                     "example": true
+                },
+                "is_draft": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "public_available": {
                     "type": "boolean",

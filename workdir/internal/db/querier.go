@@ -31,8 +31,9 @@ type Querier interface {
 	GetFileByID(ctx context.Context, id string) (File, error)
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
-	// Open for submissions: the form and its tenant must be active and inside the
-	// availability window. Whether signing in is required is up to the caller
+	// Published forms of active tenants that are active themselves. The caller
+	// checks the availability window, so that a form past its end_date can be
+	// told apart from one that does not exist, and whether signing in is required
 	// (public_available, accept_anonymous).
 	GetPublicFormBySlug(ctx context.Context, slug string) (Form, error)
 	GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant, error)
@@ -45,7 +46,8 @@ type Querier interface {
 	ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]ListAllFormsRow, error)
 	// Same as ListSubmissionsByForm without pagination, for exports.
 	ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmissionsByFormParams) ([]ListAllSubmissionsByFormRow, error)
-	// Optional filters: is_active (nil = any) and search (case-insensitive title match).
+	// Optional filters: is_active and is_draft (nil = any) and search
+	// (case-insensitive title match).
 	ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error)
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).
 	ListSubmissionsByForm(ctx context.Context, arg ListSubmissionsByFormParams) ([]ListSubmissionsByFormRow, error)

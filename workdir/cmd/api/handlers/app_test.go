@@ -156,6 +156,7 @@ func TestFormStatus(t *testing.T) {
 		{"scheduled", forms.Form{IsActive: true, StartDate: &future}, "Scheduled"},
 		{"ended", forms.Form{IsActive: true, EndDate: &past}, "Ended"},
 		{"live", forms.Form{IsActive: true, StartDate: &past, EndDate: &future}, "Live"},
+		{"draft", forms.Form{IsActive: true, IsDraft: true, StartDate: &past, EndDate: &future}, "Draft"},
 	}
 	for _, tt := range tests {
 		if got := formStatus(tt.form).Label; got != tt.want {

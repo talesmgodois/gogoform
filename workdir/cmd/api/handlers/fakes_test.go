@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -73,7 +74,7 @@ func (f *fakeForms) Create(_ context.Context, in forms.CreateFormInput) (forms.F
 	if f.err != nil {
 		return forms.Form{}, f.err
 	}
-	return forms.Form{ID: 1, TenantID: in.TenantID, Title: in.Title, Slug: in.Slug, IsActive: true, Content: in.Content}, nil
+	return forms.Form{ID: 1, TenantID: in.TenantID, Title: in.Title, Slug: in.Slug, IsActive: true, Content: in.Content, IsDraft: in.IsDraft}, nil
 }
 
 func (f *fakeForms) GetByID(_ context.Context, tenantID, id int32) (forms.FormDetails, error) {
@@ -86,9 +87,13 @@ func (f *fakeForms) GetByID(_ context.Context, tenantID, id int32) (forms.FormDe
 
 func (f *fakeForms) GetPublicBySlug(_ context.Context, slug string) (forms.Form, error) {
 	for _, form := range f.forms {
-		if form.Slug == slug && form.IsActive {
-			return form, nil
+		if form.Slug != slug || !form.IsActive || form.IsDraft {
+			continue
 		}
+		if form.EndDate != nil && !time.Now().Before(*form.EndDate) {
+			return forms.Form{}, apperrors.NewGone("form is closed: its end_date has passed")
+		}
+		return form, nil
 	}
 	return forms.Form{}, apperrors.NewNotFound("form not found")
 }
@@ -138,7 +143,7 @@ func (f *fakeForms) Update(_ context.Context, in forms.UpdateFormInput) (forms.F
 	if _, err := f.GetByID(context.Background(), in.TenantID, in.ID); err != nil {
 		return forms.Form{}, err
 	}
-	return forms.Form{ID: in.ID, TenantID: in.TenantID, Title: in.Title, Slug: in.Slug, IsActive: in.IsActive, Content: in.Content}, nil
+	return forms.Form{ID: in.ID, TenantID: in.TenantID, Title: in.Title, Slug: in.Slug, IsActive: in.IsActive, Content: in.Content, IsDraft: in.IsDraft}, nil
 }
 
 func (f *fakeForms) Delete(ctx context.Context, tenantID, id int32) error {

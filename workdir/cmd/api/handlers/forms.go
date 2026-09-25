@@ -38,6 +38,9 @@ type FormRequest struct {
 	// AcceptAnonymous forms store submissions without the submitter's
 	// identity; defaults to true and must be true for public forms.
 	AcceptAnonymous *bool `json:"accept_anonymous" example:"true"`
+	// IsDraft saves the form without publishing it: drafts cannot be read or
+	// filled in publicly, and their content may be omitted. Defaults to false.
+	IsDraft bool `json:"is_draft" example:"false"`
 }
 
 // FormResponse is a form as returned by the API.
@@ -53,6 +56,7 @@ type FormResponse struct {
 	Content         json.RawMessage `json:"content" swaggertype:"object"`
 	PublicAvailable bool            `json:"public_available" example:"true"`
 	AcceptAnonymous bool            `json:"accept_anonymous" example:"true"`
+	IsDraft         bool            `json:"is_draft" example:"false"`
 	CreatedAt       time.Time       `json:"created_at" example:"2026-01-01T00:00:00Z"`
 	UpdatedAt       time.Time       `json:"updated_at" example:"2026-01-01T00:00:00Z"`
 }
@@ -97,7 +101,7 @@ type formsController struct {
 // Create creates a form for the authenticated tenant.
 //
 //	@Summary		Create a form
-//	@Description	Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.
+//	@Description	Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions. With is_draft the form is saved as a draft: it is not available publicly until it is published by an update with is_draft false, and its content may be omitted. end_date is the deadline after which no submissions are accepted.
 //	@Tags			forms
 //	@Accept			json
 //	@Produce		json
@@ -126,6 +130,7 @@ func (c *formsController) Create(w http.ResponseWriter, r *http.Request) {
 		Content:         req.Content,
 		PublicAvailable: req.PublicAvailable,
 		AcceptAnonymous: req.AcceptAnonymous,
+		IsDraft:         req.IsDraft,
 	})
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
@@ -142,6 +147,7 @@ func (c *formsController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Produce		json
 //	@Security		ApiKeyAuth
 //	@Param			is_active	query		bool						false	"Only forms in this state"
+//	@Param			is_draft	query		bool						false	"Only drafts (true) or published forms (false)"
 //	@Param			search		query		string						false	"Case-insensitive title substring"
 //	@Param			offset		query		int							false	"Number of forms to skip"			minimum(0)	default(0)
 //	@Param			limit		query		int							false	"Maximum number of forms to return"	minimum(1)	maximum(100)	default(20)
@@ -165,6 +171,14 @@ func (c *formsController) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		filter.IsActive = &b
+	}
+	if v := q.Get("is_draft"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("is_draft must be a boolean"))
+			return
+		}
+		filter.IsDraft = &b
 	}
 	if v := strings.TrimSpace(q.Get("search")); v != "" {
 		filter.Search = &v
@@ -222,7 +236,7 @@ func (c *formsController) Get(w http.ResponseWriter, r *http.Request) {
 // Update replaces one of the authenticated tenant's forms.
 //
 //	@Summary		Update a form
-//	@Description	Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true.
+//	@Description	Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true and an omitted is_draft is false, so saving a draft again needs is_draft true while omitting it publishes the form.
 //	@Tags			forms
 //	@Accept			json
 //	@Produce		json
@@ -260,6 +274,7 @@ func (c *formsController) Update(w http.ResponseWriter, r *http.Request) {
 		Content:         req.Content,
 		PublicAvailable: req.PublicAvailable,
 		AcceptAnonymous: req.AcceptAnonymous,
+		IsDraft:         req.IsDraft,
 	})
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
@@ -299,7 +314,7 @@ func (c *formsController) Delete(w http.ResponseWriter, r *http.Request) {
 // GetPublic returns a form that can currently be filled in.
 //
 //	@Summary		Get a form to fill in
-//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.
+//	@Description	Returns the form with the given slug if it is published, active, its tenant is active and now is inside its availability window. Forms past their end_date (deadline) yield 410. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.
 //	@Tags			public
 //	@Produce		json
 //	@Security		BearerAuth
@@ -308,6 +323,7 @@ func (c *formsController) Delete(w http.ResponseWriter, r *http.Request) {
 //	@Success		200		{object}	PublicFormResponse			"Form"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Private form and not signed in, or invalid credentials"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found or not available"
+//	@Failure		410		{object}	errors.HTTPErrorResponse	"Form closed: its end_date has passed"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug} [get]
 func (c *formsController) GetPublic(w http.ResponseWriter, r *http.Request) {
@@ -340,8 +356,12 @@ func availableForm(r *http.Request, repo forms.Repository) (forms.Form, error) {
 	return f, nil
 }
 
+// emptyContent is the content of drafts saved without one.
+var emptyContent = json.RawMessage(`{}`)
+
 // decodeFormRequest decodes and validates a FormRequest. Dates are
 // normalized to UTC because the database stores them without a time zone.
+// Drafts may omit their content, which is then stored as an empty object.
 func decodeFormRequest(w http.ResponseWriter, r *http.Request) (FormRequest, error) {
 	var req FormRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -349,6 +369,9 @@ func decodeFormRequest(w http.ResponseWriter, r *http.Request) (FormRequest, err
 	}
 	req.Title = strings.TrimSpace(req.Title)
 	req.Slug = strings.TrimSpace(req.Slug)
+	if req.IsDraft && (len(req.Content) == 0 || bytes.Equal(req.Content, []byte("null"))) {
+		req.Content = emptyContent
+	}
 	switch {
 	case req.Title == "" || utf8.RuneCountInString(req.Title) > maxFormTextLen:
 		return FormRequest{}, apperrors.NewBadRequest("title is required and must be at most 255 characters")
@@ -386,6 +409,7 @@ func toFormResponse(f forms.Form) FormResponse {
 		Content:         f.Content,
 		PublicAvailable: f.PublicAvailable,
 		AcceptAnonymous: f.AcceptAnonymous,
+		IsDraft:         f.IsDraft,
 		CreatedAt:       f.CreatedAt,
 		UpdatedAt:       f.UpdatedAt,
 	}

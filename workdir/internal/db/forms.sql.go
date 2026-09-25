@@ -27,18 +27,25 @@ SELECT count(*)
 FROM forms f
 WHERE f.tenant_id = $1
   AND ($2::boolean IS NULL OR f.is_active = $2)
-  AND ($3::text IS NULL OR f.title ILIKE '%' || $3 || '%')
+  AND ($3::boolean IS NULL OR f.is_draft = $3)
+  AND ($4::text IS NULL OR f.title ILIKE '%' || $4 || '%')
 `
 
 type CountFormsByTenantParams struct {
 	TenantID int32   `db:"tenant_id" json:"tenant_id"`
 	IsActive *bool   `db:"is_active" json:"is_active"`
+	IsDraft  *bool   `db:"is_draft" json:"is_draft"`
 	Search   *string `db:"search" json:"search"`
 }
 
 // Same filters as ListFormsByTenant, for pagination totals.
 func (q *Queries) CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countFormsByTenant, arg.TenantID, arg.IsActive, arg.Search)
+	row := q.db.QueryRow(ctx, countFormsByTenant,
+		arg.TenantID,
+		arg.IsActive,
+		arg.IsDraft,
+		arg.Search,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -46,9 +53,9 @@ func (q *Queries) CountFormsByTenant(ctx context.Context, arg CountFormsByTenant
 
 const createForm = `-- name: CreateForm :one
 INSERT INTO forms (tenant_id, title, slug, description, is_active, start_date, end_date, form_content,
-                   public_available, accept_anonymous)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous
+                   public_available, accept_anonymous, is_draft)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous, is_draft
 `
 
 type CreateFormParams struct {
@@ -62,6 +69,7 @@ type CreateFormParams struct {
 	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 }
 
 func (q *Queries) CreateForm(ctx context.Context, arg CreateFormParams) (Form, error) {
@@ -76,6 +84,7 @@ func (q *Queries) CreateForm(ctx context.Context, arg CreateFormParams) (Form, e
 		arg.FormContent,
 		arg.PublicAvailable,
 		arg.AcceptAnonymous,
+		arg.IsDraft,
 	)
 	var i Form
 	err := row.Scan(
@@ -92,6 +101,7 @@ func (q *Queries) CreateForm(ctx context.Context, arg CreateFormParams) (Form, e
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.IsDraft,
 	)
 	return i, err
 }
@@ -115,7 +125,7 @@ func (q *Queries) DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, 
 }
 
 const getAnyFormByID = `-- name: GetAnyFormByID :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.is_draft, t.name AS tenant_name,
        (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
@@ -136,6 +146,7 @@ type GetAnyFormByIDRow struct {
 	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 	TenantName      string          `db:"tenant_name" json:"tenant_name"`
 	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
 }
@@ -158,6 +169,7 @@ func (q *Queries) GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDR
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.IsDraft,
 		&i.TenantName,
 		&i.SubmissionCount,
 	)
@@ -165,7 +177,7 @@ func (q *Queries) GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDR
 }
 
 const getFormByID = `-- name: GetFormByID :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.is_draft, t.name AS tenant_name
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.id = $1 AND f.tenant_id = $2
@@ -190,6 +202,7 @@ type GetFormByIDRow struct {
 	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 	TenantName      string          `db:"tenant_name" json:"tenant_name"`
 }
 
@@ -211,24 +224,25 @@ func (q *Queries) GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFo
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.IsDraft,
 		&i.TenantName,
 	)
 	return i, err
 }
 
 const getPublicFormBySlug = `-- name: GetPublicFormBySlug :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.is_draft
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.slug = $1
   AND f.is_active
+  AND NOT f.is_draft
   AND t.is_active
-  AND (f.start_date IS NULL OR f.start_date <= now())
-  AND (f.end_date IS NULL OR f.end_date > now())
 `
 
-// Open for submissions: the form and its tenant must be active and inside the
-// availability window. Whether signing in is required is up to the caller
+// Published forms of active tenants that are active themselves. The caller
+// checks the availability window, so that a form past its end_date can be
+// told apart from one that does not exist, and whether signing in is required
 // (public_available, accept_anonymous).
 func (q *Queries) GetPublicFormBySlug(ctx context.Context, slug string) (Form, error) {
 	row := q.db.QueryRow(ctx, getPublicFormBySlug, slug)
@@ -247,12 +261,13 @@ func (q *Queries) GetPublicFormBySlug(ctx context.Context, slug string) (Form, e
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.IsDraft,
 	)
 	return i, err
 }
 
 const listAllForms = `-- name: ListAllForms :many
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.is_draft, t.name AS tenant_name,
        (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
@@ -279,6 +294,7 @@ type ListAllFormsRow struct {
 	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 	TenantName      string          `db:"tenant_name" json:"tenant_name"`
 	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
 }
@@ -307,6 +323,7 @@ func (q *Queries) ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]L
 			&i.UpdatedAt,
 			&i.PublicAvailable,
 			&i.AcceptAnonymous,
+			&i.IsDraft,
 			&i.TenantName,
 			&i.SubmissionCount,
 		); err != nil {
@@ -321,18 +338,20 @@ func (q *Queries) ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]L
 }
 
 const listFormsByTenant = `-- name: ListFormsByTenant :many
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.is_draft, (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 WHERE f.tenant_id = $1
   AND ($2::boolean IS NULL OR f.is_active = $2)
-  AND ($3::text IS NULL OR f.title ILIKE '%' || $3 || '%')
+  AND ($3::boolean IS NULL OR f.is_draft = $3)
+  AND ($4::text IS NULL OR f.title ILIKE '%' || $4 || '%')
 ORDER BY f.created_at DESC, f.id DESC
-LIMIT $5 OFFSET $4
+LIMIT $6 OFFSET $5
 `
 
 type ListFormsByTenantParams struct {
 	TenantID   int32   `db:"tenant_id" json:"tenant_id"`
 	IsActive   *bool   `db:"is_active" json:"is_active"`
+	IsDraft    *bool   `db:"is_draft" json:"is_draft"`
 	Search     *string `db:"search" json:"search"`
 	PageOffset int32   `db:"page_offset" json:"page_offset"`
 	PageLimit  int32   `db:"page_limit" json:"page_limit"`
@@ -352,14 +371,17 @@ type ListFormsByTenantRow struct {
 	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
 }
 
-// Optional filters: is_active (nil = any) and search (case-insensitive title match).
+// Optional filters: is_active and is_draft (nil = any) and search
+// (case-insensitive title match).
 func (q *Queries) ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error) {
 	rows, err := q.db.Query(ctx, listFormsByTenant,
 		arg.TenantID,
 		arg.IsActive,
+		arg.IsDraft,
 		arg.Search,
 		arg.PageOffset,
 		arg.PageLimit,
@@ -385,6 +407,7 @@ func (q *Queries) ListFormsByTenant(ctx context.Context, arg ListFormsByTenantPa
 			&i.UpdatedAt,
 			&i.PublicAvailable,
 			&i.AcceptAnonymous,
+			&i.IsDraft,
 			&i.SubmissionCount,
 		); err != nil {
 			return nil, err
@@ -408,9 +431,10 @@ SET title = $3,
     form_content = $9,
     public_available = $10,
     accept_anonymous = $11,
+    is_draft = $12,
     updated_at = now()
 WHERE id = $1 AND tenant_id = $2
-RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous
+RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous, is_draft
 `
 
 type UpdateFormParams struct {
@@ -425,6 +449,7 @@ type UpdateFormParams struct {
 	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 }
 
 func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error) {
@@ -440,6 +465,7 @@ func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, e
 		arg.FormContent,
 		arg.PublicAvailable,
 		arg.AcceptAnonymous,
+		arg.IsDraft,
 	)
 	var i Form
 	err := row.Scan(
@@ -456,6 +482,7 @@ func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, e
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.IsDraft,
 	)
 	return i, err
 }

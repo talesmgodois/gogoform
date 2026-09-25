@@ -14,8 +14,9 @@ type Repository interface {
 	// GetByID returns the tenant's form with the given ID.
 	GetByID(ctx context.Context, tenantID, id int32) (FormDetails, error)
 	// GetPublicBySlug returns the form with the given slug if it can be filled
-	// in publicly: the form and its tenant are active and now is inside the
-	// availability window.
+	// in publicly: the form is published (not a draft), it and its tenant are
+	// active and now is inside the availability window. A form past its
+	// end_date yields CodeGone; any other unavailable form CodeNotFound.
 	GetPublicBySlug(ctx context.Context, slug string) (Form, error)
 	// List returns the forms matching filter, newest first.
 	List(ctx context.Context, filter ListFormsFilter, page Page) ([]FormSummary, error)

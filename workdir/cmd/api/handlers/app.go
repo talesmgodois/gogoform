@@ -242,6 +242,8 @@ type badge struct {
 func formStatus(f forms.Form) badge {
 	now := time.Now()
 	switch {
+	case f.IsDraft:
+		return badge{"Draft", "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20"}
 	case !f.IsActive:
 		return badge{"Inactive", "bg-slate-500/10 text-slate-400 ring-slate-500/20"}
 	case f.StartDate != nil && now.Before(*f.StartDate):
