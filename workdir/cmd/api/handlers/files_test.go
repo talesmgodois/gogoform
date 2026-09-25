@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ const testFileID = "0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10"
 
 // upload posts a multipart body with one part per field (name, filename,
 // content type, content) to /files, authenticated with testAPIKey.
-func upload(t *testing.T, svc services, parts ...[4]string) *httptest.ResponseRecorder {
+func upload(t *testing.T, svc Services, parts ...[4]string) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -41,7 +41,7 @@ func upload(t *testing.T, svc services, parts ...[4]string) *httptest.ResponseRe
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set(apiKeyHeader, testAPIKey)
 	rec := httptest.NewRecorder()
-	routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testAppConfig).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -111,7 +111,7 @@ func TestGetFile(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/files/"+testFileID, nil)
 	req.Header.Set("Range", "bytes=0-7")
 	rec = httptest.NewRecorder()
-	routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testAppConfig).ServeHTTP(rec, req)
 	assertStatus(t, rec, http.StatusPartialContent)
 	if rec.Body.String() != "<script>" {
 		t.Fatalf("range body = %q", rec.Body.String())

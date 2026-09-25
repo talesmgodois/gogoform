@@ -46,7 +46,7 @@ const docTemplate = `{
                     "201": {
                         "description": "File uploaded",
                         "schema": {
-                            "$ref": "#/definitions/main.FileResponse"
+                            "$ref": "#/definitions/handlers.FileResponse"
                         }
                     },
                     "400": {
@@ -208,7 +208,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Page of forms",
                         "schema": {
-                            "$ref": "#/definitions/main.FormListResponse"
+                            "$ref": "#/definitions/handlers.FormListResponse"
                         }
                     },
                     "400": {
@@ -255,7 +255,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.FormRequest"
+                            "$ref": "#/definitions/handlers.FormRequest"
                         }
                     }
                 ],
@@ -263,7 +263,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Form created",
                         "schema": {
-                            "$ref": "#/definitions/main.FormResponse"
+                            "$ref": "#/definitions/handlers.FormResponse"
                         }
                     },
                     "400": {
@@ -321,7 +321,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Form",
                         "schema": {
-                            "$ref": "#/definitions/main.FormDetailsResponse"
+                            "$ref": "#/definitions/handlers.FormDetailsResponse"
                         }
                     },
                     "400": {
@@ -381,7 +381,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.FormRequest"
+                            "$ref": "#/definitions/handlers.FormRequest"
                         }
                     }
                 ],
@@ -389,7 +389,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Form updated",
                         "schema": {
-                            "$ref": "#/definitions/main.FormResponse"
+                            "$ref": "#/definitions/handlers.FormResponse"
                         }
                     },
                     "400": {
@@ -529,7 +529,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Page of submissions",
                         "schema": {
-                            "$ref": "#/definitions/main.SubmissionListResponse"
+                            "$ref": "#/definitions/handlers.SubmissionListResponse"
                         }
                     },
                     "400": {
@@ -587,7 +587,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Webhooks",
                         "schema": {
-                            "$ref": "#/definitions/main.WebhookListResponse"
+                            "$ref": "#/definitions/handlers.WebhookListResponse"
                         }
                     },
                     "400": {
@@ -647,7 +647,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.CreateWebhookRequest"
+                            "$ref": "#/definitions/handlers.CreateWebhookRequest"
                         }
                     }
                 ],
@@ -655,7 +655,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Webhook created",
                         "schema": {
-                            "$ref": "#/definitions/main.WebhookResponse"
+                            "$ref": "#/definitions/handlers.WebhookResponse"
                         }
                     },
                     "400": {
@@ -728,7 +728,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Form",
                         "schema": {
-                            "$ref": "#/definitions/main.PublicFormResponse"
+                            "$ref": "#/definitions/handlers.PublicFormResponse"
                         }
                     },
                     "404": {
@@ -773,7 +773,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.CreateSubmissionRequest"
+                            "$ref": "#/definitions/handlers.CreateSubmissionRequest"
                         }
                     }
                 ],
@@ -781,7 +781,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Submission stored",
                         "schema": {
-                            "$ref": "#/definitions/main.SubmissionResponse"
+                            "$ref": "#/definitions/handlers.SubmissionResponse"
                         }
                     },
                     "400": {
@@ -825,7 +825,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.CreateTenantRequest"
+                            "$ref": "#/definitions/handlers.CreateTenantRequest"
                         }
                     }
                 ],
@@ -833,7 +833,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Tenant created",
                         "schema": {
-                            "$ref": "#/definitions/main.CreateTenantResponse"
+                            "$ref": "#/definitions/handlers.CreateTenantResponse"
                         }
                     },
                     "400": {
@@ -870,7 +870,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Authenticated tenant",
                         "schema": {
-                            "$ref": "#/definitions/main.TenantResponse"
+                            "$ref": "#/definitions/handlers.TenantResponse"
                         }
                     },
                     "401": {
@@ -939,7 +939,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CreateSubmissionRequest": {
+        "handlers.CreateSubmissionRequest": {
             "type": "object",
             "properties": {
                 "completion_time_seconds": {
@@ -954,7 +954,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CreateTenantRequest": {
+        "handlers.CreateTenantRequest": {
             "type": "object",
             "properties": {
                 "name": {
@@ -963,7 +963,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CreateTenantResponse": {
+        "handlers.CreateTenantResponse": {
             "type": "object",
             "properties": {
                 "api_key": {
@@ -988,7 +988,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CreateWebhookRequest": {
+        "handlers.CreateWebhookRequest": {
             "type": "object",
             "properties": {
                 "secret_token": {
@@ -1003,7 +1003,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.FileResponse": {
+        "handlers.FileResponse": {
             "type": "object",
             "properties": {
                 "checksum_sha256": {
@@ -1037,7 +1037,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.FormDetailsResponse": {
+        "handlers.FormDetailsResponse": {
             "type": "object",
             "properties": {
                 "content": {
@@ -1089,13 +1089,13 @@ const docTemplate = `{
                 }
             }
         },
-        "main.FormListResponse": {
+        "handlers.FormListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.FormSummaryResponse"
+                        "$ref": "#/definitions/handlers.FormSummaryResponse"
                     }
                 },
                 "limit": {
@@ -1112,7 +1112,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.FormRequest": {
+        "handlers.FormRequest": {
             "type": "object",
             "properties": {
                 "content": {
@@ -1146,7 +1146,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.FormResponse": {
+        "handlers.FormResponse": {
             "type": "object",
             "properties": {
                 "content": {
@@ -1194,7 +1194,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.FormSummaryResponse": {
+        "handlers.FormSummaryResponse": {
             "type": "object",
             "properties": {
                 "content": {
@@ -1246,7 +1246,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.MetadataResponse": {
+        "handlers.MetadataResponse": {
             "type": "object",
             "properties": {
                 "completion_time_seconds": {
@@ -1267,7 +1267,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.PublicFormResponse": {
+        "handlers.PublicFormResponse": {
             "type": "object",
             "properties": {
                 "content": {
@@ -1291,13 +1291,13 @@ const docTemplate = `{
                 }
             }
         },
-        "main.SubmissionListResponse": {
+        "handlers.SubmissionListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.SubmissionResponse"
+                        "$ref": "#/definitions/handlers.SubmissionResponse"
                     }
                 },
                 "limit": {
@@ -1310,7 +1310,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.SubmissionResponse": {
+        "handlers.SubmissionResponse": {
             "type": "object",
             "properties": {
                 "form_id": {
@@ -1322,7 +1322,7 @@ const docTemplate = `{
                     "example": 1
                 },
                 "metadata": {
-                    "$ref": "#/definitions/main.MetadataResponse"
+                    "$ref": "#/definitions/handlers.MetadataResponse"
                 },
                 "payload": {
                     "type": "object"
@@ -1333,7 +1333,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.TenantResponse": {
+        "handlers.TenantResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1354,18 +1354,18 @@ const docTemplate = `{
                 }
             }
         },
-        "main.WebhookListResponse": {
+        "handlers.WebhookListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.WebhookResponse"
+                        "$ref": "#/definitions/handlers.WebhookResponse"
                     }
                 }
             }
         },
-        "main.WebhookResponse": {
+        "handlers.WebhookResponse": {
             "type": "object",
             "properties": {
                 "created_at": {

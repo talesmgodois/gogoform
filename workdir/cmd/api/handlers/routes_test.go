@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"net/http"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestRoutes(t *testing.T) {
-	srv := httptest.NewServer(routes(testServices(), testAppConfig))
+	srv := httptest.NewServer(Routes(testServices(), testAppConfig))
 	defer srv.Close()
 
 	tests := []struct {

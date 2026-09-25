@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"errors"
@@ -15,14 +15,14 @@ import (
 )
 
 // getApp requests GET /app with the given basic credentials (none when user
-// is empty) through routes(svc, cfg).
-func getApp(svc services, cfg config.AppConfig, user, pass string) *httptest.ResponseRecorder {
+// is empty) through Routes(svc, cfg).
+func getApp(svc Services, cfg config.AppConfig, user, pass string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, "/app", nil)
 	if user != "" {
 		req.SetBasicAuth(user, pass)
 	}
 	rec := httptest.NewRecorder()
-	routes(svc, cfg).ServeHTTP(rec, req)
+	Routes(svc, cfg).ServeHTTP(rec, req)
 	return rec
 }
 

@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"context"
@@ -226,9 +226,9 @@ func (f *fakeFiles) Delete(ctx context.Context, tenantID int32, id string) error
 	return nil
 }
 
-// testServices returns services backed by fakes, with forms holding fs.
-func testServices(fs ...forms.Form) services {
-	return services{
+// testServices returns Services backed by fakes, with forms holding fs.
+func testServices(fs ...forms.Form) Services {
+	return Services{
 		tenants:     &fakeTenants{},
 		forms:       newFakeForms(fs...),
 		submissions: &fakeSubmissions{},
@@ -237,9 +237,9 @@ func testServices(fs ...forms.Form) services {
 	}
 }
 
-// do sends a request with the given body (if any) through routes(svc, testAppConfig),
+// do sends a request with the given body (if any) through Routes(svc, testAppConfig),
 // authenticated with testAPIKey when auth is true.
-func do(t *testing.T, svc services, method, path, body string, auth bool) *httptest.ResponseRecorder {
+func do(t *testing.T, svc Services, method, path, body string, auth bool) *httptest.ResponseRecorder {
 	t.Helper()
 	var r io.Reader
 	if body != "" {
@@ -250,7 +250,7 @@ func do(t *testing.T, svc services, method, path, body string, auth bool) *httpt
 		req.Header.Set(apiKeyHeader, testAPIKey)
 	}
 	rec := httptest.NewRecorder()
-	routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testAppConfig).ServeHTTP(rec, req)
 	return rec
 }
 
