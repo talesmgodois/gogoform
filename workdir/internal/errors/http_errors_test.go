@@ -21,6 +21,7 @@ func TestHTTPStatus(t *testing.T) {
 		{"forbidden", NewForbidden("no"), http.StatusForbidden},
 		{"not found", NewNotFound("missing"), http.StatusNotFound},
 		{"conflict", NewConflict("dup"), http.StatusConflict},
+		{"gone", NewGone("closed"), http.StatusGone},
 		{"internal", NewInternal(stderrors.New("db down")), http.StatusInternalServerError},
 		{"unknown code", New(Code("weird"), "?"), http.StatusInternalServerError},
 		{"plain error", stderrors.New("boom"), http.StatusInternalServerError},

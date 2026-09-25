@@ -40,6 +40,11 @@ func NewConflict(message string) *AppError {
 	return New(CodeConflict, message)
 }
 
+// NewGone returns an AppError that maps to 410 Gone.
+func NewGone(message string) *AppError {
+	return New(CodeGone, message)
+}
+
 // NewInternal returns an AppError that wraps err and maps to 500 Internal Server Error.
 func NewInternal(err error) *AppError {
 	return Wrap(err, CodeInternal, internalMessage)
@@ -63,6 +68,8 @@ func HTTPStatus(err error) int {
 		return http.StatusNotFound
 	case CodeConflict:
 		return http.StatusConflict
+	case CodeGone:
+		return http.StatusGone
 	default:
 		return http.StatusInternalServerError
 	}
