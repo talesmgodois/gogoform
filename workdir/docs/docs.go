@@ -756,6 +756,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
+                    "submissions",
                     "public"
                 ],
                 "summary": "Submit a form",

@@ -54,7 +54,7 @@ type submissionsController struct {
 //
 //	@Summary		Submit a form
 //	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer.
-//	@Tags			public
+//	@Tags			submissions,public
 //	@Accept			json
 //	@Produce		json
 //	@Param			slug	path		string						true	"Form slug"
