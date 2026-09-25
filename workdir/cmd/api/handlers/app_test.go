@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +41,9 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
 		t.Fatalf("Content-Type = %q", ct)
 	}
-	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "https://cdn.tailwindcss.com") {
+	csp := rec.Header().Get("Content-Security-Policy")
+	nonce := regexp.MustCompile(`'nonce-([A-Za-z0-9+/=]{24})'`).FindStringSubmatch(csp)
+	if !strings.Contains(csp, "https://cdn.tailwindcss.com") || nonce == nil {
 		t.Fatalf("Content-Security-Policy = %q", csp)
 	}
 	body := rec.Body.String()
@@ -49,6 +52,11 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 		"Customer survey", "/customer-survey", "Live", "Acme",
 		"Tell us &lt;everything&gt;", // escaped by html/template
 		"logo.png", `href="/files/` + testFileID + `"`, "image/png", "2.0 KiB", "2026-09-24 12:00 UTC",
+		// File viewer: preview trigger, download link and the nonced script.
+		`data-file-preview data-file-id="` + testFileID + `" data-file-name="logo.png" data-file-type="image/png" data-file-size="2048"`,
+		`href="/files/` + testFileID + `?download=1" download="logo.png"`,
+		`<dialog id="file-viewer"`,
+		`<script nonce="` + nonce[1] + `">`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
@@ -59,6 +67,14 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 	}
 	if svc.files.(*fakeFiles).page != (files.Page{Limit: appListLimit}) {
 		t.Errorf("files page = %+v", svc.files.(*fakeFiles).page)
+	}
+}
+
+func TestAppNonceIsPerRequest(t *testing.T) {
+	first := getApp(testServices(), testAppConfig, "admin", "s3cret").Header().Get("Content-Security-Policy")
+	second := getApp(testServices(), testAppConfig, "admin", "s3cret").Header().Get("Content-Security-Policy")
+	if first == second {
+		t.Fatalf("Content-Security-Policy reused across requests: %q", first)
 	}
 }
 

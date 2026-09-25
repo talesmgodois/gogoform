@@ -97,13 +97,14 @@
               <th class="px-4 py-3 font-semibold text-right">Size</th>
               <th class="px-4 py-3 font-semibold">SHA-256</th>
               <th class="px-4 py-3 font-semibold">Uploaded</th>
+              <th class="px-4 py-3 font-semibold text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800">
             {{range .Files}}
             <tr class="hover:bg-slate-800/40 transition">
               <td class="px-4 py-3 max-w-sm">
-                <a href="/files/{{.ID}}" target="_blank" rel="noopener noreferrer" class="font-medium text-slate-100 hover:text-indigo-400 truncate block" title="{{.Name}}">{{.Name}}</a>
+                <button type="button" data-file-preview data-file-id="{{.ID}}" data-file-name="{{.Name}}" data-file-type="{{.ContentType}}" data-file-size="{{.Size}}" data-file-size-label="{{bytes .Size}}" class="font-medium text-slate-100 hover:text-indigo-400 truncate block max-w-full text-left" title="Preview {{.Name}}">{{.Name}}</button>
                 <p class="font-mono text-xs text-slate-500 truncate">{{.ID}}</p>
               </td>
               <td class="px-4 py-3 text-slate-300 whitespace-nowrap">{{.TenantName}}</td>
@@ -113,9 +114,16 @@
               <td class="px-4 py-3 text-right font-mono tabular-nums text-slate-200 whitespace-nowrap">{{bytes .Size}}</td>
               <td class="px-4 py-3 font-mono text-xs text-slate-500" title="{{.Checksum}}">{{printf "%.12s" .Checksum}}…</td>
               <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{{datetime .CreatedAt}}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                <div class="flex items-center justify-end gap-1 text-xs font-medium">
+                  <button type="button" data-file-preview data-file-id="{{.ID}}" data-file-name="{{.Name}}" data-file-type="{{.ContentType}}" data-file-size="{{.Size}}" data-file-size-label="{{bytes .Size}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Preview</button>
+                  <a href="/files/{{.ID}}" target="_blank" rel="noopener noreferrer" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50">Open</a>
+                  <a href="/files/{{.ID}}?download=1" download="{{.Name}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50">Download</a>
+                </div>
+              </td>
             </tr>
             {{else}}
-            <tr><td colspan="6" class="px-4 py-12 text-center text-slate-500">No files have been uploaded yet.</td></tr>
+            <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">No files have been uploaded yet.</td></tr>
             {{end}}
           </tbody>
         </table>
@@ -123,5 +131,131 @@
     </section>
 
   </main>
+
+  <dialog id="file-viewer" aria-labelledby="file-viewer-name" class="w-full max-w-5xl rounded-2xl border border-slate-800 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    <div class="flex items-center justify-between gap-4 border-b border-slate-800 px-5 py-3">
+      <div class="min-w-0">
+        <h3 id="file-viewer-name" class="font-semibold truncate"></h3>
+        <p id="file-viewer-meta" class="font-mono text-xs text-slate-500 truncate"></p>
+      </div>
+      <div class="flex shrink-0 items-center gap-2 text-xs font-medium">
+        <a id="file-viewer-open" target="_blank" rel="noopener noreferrer" class="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-200 hover:bg-slate-800">Open in new tab</a>
+        <a id="file-viewer-download" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-white hover:bg-indigo-500">Download</a>
+        <button type="button" id="file-viewer-close" aria-label="Close" class="rounded-lg px-2 py-1.5 text-lg leading-none text-slate-400 hover:bg-slate-800 hover:text-slate-100">&times;</button>
+      </div>
+    </div>
+    <div id="file-viewer-body" class="flex h-[75vh] items-center justify-center overflow-hidden bg-slate-950"></div>
+  </dialog>
+
+  <script nonce="{{.Nonce}}">
+    (() => {
+      // Text files larger than this are previewed truncated, via a Range request.
+      const maxTextBytes = 1 << 20;
+      const dialog = document.getElementById("file-viewer");
+      const body = document.getElementById("file-viewer-body");
+      const nameEl = document.getElementById("file-viewer-name");
+      const metaEl = document.getElementById("file-viewer-meta");
+      const openEl = document.getElementById("file-viewer-open");
+      const downloadEl = document.getElementById("file-viewer-download");
+      let pending = null;
+
+      const el = (tag, className) => {
+        const node = document.createElement(tag);
+        node.className = className;
+        return node;
+      };
+      const message = (text) => {
+        const p = el("p", "max-w-md p-8 text-center text-sm text-slate-400");
+        p.textContent = text;
+        return p;
+      };
+      const unavailable = (type) => message("No preview available for " + (type || "this file") + ". Open it in a new tab or download it instead.");
+      const isText = (type) => /^text\/|[/+](json|xml)$|^application\/(javascript|ecmascript|x-yaml|yaml|toml|x-sh|sql)$/.test(type);
+
+      const previewText = (file) => {
+        const pre = el("pre", "h-full w-full self-stretch overflow-auto whitespace-pre-wrap break-words p-5 font-mono text-xs text-slate-200");
+        pre.textContent = "Loading…";
+        const truncated = file.size > maxTextBytes;
+        pending = new AbortController();
+        fetch(file.url, {
+          headers: truncated ? { Range: "bytes=0-" + (maxTextBytes - 1) } : {},
+          signal: pending.signal,
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.arrayBuffer();
+          })
+          .then((buf) => {
+            pre.textContent = new TextDecoder().decode(buf);
+            if (truncated) pre.textContent += "\n\n… preview truncated to the first 1 MiB; download the file to see all of it.";
+          })
+          .catch((err) => {
+            if (err.name !== "AbortError") pre.replaceWith(message("Could not load the preview (" + err.message + ")."));
+          });
+        return pre;
+      };
+
+      const preview = (file) => {
+        const type = file.type;
+        if (type.startsWith("image/")) {
+          const img = el("img", "max-h-full max-w-full object-contain");
+          img.alt = file.name;
+          img.addEventListener("error", () => img.replaceWith(unavailable(type)));
+          img.src = file.url;
+          return img;
+        }
+        if (type.startsWith("video/") || type.startsWith("audio/")) {
+          const media = el(type.startsWith("video/") ? "video" : "audio", "max-h-full max-w-full");
+          media.controls = true;
+          media.addEventListener("error", () => media.replaceWith(unavailable(type)));
+          media.src = file.url;
+          return media;
+        }
+        if (type === "application/pdf") {
+          const frame = el("iframe", "h-full w-full bg-white");
+          frame.title = file.name;
+          frame.src = file.url;
+          return frame;
+        }
+        if (isText(type)) return previewText(file);
+        return unavailable(type);
+      };
+
+      const open = (data) => {
+        const url = "/files/" + encodeURIComponent(data.fileId);
+        const file = {
+          url: url,
+          name: data.fileName,
+          // Drop parameters such as "; charset=utf-8".
+          type: (data.fileType || "").split(";")[0].trim().toLowerCase(),
+          size: Number(data.fileSize) || 0,
+        };
+        nameEl.textContent = file.name;
+        nameEl.title = file.name;
+        metaEl.textContent = data.fileType + " · " + data.fileSizeLabel;
+        openEl.href = url;
+        downloadEl.href = url + "?download=1";
+        downloadEl.download = file.name;
+        body.replaceChildren(preview(file));
+        dialog.showModal();
+      };
+
+      document.addEventListener("click", (event) => {
+        const trigger = event.target.closest("[data-file-preview]");
+        if (trigger) open(trigger.dataset);
+      });
+      document.getElementById("file-viewer-close").addEventListener("click", () => dialog.close());
+      // The content fills the dialog, so a click on the dialog itself hit the backdrop.
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+      // Abort pending loads and stop any playing media.
+      dialog.addEventListener("close", () => {
+        if (pending) pending.abort();
+        pending = null;
+        body.replaceChildren();
+      });
+    })();
+  </script>
 </body>
 </html>
