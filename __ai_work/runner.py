@@ -185,6 +185,9 @@ def prepare_git_branch(task_filename, resume=False):
 # Which CLI drives the agent: "claude" (Claude Code) or "opencode".
 AGENT_CLI = os.environ.get("AGENT_CLI", "claude")
 
+# AGENT_CLI_STDOUT=1 shows the agent CLI's stdout; any other value hides it.
+AGENT_CLI_STDOUT = os.environ.get("AGENT_CLI_STDOUT", "0") == "1"
+
 VERDICT_RE = re.compile(r"^VERDICT:\s*(PASS|FAIL)\b:?\s*(.*)$", re.MULTILINE)
 COMMITS_RESULT_RE = re.compile(r"^RESULT:\s*(OK|PARTIAL|NOTHING_TO_COMMIT)\b:?\s*(.*)$", re.MULTILINE)
 FIX_RESULT_RE = re.compile(r"^FIX_RESULT:\s*(FIXED|PARTIAL|NOTHING_TO_FIX|FAILED)\b:?\s*(.*)$", re.MULTILINE)
@@ -197,7 +200,9 @@ def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, pl
     """Runs the agent CLI headlessly with a free-form prompt or a skill/command.
 
     plan=True runs it in the CLI's read-only plan mode. Returns (success, stdout).
-    stdout is only captured when capture=True.
+    stdout is only captured when capture=True. The CLI's stdout is only shown
+    when AGENT_CLI_STDOUT=1; stderr is always shown, except when capture=True,
+    where it is shown only if AGENT_CLI_STDOUT=1 or the command failed.
     """
     if AGENT_CLI == "opencode":
         cmd = ["opencode", "run"]
@@ -214,11 +219,15 @@ def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, pl
         mode = ["--permission-mode", "plan"] if plan else ["--dangerously-skip-permissions"]
         cmd = ["claude", "-p", text, *mode]
 
-    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=capture)
     if capture:
-        print(result.stdout)
-        if result.stderr:
+        result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+        if AGENT_CLI_STDOUT:
+            print(result.stdout)
+        if result.stderr and (AGENT_CLI_STDOUT or result.returncode != 0):
             print(result.stderr)
+    else:
+        stdout = None if AGENT_CLI_STDOUT else subprocess.DEVNULL
+        result = subprocess.run(cmd, cwd=cwd, text=True, stdout=stdout)
     return result.returncode == 0, result.stdout or ""
 
 
