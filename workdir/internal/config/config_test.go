@@ -58,6 +58,26 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 }
 
+func TestAppCredentials(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.App.Enabled() {
+		t.Fatal("app dashboard enabled without credentials")
+	}
+
+	t.Setenv("APP_USERNAME", "admin")
+	t.Setenv("APP_PASSWORD", "s3cret")
+	cfg, err = Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.App.Enabled() || cfg.App.Username != "admin" || cfg.App.Password != "s3cret" {
+		t.Fatalf("app credentials not applied: %+v", cfg.App)
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -70,6 +90,9 @@ func TestLoadErrors(t *testing.T) {
 		{name: "invalid level", content: sample, env: map[string]string{"LOG_LEVEL": "verbose"}},
 		{name: "missing database uri", content: "[server]\nport = 8080\n"},
 		{name: "unsupported database scheme", content: sample, env: map[string]string{"DATABASE_URL": "mysql://u:p@localhost/db"}},
+		{name: "app username without password", content: sample, env: map[string]string{"APP_USERNAME": "admin"}},
+		{name: "app password without username", content: sample, env: map[string]string{"APP_PASSWORD": "s3cret"}},
+		{name: "app username with colon", content: sample, env: map[string]string{"APP_USERNAME": "a:b", "APP_PASSWORD": "s3cret"}},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
 	}
 	for _, tt := range tests {

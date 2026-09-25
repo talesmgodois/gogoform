@@ -21,6 +21,8 @@ type fakeQuerier struct {
 	createFile  func(db.CreateFileParams) (db.CreateFileRow, error)
 	getFileByID func(string) (db.File, error)
 	deleteFile  func(db.DeleteFileParams) (int64, error)
+	listAll     func(db.ListAllFilesParams) ([]db.ListAllFilesRow, error)
+	countAll    func() (int64, error)
 }
 
 func (f *fakeQuerier) CreateFile(_ context.Context, arg db.CreateFileParams) (db.CreateFileRow, error) {
@@ -33,6 +35,14 @@ func (f *fakeQuerier) GetFileByID(_ context.Context, id string) (db.File, error)
 
 func (f *fakeQuerier) DeleteFile(_ context.Context, arg db.DeleteFileParams) (int64, error) {
 	return f.deleteFile(arg)
+}
+
+func (f *fakeQuerier) ListAllFiles(_ context.Context, arg db.ListAllFilesParams) ([]db.ListAllFilesRow, error) {
+	return f.listAll(arg)
+}
+
+func (f *fakeQuerier) CountAllFiles(context.Context) (int64, error) {
+	return f.countAll()
 }
 
 const (
@@ -156,6 +166,74 @@ func TestDelete(t *testing.T) {
 			}})
 
 			assertCode(t, svc.Delete(context.Background(), 7, tt.id), tt.wantCode)
+		})
+	}
+}
+
+func TestListAll(t *testing.T) {
+	row := db.ListAllFilesRow{
+		ID: fileID, TenantID: 7, Name: "hello.txt", ContentType: "text/plain",
+		SizeBytes: 5, ChecksumSha256: helloSHA256, CreatedAt: now, TenantName: "Acme",
+	}
+	tests := []struct {
+		name     string
+		page     Page
+		err      error
+		wantCode apperrors.Code
+		want     []FileSummary
+	}{
+		{"ok", Page{Offset: 20, Limit: 10}, nil, "", []FileSummary{{File: meta, TenantName: "Acme"}}},
+		{"negative offset", Page{Offset: -1, Limit: 10}, nil, apperrors.CodeInvalidArgument, nil},
+		{"zero limit", Page{Offset: 0, Limit: 0}, nil, apperrors.CodeInvalidArgument, nil},
+		{"db failure", Page{Offset: 0, Limit: 10}, errDB, apperrors.CodeInternal, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{listAll: func(arg db.ListAllFilesParams) ([]db.ListAllFilesRow, error) {
+				if want := (db.ListAllFilesParams{PageOffset: tt.page.Offset, PageLimit: tt.page.Limit}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				if tt.err != nil {
+					return nil, tt.err
+				}
+				return []db.ListAllFilesRow{row}, nil
+			}})
+
+			got, err := svc.ListAll(context.Background(), tt.page)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("files = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountAll(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", nil, "", 42},
+		{"db failure", errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{countAll: func() (int64, error) {
+				if tt.err != nil {
+					return 0, tt.err
+				}
+				return 42, nil
+			}})
+
+			got, err := svc.CountAll(context.Background())
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("count = %d, want %d", got, tt.want)
+			}
 		})
 	}
 }

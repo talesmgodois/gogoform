@@ -9,6 +9,8 @@ import (
 )
 
 type Querier interface {
+	CountAllFiles(ctx context.Context) (int64, error)
+	CountAllForms(ctx context.Context) (int64, error)
 	// Same filters as ListFormsByTenant, for pagination totals.
 	CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error)
 	// Returns the metadata only: the blob was just sent by the caller.
@@ -28,6 +30,10 @@ type Querier interface {
 	GetPublicFormBySlug(ctx context.Context, slug string) (Form, error)
 	GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant, error)
 	ListActiveWebhooksByForm(ctx context.Context, formID int32) ([]FormWebhook, error)
+	// Metadata only, across every tenant, for the read-only /app dashboard.
+	ListAllFiles(ctx context.Context, arg ListAllFilesParams) ([]ListAllFilesRow, error)
+	// Across every tenant, for the read-only /app dashboard.
+	ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]ListAllFormsRow, error)
 	// Optional filters: is_active (nil = any) and search (case-insensitive title match).
 	ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error)
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).

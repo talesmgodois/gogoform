@@ -21,6 +21,11 @@ type Repository interface {
 	List(ctx context.Context, filter ListFormsFilter, page Page) ([]FormSummary, error)
 	// Count returns how many forms match filter, for pagination totals.
 	Count(ctx context.Context, filter ListFormsFilter) (int64, error)
+	// ListAll returns the forms of every tenant, newest first. It is not
+	// scoped by tenant: only use it behind operator-level access.
+	ListAll(ctx context.Context, page Page) ([]FormOverview, error)
+	// CountAll returns how many forms exist across every tenant.
+	CountAll(ctx context.Context) (int64, error)
 	// Update replaces the stored state of a form and returns it.
 	Update(ctx context.Context, in UpdateFormInput) (Form, error)
 	// Delete removes the tenant's form with the given ID.

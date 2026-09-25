@@ -28,6 +28,20 @@ type Config struct {
 		Level string `toml:"level" env:"LOG_LEVEL"` // "debug", "info", "warn", "error"
 	} `toml:"logger"`
 	Database DatabaseConfig `toml:"database"`
+	App      AppConfig      `toml:"app"`
+}
+
+// AppConfig holds the HTTP Basic credentials of the read-only /app
+// dashboard. The dashboard lists every tenant's data, so it is disabled
+// while they are unset.
+type AppConfig struct {
+	Username string `toml:"username" env:"APP_USERNAME"`
+	Password string `toml:"password" env:"APP_PASSWORD"`
+}
+
+// Enabled reports whether the /app dashboard credentials are configured.
+func (c AppConfig) Enabled() bool {
+	return c.Username != "" && c.Password != ""
 }
 
 // DatabaseConfig holds the database connection settings.
@@ -142,6 +156,12 @@ func (c *Config) validate() error {
 	}
 	if err := validateDatabaseURI(c.Database.URI); err != nil {
 		return fmt.Errorf("database.uri: %w", err)
+	}
+	if (c.App.Username == "") != (c.App.Password == "") {
+		return fmt.Errorf("app: username and password must be set together")
+	}
+	if strings.Contains(c.App.Username, ":") {
+		return fmt.Errorf("app.username: must not contain ':'")
 	}
 	return nil
 }

@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+const countAllForms = `-- name: CountAllForms :one
+SELECT count(*) FROM forms
+`
+
+func (q *Queries) CountAllForms(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAllForms)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countFormsByTenant = `-- name: CountFormsByTenant :one
 SELECT count(*)
 FROM forms f
@@ -173,6 +184,71 @@ func (q *Queries) GetPublicFormBySlug(ctx context.Context, slug string) (Form, e
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAllForms = `-- name: ListAllForms :many
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, t.name AS tenant_name,
+       (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+ORDER BY f.created_at DESC, f.id DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListAllFormsParams struct {
+	PageOffset int32 `db:"page_offset" json:"page_offset"`
+	PageLimit  int32 `db:"page_limit" json:"page_limit"`
+}
+
+type ListAllFormsRow struct {
+	ID              int32           `db:"id" json:"id"`
+	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
+	Title           string          `db:"title" json:"title"`
+	Slug            string          `db:"slug" json:"slug"`
+	Description     *string         `db:"description" json:"description"`
+	IsActive        *bool           `db:"is_active" json:"is_active"`
+	StartDate       *time.Time      `db:"start_date" json:"start_date"`
+	EndDate         *time.Time      `db:"end_date" json:"end_date"`
+	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
+	TenantName      string          `db:"tenant_name" json:"tenant_name"`
+	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+}
+
+// Across every tenant, for the read-only /app dashboard.
+func (q *Queries) ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]ListAllFormsRow, error) {
+	rows, err := q.db.Query(ctx, listAllForms, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllFormsRow{}
+	for rows.Next() {
+		var i ListAllFormsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Title,
+			&i.Slug,
+			&i.Description,
+			&i.IsActive,
+			&i.StartDate,
+			&i.EndDate,
+			&i.FormContent,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TenantName,
+			&i.SubmissionCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFormsByTenant = `-- name: ListFormsByTenant :many

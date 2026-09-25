@@ -19,7 +19,7 @@ func TestCreateSubmission(t *testing.T) {
 	req.Header.Set("Referer", "https://example.com/contact")
 	req.Header.Set("X-Forwarded-For", "10.0.0.1")
 	rec := httptest.NewRecorder()
-	routes(svc).ServeHTTP(rec, req)
+	routes(svc, testAppConfig).ServeHTTP(rec, req)
 	assertStatus(t, rec, http.StatusCreated)
 
 	fake := svc.submissions.(*fakeSubmissions)

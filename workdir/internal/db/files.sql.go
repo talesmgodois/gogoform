@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+const countAllFiles = `-- name: CountAllFiles :one
+SELECT count(*) FROM files
+`
+
+func (q *Queries) CountAllFiles(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAllFiles)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createFile = `-- name: CreateFile :one
 INSERT INTO files (tenant_id, name, content_type, size_bytes, checksum_sha256, data)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -96,4 +107,59 @@ func (q *Queries) GetFileByID(ctx context.Context, id string) (File, error) {
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listAllFiles = `-- name: ListAllFiles :many
+SELECT f.id, f.tenant_id, f.name, f.content_type, f.size_bytes, f.checksum_sha256, f.created_at,
+       t.name AS tenant_name
+FROM files f
+JOIN tenants t ON t.id = f.tenant_id
+ORDER BY f.created_at DESC, f.id DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListAllFilesParams struct {
+	PageOffset int32 `db:"page_offset" json:"page_offset"`
+	PageLimit  int32 `db:"page_limit" json:"page_limit"`
+}
+
+type ListAllFilesRow struct {
+	ID             string    `db:"id" json:"id"`
+	TenantID       int32     `db:"tenant_id" json:"tenant_id"`
+	Name           string    `db:"name" json:"name"`
+	ContentType    string    `db:"content_type" json:"content_type"`
+	SizeBytes      int64     `db:"size_bytes" json:"size_bytes"`
+	ChecksumSha256 string    `db:"checksum_sha256" json:"checksum_sha256"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	TenantName     string    `db:"tenant_name" json:"tenant_name"`
+}
+
+// Metadata only, across every tenant, for the read-only /app dashboard.
+func (q *Queries) ListAllFiles(ctx context.Context, arg ListAllFilesParams) ([]ListAllFilesRow, error) {
+	rows, err := q.db.Query(ctx, listAllFiles, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllFilesRow{}
+	for rows.Next() {
+		var i ListAllFilesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Name,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.ChecksumSha256,
+			&i.CreatedAt,
+			&i.TenantName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

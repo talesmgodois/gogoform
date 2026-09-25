@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Dashboard · GoGoForm</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <header class="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+    <div class="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="bg-gradient-to-tr from-indigo-600 to-purple-600 w-9 h-9 rounded-xl grid place-items-center font-bold text-white shadow-lg shadow-indigo-500/20">G</div>
+        <div>
+          <h1 class="font-bold text-base tracking-tight flex items-center gap-2">
+            GoGoForm
+            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono uppercase">read-only</span>
+          </h1>
+          <p class="text-xs text-slate-400">Forms and files across every tenant</p>
+        </div>
+      </div>
+      <p class="text-xs text-slate-500 hidden sm:block">Generated {{datetime .GeneratedAt}}</p>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-6 py-8 space-y-10">
+
+    <section class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Forms</p>
+        <p class="mt-2 text-3xl font-bold tracking-tight">{{.FormsTotal}}</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Files</p>
+        <p class="mt-2 text-3xl font-bold tracking-tight">{{.FilesTotal}}</p>
+      </div>
+    </section>
+
+    <section id="forms">
+      <div class="flex items-end justify-between mb-4">
+        <h2 class="text-lg font-semibold tracking-tight">Forms</h2>
+        <p class="text-xs text-slate-500">Showing {{len .Forms}} of {{.FormsTotal}}, newest first</p>
+      </div>
+      <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-900 text-left text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-semibold">Form</th>
+              <th class="px-4 py-3 font-semibold">Tenant</th>
+              <th class="px-4 py-3 font-semibold">Status</th>
+              <th class="px-4 py-3 font-semibold text-right">Submissions</th>
+              <th class="px-4 py-3 font-semibold">Availability</th>
+              <th class="px-4 py-3 font-semibold">Created</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {{range .Forms}}
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="px-4 py-3 max-w-sm">
+                <p class="font-medium text-slate-100 truncate" title="{{.Title}}">{{.Title}}</p>
+                <p class="font-mono text-xs text-indigo-400 truncate">/{{.Slug}}</p>
+                {{with .Description}}<p class="mt-1 text-xs text-slate-400 line-clamp-2">{{.}}</p>{{end}}
+              </td>
+              <td class="px-4 py-3 text-slate-300 whitespace-nowrap">{{.TenantName}}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                {{with status .Form}}<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
+              </td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums text-slate-200">{{.SubmissionCount}}</td>
+              <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                <p>From {{datetime .StartDate}}</p>
+                <p>Until {{datetime .EndDate}}</p>
+              </td>
+              <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{{datetime .CreatedAt}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="6" class="px-4 py-12 text-center text-slate-500">No forms have been created yet.</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="files">
+      <div class="flex items-end justify-between mb-4">
+        <h2 class="text-lg font-semibold tracking-tight">Files</h2>
+        <p class="text-xs text-slate-500">Showing {{len .Files}} of {{.FilesTotal}}, newest first</p>
+      </div>
+      <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-900 text-left text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-semibold">File</th>
+              <th class="px-4 py-3 font-semibold">Tenant</th>
+              <th class="px-4 py-3 font-semibold">Type</th>
+              <th class="px-4 py-3 font-semibold text-right">Size</th>
+              <th class="px-4 py-3 font-semibold">SHA-256</th>
+              <th class="px-4 py-3 font-semibold">Uploaded</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {{range .Files}}
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="px-4 py-3 max-w-sm">
+                <a href="/files/{{.ID}}" target="_blank" rel="noopener noreferrer" class="font-medium text-slate-100 hover:text-indigo-400 truncate block" title="{{.Name}}">{{.Name}}</a>
+                <p class="font-mono text-xs text-slate-500 truncate">{{.ID}}</p>
+              </td>
+              <td class="px-4 py-3 text-slate-300 whitespace-nowrap">{{.TenantName}}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                <span class="inline-flex rounded-md bg-purple-500/10 px-2 py-0.5 font-mono text-xs text-purple-300 ring-1 ring-inset ring-purple-500/20">{{.ContentType}}</span>
+              </td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums text-slate-200 whitespace-nowrap">{{bytes .Size}}</td>
+              <td class="px-4 py-3 font-mono text-xs text-slate-500" title="{{.Checksum}}">{{printf "%.12s" .Checksum}}…</td>
+              <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{{datetime .CreatedAt}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="6" class="px-4 py-12 text-center text-slate-500">No files have been uploaded yet.</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</body>
+</html>

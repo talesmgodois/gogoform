@@ -81,11 +81,15 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           routes(newServices(db.New(pool))),
+		Handler:           routes(newServices(db.New(pool)), cfg.App),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+	}
+
+	if !cfg.App.Enabled() {
+		log.Warn("/app dashboard disabled: set APP_USERNAME and APP_PASSWORD to enable it")
 	}
 
 	errCh := make(chan error, 1)
@@ -129,7 +133,9 @@ func newServices(q db.Querier) services {
 	}
 }
 
-func routes(svc services) http.Handler {
+// routes builds the HTTP handler. The /app dashboard is only mounted when
+// appCfg holds credentials, because it lists every tenant's data.
+func routes(svc services, appCfg config.AppConfig) http.Handler {
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
 	formsCtl := &formsController{forms: svc.forms}
 	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions}
@@ -161,5 +167,11 @@ func routes(svc services) http.Handler {
 
 	mux.HandleFunc("GET /public/forms/{slug}", formsCtl.GetPublic)
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", submissionsCtl.Create)
+
+	if appCfg.Enabled() {
+		appCtl := &appController{forms: svc.forms, files: svc.files}
+		mux.HandleFunc("GET /app", basicAuth(appCfg, appCtl.Index))
+		mux.Handle("GET /app/{$}", http.RedirectHandler("/app", http.StatusMovedPermanently))
+	}
 	return mux
 }
