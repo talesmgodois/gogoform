@@ -72,7 +72,7 @@ const docTemplate = `{
         },
         "/files/{id}": {
             "get": {
-                "description": "Returns the raw content of a file, with its stored content type. Supports HEAD, Range and conditional (ETag) requests. No API key is needed: the file ID is unguessable.",
+                "description": "Returns the raw content of a file, with its stored content type. Supports HEAD, Range and conditional (ETag) requests. No API key is needed: the file ID is unguessable. Set download=1 to have browsers save the file instead of displaying it.",
                 "produces": [
                     "application/octet-stream"
                 ],
@@ -87,6 +87,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Serve the file as an attachment",
+                        "name": "download",
+                        "in": "query"
                     }
                 ],
                 "responses": {

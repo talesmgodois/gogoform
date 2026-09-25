@@ -120,6 +120,25 @@ func TestGetFile(t *testing.T) {
 	assertStatus(t, do(t, svc, http.MethodGet, "/files/unknown", "", false), http.StatusNotFound)
 }
 
+func TestGetFileDownload(t *testing.T) {
+	svc := testServices()
+	svc.files.(*fakeFiles).files[testFileID] = files.File{ID: testFileID, Name: "logo.png", ContentType: "image/png", Data: []byte("png")}
+
+	tests := map[string]string{
+		"?download=1":     "attachment; filename=logo.png",
+		"?download=true":  "attachment; filename=logo.png",
+		"?download=0":     "inline; filename=logo.png",
+		"?download=maybe": "inline; filename=logo.png",
+	}
+	for query, want := range tests {
+		rec := do(t, svc, http.MethodGet, "/files/"+testFileID+query, "", false)
+		assertStatus(t, rec, http.StatusOK)
+		if got := rec.Header().Get("Content-Disposition"); got != want {
+			t.Errorf("%s: Content-Disposition = %q, want %q", query, got, want)
+		}
+	}
+}
+
 func TestDeleteFile(t *testing.T) {
 	svc := testServices()
 	fake := svc.files.(*fakeFiles)

@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -20,10 +22,13 @@ import (
 // are still shown so truncation is visible.
 const appListLimit = 100
 
-// appContentSecurityPolicy only lets the page load the Tailwind Play CDN,
-// which injects the generated CSS as inline <style> tags.
-const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com; " +
-	"style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+// appContentSecurityPolicy lets the page load the Tailwind Play CDN, which
+// injects the generated CSS as inline <style> tags, and run the file viewer
+// script carrying the per-request nonce (the %s verb). The viewer embeds files
+// from /files/{id}: images, audio/video, PDFs in a frame and text via fetch.
+const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%s'; " +
+	"style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; " +
+	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 //go:embed templates
 var templatesFS embed.FS
@@ -41,6 +46,8 @@ type appPage struct {
 	Files       []files.FileSummary
 	FilesTotal  int64
 	GeneratedAt time.Time
+	// Nonce authorizes the page's inline script in the Content-Security-Policy.
+	Nonce string
 }
 
 // appController serves the read-only /app dashboard listing the forms and
@@ -57,6 +64,10 @@ func (c *appController) Index(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
+	if page.Nonce, err = newNonce(); err != nil {
+		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
+		return
+	}
 	// Render to a buffer first so a template error still yields a clean 500.
 	var buf bytes.Buffer
 	if err := appTemplate.Execute(&buf, page); err != nil {
@@ -65,7 +76,7 @@ func (c *appController) Index(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", appContentSecurityPolicy)
+	h.Set("Content-Security-Policy", fmt.Sprintf(appContentSecurityPolicy, page.Nonce))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Cache-Control", "no-store")
@@ -90,6 +101,15 @@ func (c *appController) load(r *http.Request) (appPage, error) {
 		return appPage{}, err
 	}
 	return page, nil
+}
+
+// newNonce returns a random CSP nonce.
+func newNonce() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // basicAuth requires the HTTP Basic credentials of cfg. Both sides are hashed
