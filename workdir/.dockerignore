@@ -1,0 +1,8 @@
+bin/
+.env
+.env.*
+!.env.example
+dbml-error.log
+docker-compose.yml
+Dockerfile
+.dockerignore
