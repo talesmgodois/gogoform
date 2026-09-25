@@ -55,3 +55,15 @@ RETURNING *;
 -- name: DeleteForm :execrows
 DELETE FROM forms
 WHERE id = $1 AND tenant_id = $2;
+
+-- name: ListAllForms :many
+-- Across every tenant, for the read-only /app dashboard.
+SELECT f.*, t.name AS tenant_name,
+       (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+ORDER BY f.created_at DESC, f.id DESC
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
+
+-- name: CountAllForms :one
+SELECT count(*) FROM forms;

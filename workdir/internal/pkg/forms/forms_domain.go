@@ -36,6 +36,13 @@ type FormSummary struct {
 	SubmissionCount int64
 }
 
+// FormOverview is a FormSummary together with the name of its tenant, as
+// shown in cross-tenant listings.
+type FormOverview struct {
+	FormSummary
+	TenantName string
+}
+
 // CreateFormInput holds the data needed to create a form.
 type CreateFormInput struct {
 	TenantID    int32

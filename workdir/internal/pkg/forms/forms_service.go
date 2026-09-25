@@ -145,6 +145,49 @@ func (s *Service) Count(ctx context.Context, filter ListFormsFilter) (int64, err
 	return n, nil
 }
 
+// ListAll returns the forms of every tenant, newest first.
+func (s *Service) ListAll(ctx context.Context, page Page) ([]FormOverview, error) {
+	if page.Offset < 0 || page.Limit < 1 {
+		return nil, apperrors.NewBadRequest(msgInvalidPage)
+	}
+	rows, err := s.q.ListAllForms(ctx, db.ListAllFormsParams{PageOffset: page.Offset, PageLimit: page.Limit})
+	if err != nil {
+		return nil, apperrors.NewInternal(err)
+	}
+	forms := make([]FormOverview, len(rows))
+	for i, row := range rows {
+		forms[i] = FormOverview{
+			FormSummary: FormSummary{
+				Form: toForm(db.Form{
+					ID:          row.ID,
+					TenantID:    row.TenantID,
+					Title:       row.Title,
+					Slug:        row.Slug,
+					Description: row.Description,
+					IsActive:    row.IsActive,
+					StartDate:   row.StartDate,
+					EndDate:     row.EndDate,
+					FormContent: row.FormContent,
+					CreatedAt:   row.CreatedAt,
+					UpdatedAt:   row.UpdatedAt,
+				}),
+				SubmissionCount: row.SubmissionCount,
+			},
+			TenantName: row.TenantName,
+		}
+	}
+	return forms, nil
+}
+
+// CountAll returns how many forms exist across every tenant.
+func (s *Service) CountAll(ctx context.Context) (int64, error) {
+	n, err := s.q.CountAllForms(ctx)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
+}
+
 // Update replaces the stored state of a form and returns it.
 func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) {
 	row, err := s.q.UpdateForm(ctx, db.UpdateFormParams{

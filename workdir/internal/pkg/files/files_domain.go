@@ -28,3 +28,16 @@ type CreateFileInput struct {
 	ContentType string
 	Data        []byte
 }
+
+// FileSummary is a File (without Data) together with the name of its tenant,
+// as shown in cross-tenant listings.
+type FileSummary struct {
+	File
+	TenantName string
+}
+
+// Page selects a window of a listing.
+type Page struct {
+	Offset int32
+	Limit  int32
+}

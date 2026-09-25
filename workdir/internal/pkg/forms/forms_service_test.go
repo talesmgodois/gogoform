@@ -24,6 +24,8 @@ type fakeQuerier struct {
 	getPublicFormBySlug func(string) (db.Form, error)
 	listFormsByTenant   func(db.ListFormsByTenantParams) ([]db.ListFormsByTenantRow, error)
 	countFormsByTenant  func(db.CountFormsByTenantParams) (int64, error)
+	listAllForms        func(db.ListAllFormsParams) ([]db.ListAllFormsRow, error)
+	countAllForms       func() (int64, error)
 	updateForm          func(db.UpdateFormParams) (db.Form, error)
 	deleteForm          func(db.DeleteFormParams) (int64, error)
 }
@@ -46,6 +48,14 @@ func (f *fakeQuerier) ListFormsByTenant(_ context.Context, arg db.ListFormsByTen
 
 func (f *fakeQuerier) CountFormsByTenant(_ context.Context, arg db.CountFormsByTenantParams) (int64, error) {
 	return f.countFormsByTenant(arg)
+}
+
+func (f *fakeQuerier) ListAllForms(_ context.Context, arg db.ListAllFormsParams) ([]db.ListAllFormsRow, error) {
+	return f.listAllForms(arg)
+}
+
+func (f *fakeQuerier) CountAllForms(context.Context) (int64, error) {
+	return f.countAllForms()
 }
 
 func (f *fakeQuerier) UpdateForm(_ context.Context, arg db.UpdateFormParams) (db.Form, error) {
@@ -310,6 +320,75 @@ func TestCount(t *testing.T) {
 			}})
 
 			got, err := svc.Count(context.Background(), filter)
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListAll(t *testing.T) {
+	row := db.ListAllFormsRow{
+		ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
+		IsActive: ptr(true), StartDate: &now, FormContent: content,
+		CreatedAt: &now, UpdatedAt: &now, TenantName: "Acme", SubmissionCount: 12,
+	}
+	tests := []struct {
+		name     string
+		page     Page
+		err      error
+		wantCode apperrors.Code
+		want     []FormOverview
+	}{
+		{"ok", Page{Offset: 20, Limit: 10}, nil, "", []FormOverview{{FormSummary: FormSummary{Form: wantForm, SubmissionCount: 12}, TenantName: "Acme"}}},
+		{"negative offset", Page{Offset: -1, Limit: 10}, nil, apperrors.CodeInvalidArgument, nil},
+		{"zero limit", Page{Offset: 0, Limit: 0}, nil, apperrors.CodeInvalidArgument, nil},
+		{"db failure", Page{Offset: 0, Limit: 10}, errDB, apperrors.CodeInternal, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{listAllForms: func(arg db.ListAllFormsParams) ([]db.ListAllFormsRow, error) {
+				if want := (db.ListAllFormsParams{PageOffset: tt.page.Offset, PageLimit: tt.page.Limit}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				if tt.err != nil {
+					return nil, tt.err
+				}
+				return []db.ListAllFormsRow{row}, nil
+			}})
+
+			got, err := svc.ListAll(context.Background(), tt.page)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("forms = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountAll(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", nil, "", 42},
+		{"db failure", errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{countAllForms: func() (int64, error) {
+				if tt.err != nil {
+					return 0, tt.err
+				}
+				return 42, nil
+			}})
+
+			got, err := svc.CountAll(context.Background())
 
 			assertCode(t, err, tt.wantCode)
 			if got != tt.want {

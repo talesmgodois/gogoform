@@ -18,6 +18,7 @@ import (
 const (
 	msgNotFound       = "file not found"
 	msgTenantNotFound = "tenant not found"
+	msgInvalidPage    = "page offset must be >= 0 and limit must be > 0"
 )
 
 // uuidPattern is the canonical textual form of a UUID. IDs that do not match
@@ -88,6 +89,42 @@ func (s *Service) GetByID(ctx context.Context, id string) (File, error) {
 		CreatedAt:   row.CreatedAt,
 		Data:        row.Data,
 	}, nil
+}
+
+// ListAll returns the files of every tenant without their Data, newest first.
+func (s *Service) ListAll(ctx context.Context, page Page) ([]FileSummary, error) {
+	if page.Offset < 0 || page.Limit < 1 {
+		return nil, apperrors.NewBadRequest(msgInvalidPage)
+	}
+	rows, err := s.q.ListAllFiles(ctx, db.ListAllFilesParams{PageOffset: page.Offset, PageLimit: page.Limit})
+	if err != nil {
+		return nil, apperrors.NewInternal(err)
+	}
+	files := make([]FileSummary, len(rows))
+	for i, row := range rows {
+		files[i] = FileSummary{
+			File: File{
+				ID:          row.ID,
+				TenantID:    row.TenantID,
+				Name:        row.Name,
+				ContentType: row.ContentType,
+				Size:        row.SizeBytes,
+				Checksum:    row.ChecksumSha256,
+				CreatedAt:   row.CreatedAt,
+			},
+			TenantName: row.TenantName,
+		}
+	}
+	return files, nil
+}
+
+// CountAll returns how many files exist across every tenant.
+func (s *Service) CountAll(ctx context.Context) (int64, error) {
+	n, err := s.q.CountAllFiles(ctx)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
 }
 
 // Delete removes the tenant's file with the given ID.
