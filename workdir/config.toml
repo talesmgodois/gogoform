@@ -7,3 +7,10 @@ level = "debug"
 
 [database]
 uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
+
+# HTTP Basic credentials of the read-only /app dashboard, which lists every
+# tenant's forms and files. The dashboard is disabled while they are unset.
+# Prefer APP_USERNAME / APP_PASSWORD over committing them here.
+[app]
+# username = "admin"
+# password = "change-me"
