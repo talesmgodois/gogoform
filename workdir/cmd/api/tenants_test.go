@@ -58,7 +58,7 @@ func TestAuthenticateInvalidKey(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/tenants/me", nil)
 	req.Header.Set(apiKeyHeader, "wrong")
 	rec := httptest.NewRecorder()
-	routes(testServices()).ServeHTTP(rec, req)
+	routes(testServices(), testAppConfig).ServeHTTP(rec, req)
 
 	assertStatus(t, rec, http.StatusUnauthorized)
 	if body := decode[apperrors.HTTPErrorResponse](t, rec); body.Code != apperrors.CodeUnauthorized {

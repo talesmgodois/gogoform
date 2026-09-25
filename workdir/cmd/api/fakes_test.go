@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"app/internal/config"
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
@@ -17,6 +18,9 @@ import (
 )
 
 const testAPIKey = "test-key"
+
+// testAppConfig enables the /app dashboard with known credentials.
+var testAppConfig = config.AppConfig{Username: "admin", Password: "s3cret"}
 
 // testTenant is the tenant owning testAPIKey.
 var testTenant = tenants.Tenant{ID: 7, Name: "Acme", APIKey: testAPIKey, IsActive: true}
@@ -101,6 +105,22 @@ func (f *fakeForms) Count(_ context.Context, filter forms.ListFormsFilter) (int6
 	return int64(len(items)), nil
 }
 
+func (f *fakeForms) ListAll(_ context.Context, page forms.Page) ([]forms.FormOverview, error) {
+	f.page = page
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []forms.FormOverview
+	for _, form := range f.forms {
+		out = append(out, forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: 3}, TenantName: "Acme"})
+	}
+	return out, nil
+}
+
+func (f *fakeForms) CountAll(context.Context) (int64, error) {
+	return int64(len(f.forms)), nil
+}
+
 func (f *fakeForms) Update(_ context.Context, in forms.UpdateFormInput) (forms.Form, error) {
 	f.updated = in
 	if _, err := f.GetByID(context.Background(), in.TenantID, in.ID); err != nil {
@@ -164,6 +184,8 @@ func (f *fakeWebhooks) ListActiveByForm(_ context.Context, _ int32) ([]webhooks.
 type fakeFiles struct {
 	files   map[string]files.File
 	created files.CreateFileInput
+	page    files.Page
+	err     error
 }
 
 func (f *fakeFiles) Create(_ context.Context, in files.CreateFileInput) (files.File, error) {
@@ -177,6 +199,23 @@ func (f *fakeFiles) GetByID(_ context.Context, id string) (files.File, error) {
 		return files.File{}, apperrors.NewNotFound("file not found")
 	}
 	return file, nil
+}
+
+func (f *fakeFiles) ListAll(_ context.Context, page files.Page) ([]files.FileSummary, error) {
+	f.page = page
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []files.FileSummary
+	for _, file := range f.files {
+		file.Data = nil
+		out = append(out, files.FileSummary{File: file, TenantName: "Acme"})
+	}
+	return out, nil
+}
+
+func (f *fakeFiles) CountAll(context.Context) (int64, error) {
+	return int64(len(f.files)), nil
 }
 
 func (f *fakeFiles) Delete(ctx context.Context, tenantID int32, id string) error {
@@ -198,7 +237,7 @@ func testServices(fs ...forms.Form) services {
 	}
 }
 
-// do sends a request with the given body (if any) through routes(svc),
+// do sends a request with the given body (if any) through routes(svc, testAppConfig),
 // authenticated with testAPIKey when auth is true.
 func do(t *testing.T, svc services, method, path, body string, auth bool) *httptest.ResponseRecorder {
 	t.Helper()
@@ -211,7 +250,7 @@ func do(t *testing.T, svc services, method, path, body string, auth bool) *httpt
 		req.Header.Set(apiKeyHeader, testAPIKey)
 	}
 	rec := httptest.NewRecorder()
-	routes(svc).ServeHTTP(rec, req)
+	routes(svc, testAppConfig).ServeHTTP(rec, req)
 	return rec
 }
 

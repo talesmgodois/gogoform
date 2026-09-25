@@ -7,7 +7,7 @@ import (
 )
 
 func TestRoutes(t *testing.T) {
-	srv := httptest.NewServer(routes(testServices()))
+	srv := httptest.NewServer(routes(testServices(), testAppConfig))
 	defer srv.Close()
 
 	tests := []struct {
@@ -29,6 +29,9 @@ func TestRoutes(t *testing.T) {
 		{http.MethodGet, "/forms/1/submissions", http.StatusUnauthorized},
 		{http.MethodGet, "/forms/1/webhooks", http.StatusUnauthorized},
 		{http.MethodPost, "/forms/1/webhooks", http.StatusUnauthorized},
+		// The dashboard requires basic auth.
+		{http.MethodGet, "/app", http.StatusUnauthorized},
+		{http.MethodPost, "/app", http.StatusMethodNotAllowed},
 		// Public endpoints do not.
 		{http.MethodGet, "/public/forms/missing", http.StatusNotFound},
 		{http.MethodPatch, "/forms/1", http.StatusMethodNotAllowed},
