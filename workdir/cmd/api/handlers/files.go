@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -82,10 +83,11 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 // Get serves a file's content.
 //
 //	@Summary		Download a file
-//	@Description	Returns the raw content of a file, with its stored content type. Supports HEAD, Range and conditional (ETag) requests. No API key is needed: the file ID is unguessable.
+//	@Description	Returns the raw content of a file, with its stored content type. Supports HEAD, Range and conditional (ETag) requests. No API key is needed: the file ID is unguessable. Set download=1 to have browsers save the file instead of displaying it.
 //	@Tags			files
 //	@Produce		octet-stream
-//	@Param			id	path		string						true	"File ID (UUID)"
+//	@Param			id			path		string						true	"File ID (UUID)"
+//	@Param			download	query		bool						false	"Serve the file as an attachment"
 //	@Success		200	{file}		file						"File content"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"File not found"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
@@ -96,9 +98,13 @@ func (c *filesController) Get(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	disposition := mime.FormatMediaType("inline", map[string]string{"filename": f.Name})
+	dispositionType := "inline"
+	if download, _ := strconv.ParseBool(r.URL.Query().Get("download")); download {
+		dispositionType = "attachment"
+	}
+	disposition := mime.FormatMediaType(dispositionType, map[string]string{"filename": f.Name})
 	if disposition == "" {
-		disposition = "inline"
+		disposition = dispositionType
 	}
 	h := w.Header()
 	h.Set("Content-Type", f.ContentType)

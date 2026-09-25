@@ -442,13 +442,18 @@ paths:
     get:
       description: 'Returns the raw content of a file, with its stored content type.
         Supports HEAD, Range and conditional (ETag) requests. No API key is needed:
-        the file ID is unguessable.'
+        the file ID is unguessable. Set download=1 to have browsers save the file
+        instead of displaying it.'
       parameters:
       - description: File ID (UUID)
         in: path
         name: id
         required: true
         type: string
+      - description: Serve the file as an attachment
+        in: query
+        name: download
+        type: boolean
       produces:
       - application/octet-stream
       responses:
