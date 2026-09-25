@@ -1,31 +1,18 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex">
-  <title>Dashboard · GoGoForm</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+{{template "head" "Dashboard"}}
 </head>
 <body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
 
-  <header class="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-    <div class="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="bg-gradient-to-tr from-indigo-600 to-purple-600 w-9 h-9 rounded-xl grid place-items-center font-bold text-white shadow-lg shadow-indigo-500/20">G</div>
-        <div>
-          <h1 class="font-bold text-base tracking-tight flex items-center gap-2">
-            GoGoForm
-            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono uppercase">read-only</span>
-          </h1>
-          <p class="text-xs text-slate-400">Forms and files across every tenant</p>
-        </div>
-      </div>
-      <p class="text-xs text-slate-500 hidden sm:block">Generated {{datetime .GeneratedAt}}</p>
-    </div>
-  </header>
+{{template "nav" .}}
 
   <main class="mx-auto max-w-7xl px-6 py-8 space-y-10">
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-xs text-slate-500">Generated {{datetime .GeneratedAt}}</p>
+      <a href="/app/builder" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/25">New form</a>
+    </div>
 
     <section class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
@@ -53,13 +40,14 @@
               <th class="px-4 py-3 font-semibold text-right">Submissions</th>
               <th class="px-4 py-3 font-semibold">Availability</th>
               <th class="px-4 py-3 font-semibold">Created</th>
+              <th class="px-4 py-3 font-semibold text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800">
             {{range .Forms}}
             <tr class="hover:bg-slate-800/40 transition">
               <td class="px-4 py-3 max-w-sm">
-                <p class="font-medium text-slate-100 truncate" title="{{.Title}}">{{.Title}}</p>
+                <a href="/app/forms/{{.ID}}" class="block font-medium text-slate-100 hover:text-indigo-400 truncate" title="View the submissions of {{.Title}}">{{.Title}}</a>
                 <p class="font-mono text-xs text-indigo-400 truncate">/{{.Slug}}</p>
                 {{with .Description}}<p class="mt-1 text-xs text-slate-400 line-clamp-2">{{.}}</p>{{end}}
               </td>
@@ -73,9 +61,15 @@
                 <p>Until {{datetime .EndDate}}</p>
               </td>
               <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{{datetime .CreatedAt}}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                <div class="flex items-center justify-end gap-1 text-xs font-medium">
+                  <a href="/app/forms/{{.ID}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Submissions</a>
+                  <a href="/app/builder?form={{.ID}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Start a new form from a copy of this one">Duplicate</a>
+                </div>
+              </td>
             </tr>
             {{else}}
-            <tr><td colspan="6" class="px-4 py-12 text-center text-slate-500">No forms have been created yet.</td></tr>
+            <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">No forms have been created yet.</td></tr>
             {{end}}
           </tbody>
         </table>

@@ -69,6 +69,61 @@ func (q *Queries) CreateSubmissionMetadata(ctx context.Context, arg CreateSubmis
 	return i, err
 }
 
+const listAllSubmissionsByForm = `-- name: ListAllSubmissionsByForm :many
+SELECT s.id, s.form_id, s.payload, s.submitted_at, m.ip_address, m.user_agent, m.completion_time_seconds, m.referer
+FROM form_submissions s
+JOIN forms f ON f.id = s.form_id
+LEFT JOIN submission_metadata m ON m.submission_id = s.id
+WHERE s.form_id = $1 AND f.tenant_id = $2
+ORDER BY s.submitted_at DESC, s.id DESC
+`
+
+type ListAllSubmissionsByFormParams struct {
+	FormID   int32 `db:"form_id" json:"form_id"`
+	TenantID int32 `db:"tenant_id" json:"tenant_id"`
+}
+
+type ListAllSubmissionsByFormRow struct {
+	ID                    int32           `db:"id" json:"id"`
+	FormID                int32           `db:"form_id" json:"form_id"`
+	Payload               json.RawMessage `db:"payload" json:"payload"`
+	SubmittedAt           *time.Time      `db:"submitted_at" json:"submitted_at"`
+	IpAddress             *string         `db:"ip_address" json:"ip_address"`
+	UserAgent             *string         `db:"user_agent" json:"user_agent"`
+	CompletionTimeSeconds *int32          `db:"completion_time_seconds" json:"completion_time_seconds"`
+	Referer               *string         `db:"referer" json:"referer"`
+}
+
+// Same as ListSubmissionsByForm without pagination, for exports.
+func (q *Queries) ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmissionsByFormParams) ([]ListAllSubmissionsByFormRow, error) {
+	rows, err := q.db.Query(ctx, listAllSubmissionsByForm, arg.FormID, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllSubmissionsByFormRow{}
+	for rows.Next() {
+		var i ListAllSubmissionsByFormRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FormID,
+			&i.Payload,
+			&i.SubmittedAt,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.CompletionTimeSeconds,
+			&i.Referer,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSubmissionsByForm = `-- name: ListSubmissionsByForm :many
 SELECT s.id, s.form_id, s.payload, s.submitted_at, m.ip_address, m.user_agent, m.completion_time_seconds, m.referer
 FROM form_submissions s

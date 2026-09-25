@@ -1,0 +1,32 @@
+{{/* Partials shared by every /app page. */}}
+
+{{define "head"}}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>{{.}} · GoGoForm</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+{{end}}
+
+{{/* nav is the top bar; it expects the page, whose Active names the current tab. */}}
+{{define "nav"}}
+  <header class="sticky top-0 z-20 shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+    <div class="px-6 h-16 flex items-center justify-between gap-6">
+      <a href="/app" class="flex items-center gap-3">
+        <div class="bg-gradient-to-tr from-indigo-600 to-purple-600 w-9 h-9 rounded-xl grid place-items-center font-bold text-white shadow-lg shadow-indigo-500/20">G</div>
+        <div>
+          <p class="font-bold text-base tracking-tight flex items-center gap-2">
+            GoGoForm
+            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono uppercase">admin</span>
+          </p>
+          <p class="text-xs text-slate-400 hidden sm:block">Forms and files across every tenant</p>
+        </div>
+      </a>
+      <nav class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+        {{range $tab := navTabs}}
+        <a href="{{$tab.Href}}" class="px-4 py-1.5 rounded-lg transition {{if eq $tab.Key $.Active}}bg-indigo-600 text-white shadow{{else}}text-slate-400 hover:text-white{{end}}"{{if eq $tab.Key $.Active}} aria-current="page"{{end}}>{{$tab.Label}}</a>
+        {{end}}
+      </nav>
+    </div>
+  </header>
+{{end}}

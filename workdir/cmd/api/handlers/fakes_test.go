@@ -121,6 +121,14 @@ func (f *fakeForms) CountAll(context.Context) (int64, error) {
 	return int64(len(f.forms)), nil
 }
 
+func (f *fakeForms) GetAnyByID(_ context.Context, id int32) (forms.FormOverview, error) {
+	form, ok := f.forms[id]
+	if !ok {
+		return forms.FormOverview{}, apperrors.NewNotFound("form not found")
+	}
+	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: 3}, TenantName: "Acme"}, nil
+}
+
 func (f *fakeForms) Update(_ context.Context, in forms.UpdateFormInput) (forms.Form, error) {
 	f.updated = in
 	if _, err := f.GetByID(context.Background(), in.TenantID, in.ID); err != nil {
@@ -162,6 +170,11 @@ func (f *fakeSubmissions) AddMetadata(_ context.Context, _ int32, m submissions.
 
 func (f *fakeSubmissions) ListByForm(_ context.Context, filter submissions.ListSubmissionsFilter, page submissions.Page) ([]submissions.Submission, error) {
 	f.filter, f.page = filter, page
+	return f.list, nil
+}
+
+func (f *fakeSubmissions) ListAllByForm(_ context.Context, filter submissions.ListSubmissionsFilter) ([]submissions.Submission, error) {
+	f.filter = filter
 	return f.list, nil
 }
 

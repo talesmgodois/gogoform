@@ -16,16 +16,18 @@ import (
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/submissions"
 )
 
-// appListLimit caps how many forms and files the dashboard lists; the totals
-// are still shown so truncation is visible.
+// appListLimit caps how many forms, files and submissions the pages list; the
+// totals are still shown so truncation is visible.
 const appListLimit = 100
 
-// appContentSecurityPolicy lets the page load the Tailwind Play CDN, which
-// injects the generated CSS as inline <style> tags, and run the file viewer
-// script carrying the per-request nonce (the %s verb). The viewer embeds files
-// from /files/{id}: images, audio/video, PDFs in a frame and text via fetch.
+// appContentSecurityPolicy lets the pages load the Tailwind Play CDN, which
+// injects the generated CSS as inline <style> tags, and run the inline scripts
+// carrying the per-request nonce (the %s verb). The file viewer embeds files
+// from /files/{id}: images, audio/video, PDFs in a frame and text via fetch;
+// the form builder calls POST /forms.
 const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%s'; " +
 	"style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -33,28 +35,68 @@ const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tai
 //go:embed templates
 var templatesFS embed.FS
 
-var appTemplate = template.Must(template.New("app.html").Funcs(template.FuncMap{
+// appFuncs are the helpers available to every /app template.
+var appFuncs = template.FuncMap{
 	"bytes":    formatBytes,
 	"datetime": formatDateTime,
 	"status":   formStatus,
-}).ParseFS(templatesFS, "templates/app.html"))
+	"navTabs":  func() []navTab { return appNavTabs },
+	"add":      func(a, b int) int { return a + b },
+}
+
+var (
+	appTemplate        = parseAppPage("app.html")
+	appFormTemplate    = parseAppPage("form.html")
+	appBuilderTemplate = parseAppPage("builder.html")
+)
+
+// parseAppPage parses the page template called name along with the shared
+// partials of templates/layout.html.
+func parseAppPage(name string) *template.Template {
+	return template.Must(template.New(name).Funcs(appFuncs).ParseFS(templatesFS, "templates/layout.html", "templates/"+name))
+}
+
+// navTab is an entry of the /app navigation bar.
+type navTab struct {
+	Key, Label, Href string
+}
+
+var appNavTabs = []navTab{
+	{"dashboard", "Dashboard", "/app"},
+	{"builder", "Form builder", "/app/builder"},
+}
+
+// appLayout holds the data every /app page shares.
+type appLayout struct {
+	// Active is the Key of the highlighted navTab.
+	Active string
+	// Nonce authorizes the page's inline scripts in the Content-Security-Policy.
+	Nonce string
+}
+
+func (l *appLayout) layout() *appLayout { return l }
+
+// appPageData is implemented by the page types, which all embed appLayout.
+type appPageData interface {
+	layout() *appLayout
+}
 
 // appPage is the data rendered by templates/app.html.
 type appPage struct {
+	appLayout
 	Forms       []forms.FormOverview
 	FormsTotal  int64
 	Files       []files.FileSummary
 	FilesTotal  int64
 	GeneratedAt time.Time
-	// Nonce authorizes the page's inline script in the Content-Security-Policy.
-	Nonce string
 }
 
-// appController serves the read-only /app dashboard listing the forms and
-// files of every tenant.
+// appController serves the /app dashboard listing the forms and files of
+// every tenant, the submissions of each form and the form builder.
 type appController struct {
-	forms forms.Repository
-	files files.Repository
+	forms       forms.Repository
+	files       files.Repository
+	submissions submissions.Repository
 }
 
 // Index renders the dashboard.
@@ -64,24 +106,38 @@ func (c *appController) Index(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	if page.Nonce, err = newNonce(); err != nil {
+	page.Active = "dashboard"
+	renderAppPage(w, r, appTemplate, &page)
+}
+
+// renderAppPage renders t with page, which it gives a fresh nonce, along
+// with the security headers of every /app page.
+func renderAppPage(w http.ResponseWriter, r *http.Request, t *template.Template, page appPageData) {
+	nonce, err := newNonce()
+	if err != nil {
 		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
 		return
 	}
+	page.layout().Nonce = nonce
 	// Render to a buffer first so a template error still yields a clean 500.
 	var buf bytes.Buffer
-	if err := appTemplate.Execute(&buf, page); err != nil {
+	if err := t.Execute(&buf, page); err != nil {
 		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
 		return
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", fmt.Sprintf(appContentSecurityPolicy, page.Nonce))
+	h.Set("Content-Security-Policy", fmt.Sprintf(appContentSecurityPolicy, nonce))
+	setAppNoStoreHeaders(h)
+	w.WriteHeader(http.StatusOK)
+	buf.WriteTo(w)
+}
+
+// setAppNoStoreHeaders sets the headers shared by every /app response.
+func setAppNoStoreHeaders(h http.Header) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	buf.WriteTo(w)
 }
 
 func (c *appController) load(r *http.Request) (appPage, error) {
@@ -103,13 +159,14 @@ func (c *appController) load(r *http.Request) (appPage, error) {
 	return page, nil
 }
 
-// newNonce returns a random CSP nonce.
+// newNonce returns a random CSP nonce. It uses the URL-safe base64 alphabet,
+// which CSP accepts, because html/template escapes the "+" of the standard one.
 func newNonce() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(b), nil
+	return base64.URLEncoding.EncodeToString(b), nil
 }
 
 // basicAuth requires the HTTP Basic credentials of cfg. Both sides are hashed
