@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	apperrors "app/internal/errors"
+	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
@@ -159,6 +160,33 @@ func (f *fakeWebhooks) ListActiveByForm(_ context.Context, _ int32) ([]webhooks.
 	return f.list, nil
 }
 
+// fakeFiles is a files.Repository holding files in a map keyed by ID.
+type fakeFiles struct {
+	files   map[string]files.File
+	created files.CreateFileInput
+}
+
+func (f *fakeFiles) Create(_ context.Context, in files.CreateFileInput) (files.File, error) {
+	f.created = in
+	return files.File{ID: testFileID, TenantID: in.TenantID, Name: in.Name, ContentType: in.ContentType, Size: int64(len(in.Data))}, nil
+}
+
+func (f *fakeFiles) GetByID(_ context.Context, id string) (files.File, error) {
+	file, ok := f.files[id]
+	if !ok {
+		return files.File{}, apperrors.NewNotFound("file not found")
+	}
+	return file, nil
+}
+
+func (f *fakeFiles) Delete(ctx context.Context, tenantID int32, id string) error {
+	if file, ok := f.files[id]; !ok || file.TenantID != tenantID {
+		return apperrors.NewNotFound("file not found")
+	}
+	delete(f.files, id)
+	return nil
+}
+
 // testServices returns services backed by fakes, with forms holding fs.
 func testServices(fs ...forms.Form) services {
 	return services{
@@ -166,6 +194,7 @@ func testServices(fs ...forms.Form) services {
 		forms:       newFakeForms(fs...),
 		submissions: &fakeSubmissions{},
 		webhooks:    &fakeWebhooks{},
+		files:       &fakeFiles{files: map[string]files.File{}},
 	}
 }
 
