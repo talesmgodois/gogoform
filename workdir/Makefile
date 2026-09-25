@@ -22,7 +22,7 @@ export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR DATABASE_URL
 export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
 .DEFAULT_GOAL := help
-.PHONY: help dev db-up db-down db-logs build run test swagger \
+.PHONY: help dev db-up db-down db-logs adminer build run test swagger \
         setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
 
 help: ## Show commands and descriptions
@@ -39,6 +39,9 @@ db-down: ## Stop and remove the database containers (data volume is kept)
 
 db-logs: ## Tail PostgreSQL logs
 	$(COMPOSE) logs -f postgres
+
+adminer: ## Start Adminer (web UI to query PostgreSQL) on ADMINER_PORT (default 8088)
+	$(COMPOSE) up -d --wait adminer
 
 build: ## Compile the API binary to ./bin/api
 	go build -o $(BIN) $(PKG)
