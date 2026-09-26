@@ -6,7 +6,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 TASKS_DIR = BASE_DIR / "tasks"
 # Every place a task file can live, so a number is never reused.
-TASK_DIRS = (TASKS_DIR, BASE_DIR / "finished", BASE_DIR / "errors")
+TASK_DIRS = (TASKS_DIR, BASE_DIR / "finished", BASE_DIR / "errors", BASE_DIR / "archive")
 TASK_NUMBER_RE = re.compile(r"^(\d+)_")
 
 
