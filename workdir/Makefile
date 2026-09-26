@@ -14,7 +14,7 @@ COMPOSE    := docker compose
 DB_SCRIPT      := scripts/setup_migrations.sh
 DBML_INPUT     ?= ../__ai_work/_inputs/db_schema.dbml
 SCHEMA_OUTPUT  ?= ../__ai_work/outputs/schema.sql
-MIGRATIONS_DIR ?= db/migrations
+MIGRATIONS_DIR ?= db/postgres/migrations
 DATABASE_URL   ?= postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable
 DBMATE         := dbmate --migrations-dir $(MIGRATIONS_DIR) --wait --no-dump-schema
 export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR DATABASE_URL
@@ -81,7 +81,7 @@ migrate-down: ## Roll back the most recent migration
 migrate-status: ## Show applied and pending migrations
 	$(DBMATE) status
 
-sqlc: ## Generate type-safe Go code from db/queries into internal/db
+sqlc: ## Generate type-safe Go code from db/postgres/queries into internal/db
 	sqlc generate
 
 build-db: ## Full pipeline: generate-schema -> migrate-init -> migrate-up -> sqlc

@@ -1,11 +1,10 @@
 package forms
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	"app/internal/database"
 	"app/internal/db"
@@ -22,6 +21,7 @@ const (
 	msgPublicNotAnon  = "a public form must accept anonymous submissions"
 	msgClosed         = "form is closed: its end_date has passed"
 	msgLocked         = "form has submissions: its content cannot change and it cannot become a draft again; duplicate it instead"
+	msgInvalidContent = "form content must be valid JSON"
 )
 
 var _ Repository = (*Service)(nil)
@@ -50,6 +50,10 @@ func (s *Service) Create(ctx context.Context, in CreateFormInput) (Form, error) 
 	if err != nil {
 		return Form{}, err
 	}
+	content, err := canonicalizeJSON(in.Content)
+	if err != nil {
+		return Form{}, err
+	}
 	row, err := s.q.CreateForm(ctx, db.CreateFormParams{
 		TenantID:        in.TenantID,
 		Title:           in.Title,
@@ -58,7 +62,7 @@ func (s *Service) Create(ctx context.Context, in CreateFormInput) (Form, error) 
 		IsActive:        &isActive,
 		StartDate:       in.StartDate,
 		EndDate:         in.EndDate,
-		FormContent:     in.Content,
+		FormContent:     content,
 		PublicAvailable: public,
 		AcceptAnonymous: anonymous,
 		IsDraft:         in.IsDraft,
@@ -262,6 +266,10 @@ func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) 
 	if err != nil {
 		return Form{}, err
 	}
+	content, err := canonicalizeJSON(in.Content)
+	if err != nil {
+		return Form{}, err
+	}
 	row, err := s.q.UpdateForm(ctx, db.UpdateFormParams{
 		ID:              in.ID,
 		TenantID:        in.TenantID,
@@ -271,7 +279,7 @@ func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) 
 		IsActive:        &in.IsActive,
 		StartDate:       in.StartDate,
 		EndDate:         in.EndDate,
-		FormContent:     in.Content,
+		FormContent:     content,
 		PublicAvailable: public,
 		AcceptAnonymous: anonymous,
 		IsDraft:         in.IsDraft,
@@ -281,7 +289,7 @@ func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) 
 		return Form{}, apperrors.NewConflict(msgSlugTaken)
 	case database.IsCheckViolation(err):
 		return Form{}, apperrors.NewBadRequest(msgPublicNotAnon)
-	case errors.Is(err, pgx.ErrNoRows):
+	case database.IsNoRows(err):
 		// No row is updated both when the form does not exist and when its
 		// submissions lock the change: tell them apart.
 		if _, getErr := s.GetByID(ctx, in.TenantID, in.ID); getErr != nil {
@@ -327,9 +335,26 @@ func resolveAccess(publicAvailable, acceptAnonymous *bool) (public, anonymous bo
 	return public, anonymous, nil
 }
 
+// canonicalizeJSON re-marshals raw into a compact form with object keys
+// sorted and numbers preserved, so semantically identical content compares
+// byte for byte regardless of key order or whitespace across engines.
+func canonicalizeJSON(raw json.RawMessage) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, apperrors.NewBadRequest(msgInvalidContent)
+	}
+	canon, err := json.Marshal(v)
+	if err != nil {
+		return nil, apperrors.NewInternal(err)
+	}
+	return canon, nil
+}
+
 // mapGetError translates the error of a single-row form query.
 func mapGetError(err error) error {
-	if errors.Is(err, pgx.ErrNoRows) {
+	if database.IsNoRows(err) {
 		return apperrors.NewNotFound(msgNotFound)
 	}
 	return apperrors.NewInternal(err)

@@ -16,7 +16,7 @@ cd "$ROOT_DIR"
 
 DBML_INPUT="${DBML_INPUT:-../__ai_work/_inputs/db_schema.dbml}"
 SCHEMA_OUTPUT="${SCHEMA_OUTPUT:-../__ai_work/outputs/schema.sql}"
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-db/migrations}"
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-db/postgres/migrations}"
 INITIAL_MIGRATION_NAME="initial_schema"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 DBMATE_FLAGS="${DBMATE_FLAGS:---wait --no-dump-schema}"

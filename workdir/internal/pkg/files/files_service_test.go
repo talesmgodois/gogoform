@@ -92,20 +92,50 @@ func TestCreate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(&fakeQuerier{createFile: func(arg db.CreateFileParams) (db.CreateFileRow, error) {
-				want := db.CreateFileParams{TenantID: 7, Name: "hello.txt", ContentType: "text/plain", SizeBytes: 5, ChecksumSha256: helloSHA256, Data: data}
+				if !uuidPattern.MatchString(arg.ID) {
+					t.Fatalf("id = %q, want a canonical UUID", arg.ID)
+				}
+				want := db.CreateFileParams{ID: arg.ID, TenantID: 7, Name: "hello.txt", ContentType: "text/plain", SizeBytes: 5, ChecksumSha256: helloSHA256, Data: data}
 				if !reflect.DeepEqual(arg, want) {
 					t.Fatalf("params = %+v, want %+v", arg, want)
 				}
-				return db.CreateFileRow{ID: fileID, TenantID: 7, Name: "hello.txt", ContentType: "text/plain", SizeBytes: 5, ChecksumSha256: helloSHA256, CreatedAt: now}, tt.err
+				return db.CreateFileRow{ID: arg.ID, TenantID: 7, Name: "hello.txt", ContentType: "text/plain", SizeBytes: 5, ChecksumSha256: helloSHA256, CreatedAt: now}, tt.err
 			}})
 
 			got, err := svc.Create(context.Background(), CreateFileInput{TenantID: 7, Name: "hello.txt", ContentType: "text/plain", Data: data})
 
 			assertCode(t, err, tt.wantCode)
-			if err == nil && !reflect.DeepEqual(got, meta) {
-				t.Fatalf("file = %+v, want %+v", got, meta)
+			if err == nil {
+				want := meta
+				want.ID = got.ID
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("file = %+v, want %+v", got, want)
+				}
 			}
 		})
+	}
+}
+
+// TestCreateGeneratesUniqueIDs verifies that each call to Create generates a
+// fresh, canonical UUID rather than reusing a fixed one.
+func TestCreateGeneratesUniqueIDs(t *testing.T) {
+	var gotIDs []string
+	svc := NewService(&fakeQuerier{createFile: func(arg db.CreateFileParams) (db.CreateFileRow, error) {
+		if !uuidPattern.MatchString(arg.ID) {
+			t.Fatalf("id = %q, want a canonical UUID", arg.ID)
+		}
+		gotIDs = append(gotIDs, arg.ID)
+		return db.CreateFileRow{ID: arg.ID}, nil
+	}})
+
+	for i := 0; i < 2; i++ {
+		if _, err := svc.Create(context.Background(), CreateFileInput{TenantID: 7, Name: "hello.txt", ContentType: "text/plain", Data: data}); err != nil {
+			t.Fatalf("Create() err = %v", err)
+		}
+	}
+
+	if gotIDs[0] == gotIDs[1] {
+		t.Fatalf("expected unique ids, got %q twice", gotIDs[0])
 	}
 }
 

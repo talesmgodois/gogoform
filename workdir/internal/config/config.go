@@ -73,6 +73,27 @@ type DatabaseConfig struct {
 	URI string `toml:"uri" env:"DATABASE_URL"` // e.g. "postgres://user:pass@host:5432/db?sslmode=disable"
 }
 
+// Driver identifies a supported database engine.
+type Driver string
+
+// DriverPostgres is the only engine currently supported.
+const DriverPostgres Driver = "postgres"
+
+// Driver reports the database engine selected by the URI scheme. It returns
+// an empty Driver if the scheme is missing or unrecognized.
+func (c DatabaseConfig) Driver() Driver {
+	u, err := url.Parse(c.URI)
+	if err != nil {
+		return ""
+	}
+	switch u.Scheme {
+	case "postgres", "postgresql":
+		return DriverPostgres
+	default:
+		return ""
+	}
+}
+
 var (
 	once     sync.Once
 	instance *Config

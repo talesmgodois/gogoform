@@ -5,8 +5,31 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func TestIsNoRows(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("boom"), false},
+		{"pgx.ErrNoRows", pgx.ErrNoRows, true},
+		{"wrapped pgx.ErrNoRows", fmt.Errorf("query: %w", pgx.ErrNoRows), true},
+		{"database.ErrNoRows", ErrNoRows, true},
+		{"wrapped database.ErrNoRows", fmt.Errorf("query: %w", ErrNoRows), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsNoRows(tt.err); got != tt.want {
+				t.Fatalf("IsNoRows(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestPgErrorClassification(t *testing.T) {
 	unique := &pgconn.PgError{Code: sqlStateUniqueViolation}

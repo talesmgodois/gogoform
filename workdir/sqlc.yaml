@@ -3,8 +3,8 @@ sql:
   - engine: "postgresql"
     # dbmate migrations are the schema source of truth; sqlc only reads
     # their "-- migrate:up" blocks.
-    schema: "db/migrations"
-    queries: "db/queries"
+    schema: "db/postgres/migrations"
+    queries: "db/postgres/queries"
     gen:
       go:
         package: "db"

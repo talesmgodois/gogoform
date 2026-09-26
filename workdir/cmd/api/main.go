@@ -71,15 +71,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := database.Connect(ctx, cfg.Database.URI)
+	dbConn, err := database.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-	log.Info("database connected",
-		"host", pool.Config().ConnConfig.Host, "port", pool.Config().ConnConfig.Port, "database", pool.Config().ConnConfig.Database)
+	defer dbConn.Close()
+	log.Info("database connected", dbConn.LogAttrs()...)
 
-	queries := db.New(pool)
+	queries := dbConn.Querier
 	authSvc, err := newAuthService(ctx, log, queries, cfg.Auth)
 	if err != nil {
 		return err
