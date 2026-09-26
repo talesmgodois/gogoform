@@ -88,11 +88,13 @@ type appPageData interface {
 // appPage is the data rendered by templates/app.html.
 type appPage struct {
 	appLayout
-	Forms       []forms.FormOverview
-	FormsTotal  int64
-	Files       []files.FileSummary
-	FilesTotal  int64
-	GeneratedAt time.Time
+	Forms            []forms.FormOverview
+	FormsTotal       int64
+	Files            []files.FileSummary
+	FilesTotal       int64
+	SubmissionsTotal int64
+	SubmissionsToday int64
+	GeneratedAt      time.Time
 }
 
 // appController serves the /app pages: the dashboard listing the forms and
@@ -168,6 +170,12 @@ func (c *appController) load(r *http.Request) (appPage, error) {
 		return appPage{}, err
 	}
 	if page.FilesTotal, err = c.files.CountAll(ctx); err != nil {
+		return appPage{}, err
+	}
+	if page.SubmissionsTotal, err = c.submissions.CountAll(ctx); err != nil {
+		return appPage{}, err
+	}
+	if page.SubmissionsToday, err = c.submissions.CountAllToday(ctx); err != nil {
 		return appPage{}, err
 	}
 	return page, nil
