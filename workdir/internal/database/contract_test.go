@@ -71,7 +71,7 @@ func runQuerierContract(t *testing.T, newQuerier querierFactory) {
 func newSQLiteTestQuerier(t *testing.T) db.Querier {
 	t.Helper()
 
-	sqlDB, err := sql.Open("sqlite", sqliteDSN(sqliteMemoryDSN, sqliteBusyTimeout))
+	sqlDB, err := sql.Open("sqlite", sqliteDSN(sqliteMemoryDSN, sqliteBusyTimeout, sqliteJournalMode))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

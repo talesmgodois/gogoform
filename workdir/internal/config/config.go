@@ -71,14 +71,18 @@ func (c AppConfig) Enabled() bool {
 // DatabaseConfig holds the database connection settings.
 type DatabaseConfig struct {
 	URI string `toml:"uri" env:"DATABASE_URL"` // e.g. "postgres://user:pass@host:5432/db?sslmode=disable"
+	// SQLiteBusyTimeoutMS is how long SQLite writers wait for a lock before
+	// failing with SQLITE_BUSY. Ignored on PostgreSQL.
+	SQLiteBusyTimeoutMS int `toml:"sqlite_busy_timeout_ms" env:"DATABASE_SQLITE_BUSY_TIMEOUT_MS"`
+	// SQLiteJournalMode is the SQLite journal mode: WAL, DELETE or TRUNCATE.
+	// Ignored on PostgreSQL.
+	SQLiteJournalMode string `toml:"sqlite_journal_mode" env:"DATABASE_SQLITE_JOURNAL_MODE"`
 }
 
 // Driver identifies a supported database engine.
 type Driver string
 
 // DriverPostgres and DriverSQLite identify the supported database engines.
-// Validation currently only accepts DriverPostgres; DriverSQLite exists so
-// internal/database can name the engine before config accepts it.
 const (
 	DriverPostgres Driver = "postgres"
 	DriverSQLite   Driver = "sqlite"
@@ -94,9 +98,26 @@ func (c DatabaseConfig) Driver() Driver {
 	switch u.Scheme {
 	case "postgres", "postgresql":
 		return DriverPostgres
+	case "sqlite":
+		return DriverSQLite
 	default:
 		return ""
 	}
+}
+
+// SQLitePath returns the file path encoded in a `sqlite:` URI, supporting
+// dbmate's forms: "sqlite:./data/app.db" (relative), "sqlite:/abs/path.db"
+// and "sqlite:///abs/path.db" (absolute), and "sqlite::memory:" (tests). It
+// returns "" if the URI is not a sqlite URI or carries no path.
+func (c DatabaseConfig) SQLitePath() string {
+	u, err := url.Parse(c.URI)
+	if err != nil || u.Scheme != "sqlite" {
+		return ""
+	}
+	if u.Opaque != "" {
+		return u.Opaque
+	}
+	return u.Path
 }
 
 var (
@@ -154,6 +175,8 @@ func defaults() *Config {
 	cfg.Server.Env = "development"
 	cfg.Logger.Level = "info"
 	cfg.Auth.TokenTTLMinutes = 60
+	cfg.Database.SQLiteBusyTimeoutMS = 5000
+	cfg.Database.SQLiteJournalMode = "WAL"
 	return cfg
 }
 
@@ -208,6 +231,14 @@ func (c *Config) validate() error {
 	if err := validateDatabaseURI(c.Database.URI); err != nil {
 		return fmt.Errorf("database.uri: %w", err)
 	}
+	if c.Database.SQLiteBusyTimeoutMS < 0 {
+		return fmt.Errorf("database.sqlite_busy_timeout_ms: must be >= 0")
+	}
+	switch strings.ToUpper(c.Database.SQLiteJournalMode) {
+	case "WAL", "DELETE", "TRUNCATE":
+	default:
+		return fmt.Errorf("database.sqlite_journal_mode: unsupported value %q, expected one of: WAL, DELETE, TRUNCATE", c.Database.SQLiteJournalMode)
+	}
 	if (c.App.Username == "") != (c.App.Password == "") {
 		return fmt.Errorf("app: username and password must be set together")
 	}
@@ -235,11 +266,21 @@ func validateDatabaseURI(uri string) error {
 		// url.Error embeds the full URI, which may contain credentials.
 		return fmt.Errorf("invalid URI")
 	}
-	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
-		return fmt.Errorf("unsupported scheme %q, expected postgres or postgresql", u.Scheme)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("missing host")
+	switch u.Scheme {
+	case "postgres", "postgresql":
+		if u.Host == "" {
+			return fmt.Errorf("missing host")
+		}
+	case "sqlite":
+		path := u.Opaque
+		if path == "" {
+			path = u.Path
+		}
+		if path == "" {
+			return fmt.Errorf("missing path")
+		}
+	default:
+		return fmt.Errorf("unsupported scheme %q, expected one of: postgres, postgresql, sqlite", u.Scheme)
 	}
 	return nil
 }

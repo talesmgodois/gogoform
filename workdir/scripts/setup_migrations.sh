@@ -3,11 +3,13 @@
 #
 # Usage: scripts/setup_migrations.sh [all|tools|schema|migration|up]
 #   tools      check/install dbml2sql, dbmate, sqlc and air
-#   schema     convert $DBML_INPUT into $SCHEMA_OUTPUT
-#   migration  create the initial dbmate migration from $SCHEMA_OUTPUT (once)
-#   up         apply pending migrations to $DATABASE_URL
-#   all        every step above, in order (default)
+#   schema     convert $DBML_INPUT into $SCHEMA_OUTPUT (PostgreSQL only)
+#   migration  create the initial dbmate migration from $SCHEMA_OUTPUT (once, PostgreSQL only)
+#   up         apply pending migrations to $DATABASE_URL (PostgreSQL and SQLite)
+#   all        every step above, in order (default; requires PostgreSQL)
 #
+# DB_ENGINE is derived from DATABASE_URL's scheme (`sqlite:` vs anything else)
+# and picks the default MIGRATIONS_DIR (db/postgres/migrations or db/sqlite/migrations).
 # Every path and URL below can be overridden through the environment.
 set -Eeuo pipefail
 
@@ -16,11 +18,17 @@ cd "$ROOT_DIR"
 
 DBML_INPUT="${DBML_INPUT:-../__ai_work/_inputs/db_schema.dbml}"
 SCHEMA_OUTPUT="${SCHEMA_OUTPUT:-../__ai_work/outputs/schema.sql}"
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-db/postgres/migrations}"
 INITIAL_MIGRATION_NAME="initial_schema"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 DBMATE_FLAGS="${DBMATE_FLAGS:---wait --no-dump-schema}"
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable}"
+
+# DB_ENGINE follows DATABASE_URL's scheme: `sqlite:` selects sqlite, anything else postgres.
+case "$DATABASE_URL" in
+  sqlite:*) DB_ENGINE=sqlite ;;
+  *)        DB_ENGINE=postgres ;;
+esac
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-db/$DB_ENGINE/migrations}"
 
 # Binaries installed by this script must be visible to the later steps.
 export PATH="$PATH:$BIN_DIR"
@@ -34,6 +42,10 @@ die()  { printf '\033[31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 trap 'die "command failed at line $LINENO: $BASH_COMMAND"' ERR
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+require_postgres() {
+  [[ "$DB_ENGINE" == postgres ]] || die "$1 requires PostgreSQL, but DATABASE_URL is sqlite:... (DB_ENGINE=$DB_ENGINE)"
+}
 
 # ---------------------------------------------------------------------------
 # 1. Tools
@@ -118,6 +130,7 @@ step_tools() {
 # ---------------------------------------------------------------------------
 
 step_schema() {
+  require_postgres "schema"
   has dbml2sql || die "dbml2sql not found; run: make setup-tools"
   [[ -f "$DBML_INPUT" ]] || die "DBML input not found: $DBML_INPUT"
   mkdir -p "$(dirname "$SCHEMA_OUTPUT")"
@@ -153,6 +166,7 @@ up_block() {
 }
 
 step_migration() {
+  require_postgres "migration"
   [[ -s "$SCHEMA_OUTPUT" ]] || die "$SCHEMA_OUTPUT is missing or empty; run: make generate-schema"
   mkdir -p "$MIGRATIONS_DIR"
 
