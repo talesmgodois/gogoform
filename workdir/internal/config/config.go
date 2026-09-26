@@ -76,8 +76,13 @@ type DatabaseConfig struct {
 // Driver identifies a supported database engine.
 type Driver string
 
-// DriverPostgres is the only engine currently supported.
-const DriverPostgres Driver = "postgres"
+// DriverPostgres and DriverSQLite identify the supported database engines.
+// Validation currently only accepts DriverPostgres; DriverSQLite exists so
+// internal/database can name the engine before config accepts it.
+const (
+	DriverPostgres Driver = "postgres"
+	DriverSQLite   Driver = "sqlite"
+)
 
 // Driver reports the database engine selected by the URI scheme. It returns
 // an empty Driver if the scheme is missing or unrecognized.
