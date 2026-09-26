@@ -2,7 +2,7 @@
 # Database automation: DBML -> SQL (dbml2sql) -> dbmate migration -> apply.
 #
 # Usage: scripts/setup_migrations.sh [all|tools|schema|migration|up]
-#   tools      check/install dbml2sql, dbmate and sqlc
+#   tools      check/install dbml2sql, dbmate, sqlc and air
 #   schema     convert $DBML_INPUT into $SCHEMA_OUTPUT
 #   migration  create the initial dbmate migration from $SCHEMA_OUTPUT (once)
 #   up         apply pending migrations to $DATABASE_URL
@@ -91,10 +91,26 @@ install_sqlc() {
   has sqlc || die "sqlc still not on PATH after install"
 }
 
+install_air() {
+  has air && { log "air found: $(command -v air)"; return; }
+  if has brew; then
+    log "Installing air (brew install air)"
+    brew install air
+  elif has go; then
+    log "Installing air (go install github.com/air-verse/air@latest)"
+    go install github.com/air-verse/air@latest
+    warn "make sure $(go env GOPATH)/bin is in your PATH"
+  else
+    die "air missing. Install it with 'brew install air' or 'go install github.com/air-verse/air@latest'"
+  fi
+  has air || die "air still not on PATH after install"
+}
+
 step_tools() {
   install_dbml2sql
   install_dbmate
   install_sqlc
+  install_air
 }
 
 # ---------------------------------------------------------------------------
