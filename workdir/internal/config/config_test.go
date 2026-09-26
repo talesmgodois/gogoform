@@ -136,6 +136,54 @@ func TestLoadErrors(t *testing.T) {
 	}
 }
 
+func TestDatabaseConfigDriver(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		want Driver
+	}{
+		{name: "postgres scheme", uri: "postgres://user:pass@localhost:5432/db", want: DriverPostgres},
+		{name: "postgresql scheme", uri: "postgresql://user:pass@localhost:5432/db", want: DriverPostgres},
+		{name: "unsupported scheme", uri: "mysql://user:pass@localhost/db", want: ""},
+		{name: "empty uri", uri: "", want: ""},
+		{name: "invalid uri", uri: "://bad", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DatabaseConfig{URI: tt.uri}
+			if got := cfg.Driver(); got != tt.want {
+				t.Fatalf("Driver() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateDatabaseURIErrorsDoNotLeakCredentials(t *testing.T) {
+	const secret = "super-secret-password"
+	tests := []struct {
+		name string
+		uri  string
+	}{
+		{name: "unsupported scheme", uri: "mysql://user:" + secret + "@localhost:5432/db"},
+		{name: "missing host", uri: "postgres://user:" + secret + "@/db"},
+		{name: "invalid uri", uri: "postgres://user:" + secret + "@%zz/db"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDatabaseURI(tt.uri)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("error leaked credentials: %v", err)
+			}
+			if strings.Contains(err.Error(), tt.uri) {
+				t.Fatalf("error leaked URI: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "missing.toml")); err == nil {
 		t.Fatal("expected error for missing file")
