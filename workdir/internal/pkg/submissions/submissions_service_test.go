@@ -22,6 +22,8 @@ type fakeQuerier struct {
 	createSubmissionMetadata func(db.CreateSubmissionMetadataParams) (db.SubmissionMetadatum, error)
 	listSubmissionsByForm    func(db.ListSubmissionsByFormParams) ([]db.ListSubmissionsByFormRow, error)
 	listAllSubmissions       func(db.ListAllSubmissionsByFormParams) ([]db.ListAllSubmissionsByFormRow, error)
+	countAllSubmissions      func() (int64, error)
+	countAllSubmissionsToday func() (int64, error)
 }
 
 func (f *fakeQuerier) CreateFormSubmission(_ context.Context, arg db.CreateFormSubmissionParams) (db.FormSubmission, error) {
@@ -38,6 +40,14 @@ func (f *fakeQuerier) ListSubmissionsByForm(_ context.Context, arg db.ListSubmis
 
 func (f *fakeQuerier) ListAllSubmissionsByForm(_ context.Context, arg db.ListAllSubmissionsByFormParams) ([]db.ListAllSubmissionsByFormRow, error) {
 	return f.listAllSubmissions(arg)
+}
+
+func (f *fakeQuerier) CountAllSubmissions(context.Context) (int64, error) {
+	return f.countAllSubmissions()
+}
+
+func (f *fakeQuerier) CountAllSubmissionsToday(context.Context) (int64, error) {
+	return f.countAllSubmissionsToday()
 }
 
 var (
@@ -217,6 +227,64 @@ func TestListAllByForm(t *testing.T) {
 			assertCode(t, err, tt.wantCode)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("submissions = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountAll(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", nil, "", 42},
+		{"db failure", errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{countAllSubmissions: func() (int64, error) {
+				if tt.err != nil {
+					return 0, tt.err
+				}
+				return 42, nil
+			}})
+
+			got, err := svc.CountAll(context.Background())
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountAllToday(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", nil, "", 7},
+		{"db failure", errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{countAllSubmissionsToday: func() (int64, error) {
+				if tt.err != nil {
+					return 0, tt.err
+				}
+				return 7, nil
+			}})
+
+			got, err := svc.CountAllToday(context.Background())
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("count = %d, want %d", got, tt.want)
 			}
 		})
 	}

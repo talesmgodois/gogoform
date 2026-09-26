@@ -112,6 +112,25 @@ func (s *Service) ListAllByForm(ctx context.Context, filter ListSubmissionsFilte
 	return subs, nil
 }
 
+// CountAll returns how many submissions exist across every tenant.
+func (s *Service) CountAll(ctx context.Context) (int64, error) {
+	n, err := s.q.CountAllSubmissions(ctx)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
+}
+
+// CountAllToday returns how many submissions were made today, across every
+// tenant.
+func (s *Service) CountAllToday(ctx context.Context) (int64, error) {
+	n, err := s.q.CountAllSubmissionsToday(ctx)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
+}
+
 // toSubmission maps a submission row LEFT JOINed with its metadata.
 // Submissions without metadata have a nil Metadata.
 func toSubmission(row db.ListSubmissionsByFormRow) Submission {

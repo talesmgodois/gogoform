@@ -11,6 +11,10 @@ import (
 type Querier interface {
 	CountAllFiles(ctx context.Context) (int64, error)
 	CountAllForms(ctx context.Context) (int64, error)
+	// Across every tenant, for the read-only /app dashboard.
+	CountAllSubmissions(ctx context.Context) (int64, error)
+	// Across every tenant, for the read-only /app dashboard.
+	CountAllSubmissionsToday(ctx context.Context) (int64, error)
 	// Same filters as ListFormsByTenant, for pagination totals.
 	CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error)
 	// Returns the metadata only: the blob was just sent by the caller.

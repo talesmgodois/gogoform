@@ -20,4 +20,9 @@ type Repository interface {
 	ListByForm(ctx context.Context, filter ListSubmissionsFilter, page Page) ([]Submission, error)
 	// ListAllByForm is ListByForm without pagination, for exports.
 	ListAllByForm(ctx context.Context, filter ListSubmissionsFilter) ([]Submission, error)
+	// CountAll returns how many submissions exist across every tenant.
+	CountAll(ctx context.Context) (int64, error)
+	// CountAllToday returns how many submissions were made today, across
+	// every tenant.
+	CountAllToday(ctx context.Context) (int64, error)
 }

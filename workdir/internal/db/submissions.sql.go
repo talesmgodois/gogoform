@@ -11,6 +11,30 @@ import (
 	"time"
 )
 
+const countAllSubmissions = `-- name: CountAllSubmissions :one
+SELECT count(*) FROM form_submissions
+`
+
+// Across every tenant, for the read-only /app dashboard.
+func (q *Queries) CountAllSubmissions(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAllSubmissions)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAllSubmissionsToday = `-- name: CountAllSubmissionsToday :one
+SELECT count(*) FROM form_submissions WHERE submitted_at >= date_trunc('day', now())
+`
+
+// Across every tenant, for the read-only /app dashboard.
+func (q *Queries) CountAllSubmissionsToday(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAllSubmissionsToday)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createFormSubmission = `-- name: CreateFormSubmission :one
 INSERT INTO form_submissions (form_id, payload, user_id)
 VALUES ($1, $2, $3)

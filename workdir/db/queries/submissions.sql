@@ -26,3 +26,11 @@ JOIN forms f ON f.id = s.form_id
 LEFT JOIN submission_metadata m ON m.submission_id = s.id
 WHERE s.form_id = sqlc.arg(form_id) AND f.tenant_id = sqlc.arg(tenant_id)
 ORDER BY s.submitted_at DESC, s.id DESC;
+
+-- name: CountAllSubmissions :one
+-- Across every tenant, for the read-only /app dashboard.
+SELECT count(*) FROM form_submissions;
+
+-- name: CountAllSubmissionsToday :one
+-- Across every tenant, for the read-only /app dashboard.
+SELECT count(*) FROM form_submissions WHERE submitted_at >= date_trunc('day', now());
