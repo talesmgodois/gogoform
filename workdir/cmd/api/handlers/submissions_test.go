@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"app/internal/pkg/submissions"
 )
@@ -74,4 +75,18 @@ func TestListSubmissions(t *testing.T) {
 
 	assertStatus(t, do(t, svc, http.MethodGet, "/forms/2/submissions", "", true), http.StatusNotFound)
 	assertStatus(t, do(t, svc, http.MethodGet, "/forms/1/submissions?limit=500", "", true), http.StatusBadRequest)
+}
+
+func TestCreateSubmissionRejectsDraftsAndClosedForms(t *testing.T) {
+	draft := ownForm
+	draft.ID, draft.Slug, draft.IsDraft = 3, "draft", true
+	closed := ownForm
+	closed.ID, closed.Slug, closed.EndDate = 4, "closed", ptrTo(time.Now().Add(-time.Hour))
+	svc := testServices(draft, closed)
+
+	assertStatus(t, do(t, svc, http.MethodPost, "/public/forms/draft/submissions", `{"payload":{}}`, false), http.StatusNotFound)
+	assertStatus(t, do(t, svc, http.MethodPost, "/public/forms/closed/submissions", `{"payload":{}}`, false), http.StatusGone)
+	if fake := svc.submissions.(*fakeSubmissions); fake.created.FormID != 0 {
+		t.Fatalf("created = %+v, want no submission", fake.created)
+	}
 }

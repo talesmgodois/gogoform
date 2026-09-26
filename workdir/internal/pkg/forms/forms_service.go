@@ -3,6 +3,7 @@ package forms
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -19,6 +20,8 @@ const (
 	msgInUse          = "form has submissions or webhooks"
 	msgInvalidPage    = "page offset must be >= 0 and limit must be > 0"
 	msgPublicNotAnon  = "a public form must accept anonymous submissions"
+	msgClosed         = "form is closed: its end_date has passed"
+	msgLocked         = "form has submissions: its content cannot change and it cannot become a draft again; duplicate it instead"
 )
 
 var _ Repository = (*Service)(nil)
@@ -26,11 +29,13 @@ var _ Repository = (*Service)(nil)
 // Service implements Repository on top of the sqlc queries.
 type Service struct {
 	q db.Querier
+	// now tells the time the availability window is checked against.
+	now func() time.Time
 }
 
 // NewService returns a Service that runs its queries through q.
 func NewService(q db.Querier) *Service {
-	return &Service{q: q}
+	return &Service{q: q, now: time.Now}
 }
 
 // Create stores a new form and returns it.
@@ -56,6 +61,7 @@ func (s *Service) Create(ctx context.Context, in CreateFormInput) (Form, error) 
 		FormContent:     in.Content,
 		PublicAvailable: public,
 		AcceptAnonymous: anonymous,
+		IsDraft:         in.IsDraft,
 	})
 	switch {
 	case database.IsUniqueViolation(err):
@@ -91,19 +97,30 @@ func (s *Service) GetByID(ctx context.Context, tenantID, id int32) (FormDetails,
 			UpdatedAt:       row.UpdatedAt,
 			PublicAvailable: row.PublicAvailable,
 			AcceptAnonymous: row.AcceptAnonymous,
+			IsDraft:         row.IsDraft,
 		}),
 		TenantName: row.TenantName,
 	}, nil
 }
 
 // GetPublicBySlug returns the form with the given slug if it can be filled in
-// publicly. Forms that exist but are not available are reported as not found.
+// publicly. Forms past their end_date are reported as gone; any other form
+// that exists but is not available (inactive, draft, not open yet) as not
+// found.
 func (s *Service) GetPublicBySlug(ctx context.Context, slug string) (Form, error) {
 	row, err := s.q.GetPublicFormBySlug(ctx, slug)
 	if err != nil {
 		return Form{}, mapGetError(err)
 	}
-	return toForm(row), nil
+	f := toForm(row)
+	now := s.now()
+	switch {
+	case f.StartDate != nil && now.Before(*f.StartDate):
+		return Form{}, apperrors.NewNotFound(msgNotFound)
+	case f.EndDate != nil && !now.Before(*f.EndDate):
+		return Form{}, apperrors.NewGone(msgClosed)
+	}
+	return f, nil
 }
 
 // List returns the forms matching filter, newest first.
@@ -114,6 +131,7 @@ func (s *Service) List(ctx context.Context, filter ListFormsFilter, page Page) (
 	rows, err := s.q.ListFormsByTenant(ctx, db.ListFormsByTenantParams{
 		TenantID:   filter.TenantID,
 		IsActive:   filter.IsActive,
+		IsDraft:    filter.IsDraft,
 		Search:     filter.Search,
 		PageOffset: page.Offset,
 		PageLimit:  page.Limit,
@@ -138,6 +156,7 @@ func (s *Service) List(ctx context.Context, filter ListFormsFilter, page Page) (
 				UpdatedAt:       row.UpdatedAt,
 				PublicAvailable: row.PublicAvailable,
 				AcceptAnonymous: row.AcceptAnonymous,
+				IsDraft:         row.IsDraft,
 			}),
 			SubmissionCount: row.SubmissionCount,
 		}
@@ -150,6 +169,7 @@ func (s *Service) Count(ctx context.Context, filter ListFormsFilter) (int64, err
 	n, err := s.q.CountFormsByTenant(ctx, db.CountFormsByTenantParams{
 		TenantID: filter.TenantID,
 		IsActive: filter.IsActive,
+		IsDraft:  filter.IsDraft,
 		Search:   filter.Search,
 	})
 	if err != nil {
@@ -185,6 +205,7 @@ func (s *Service) ListAll(ctx context.Context, page Page) ([]FormOverview, error
 					UpdatedAt:       row.UpdatedAt,
 					PublicAvailable: row.PublicAvailable,
 					AcceptAnonymous: row.AcceptAnonymous,
+					IsDraft:         row.IsDraft,
 				}),
 				SubmissionCount: row.SubmissionCount,
 			},
@@ -225,6 +246,7 @@ func (s *Service) GetAnyByID(ctx context.Context, id int32) (FormOverview, error
 				UpdatedAt:       row.UpdatedAt,
 				PublicAvailable: row.PublicAvailable,
 				AcceptAnonymous: row.AcceptAnonymous,
+				IsDraft:         row.IsDraft,
 			}),
 			SubmissionCount: row.SubmissionCount,
 		},
@@ -232,7 +254,9 @@ func (s *Service) GetAnyByID(ctx context.Context, id int32) (FormOverview, error
 	}, nil
 }
 
-// Update replaces the stored state of a form and returns it.
+// Update replaces the stored state of a form and returns it. Once a form has
+// submissions, changing its content or turning it back into a draft yields a
+// conflict.
 func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) {
 	public, anonymous, err := resolveAccess(in.PublicAvailable, in.AcceptAnonymous)
 	if err != nil {
@@ -250,14 +274,22 @@ func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) 
 		FormContent:     in.Content,
 		PublicAvailable: public,
 		AcceptAnonymous: anonymous,
+		IsDraft:         in.IsDraft,
 	})
 	switch {
 	case database.IsUniqueViolation(err):
 		return Form{}, apperrors.NewConflict(msgSlugTaken)
 	case database.IsCheckViolation(err):
 		return Form{}, apperrors.NewBadRequest(msgPublicNotAnon)
+	case errors.Is(err, pgx.ErrNoRows):
+		// No row is updated both when the form does not exist and when its
+		// submissions lock the change: tell them apart.
+		if _, getErr := s.GetByID(ctx, in.TenantID, in.ID); getErr != nil {
+			return Form{}, getErr
+		}
+		return Form{}, apperrors.NewConflict(msgLocked)
 	case err != nil:
-		return Form{}, mapGetError(err)
+		return Form{}, apperrors.NewInternal(err)
 	}
 	return toForm(row), nil
 }
@@ -318,6 +350,7 @@ func toForm(row db.Form) Form {
 		UpdatedAt:       deref(row.UpdatedAt),
 		PublicAvailable: row.PublicAvailable,
 		AcceptAnonymous: row.AcceptAnonymous,
+		IsDraft:         row.IsDraft,
 	}
 }
 

@@ -67,6 +67,7 @@ type submissionsController struct {
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found or not available"
+//	@Failure		410		{object}	errors.HTTPErrorResponse	"Form closed: its end_date has passed"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug}/submissions [post]
 func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {

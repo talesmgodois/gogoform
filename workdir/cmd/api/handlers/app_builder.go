@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	apperrors "app/internal/errors"
 )
@@ -23,6 +24,8 @@ type builderDraft struct {
 	Title           string          `json:"title"`
 	Slug            string          `json:"slug"`
 	Description     *string         `json:"description"`
+	StartDate       *time.Time      `json:"start_date"`
+	EndDate         *time.Time      `json:"end_date"`
 	Content         json.RawMessage `json:"content"`
 	PublicAvailable bool            `json:"public_available"`
 	AcceptAnonymous bool            `json:"accept_anonymous"`
@@ -42,6 +45,8 @@ func (c *appController) Builder(w http.ResponseWriter, r *http.Request) {
 			Title:           f.Title,
 			Slug:            copySlug(f.Slug),
 			Description:     f.Description,
+			StartDate:       f.StartDate,
+			EndDate:         f.EndDate,
 			Content:         f.Content,
 			PublicAvailable: f.PublicAvailable,
 			AcceptAnonymous: f.AcceptAnonymous,

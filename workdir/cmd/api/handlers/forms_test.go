@@ -54,13 +54,48 @@ func TestCreateFormInvalid(t *testing.T) {
 	}
 }
 
+func TestCreateDraftForm(t *testing.T) {
+	svc := testServices()
+	rec := do(t, svc, http.MethodPost, "/forms", `{"title":"Contact","slug":"contact","is_draft":true}`, true)
+	assertStatus(t, rec, http.StatusCreated)
+
+	in := svc.forms.(*fakeForms).created
+	if !in.IsDraft || string(in.Content) != `{}` {
+		t.Fatalf("input = %+v, want a draft with empty content", in)
+	}
+	if body := decode[FormResponse](t, rec); !body.IsDraft {
+		t.Fatalf("body = %+v, want is_draft true", body)
+	}
+
+	// Only drafts may omit their content.
+	assertStatus(t, do(t, testServices(), http.MethodPost, "/forms", `{"title":"a","slug":"a","is_draft":false}`, true), http.StatusBadRequest)
+}
+
+func TestPublishDraftForm(t *testing.T) {
+	draft := ownForm
+	draft.IsDraft = true
+	svc := testServices(draft)
+
+	rec := do(t, svc, http.MethodPut, "/forms/1", `{"title":"Contact","slug":"contact","content":{},"is_draft":true}`, true)
+	assertStatus(t, rec, http.StatusOK)
+	if !svc.forms.(*fakeForms).updated.IsDraft {
+		t.Fatal("is_draft true must keep the form a draft")
+	}
+
+	rec = do(t, svc, http.MethodPut, "/forms/1", `{"title":"Contact","slug":"contact","content":{}}`, true)
+	assertStatus(t, rec, http.StatusOK)
+	if svc.forms.(*fakeForms).updated.IsDraft {
+		t.Fatal("omitted is_draft must publish the form")
+	}
+}
+
 func TestListForms(t *testing.T) {
 	svc := testServices(ownForm, otherForm)
-	rec := do(t, svc, http.MethodGet, "/forms?is_active=true&search=%20con%20&offset=5&limit=10", "", true)
+	rec := do(t, svc, http.MethodGet, "/forms?is_active=true&is_draft=false&search=%20con%20&offset=5&limit=10", "", true)
 	assertStatus(t, rec, http.StatusOK)
 
 	fake := svc.forms.(*fakeForms)
-	if fake.filter.TenantID != testTenant.ID || *fake.filter.IsActive != true || *fake.filter.Search != "con" {
+	if fake.filter.TenantID != testTenant.ID || *fake.filter.IsActive != true || *fake.filter.IsDraft != false || *fake.filter.Search != "con" {
 		t.Fatalf("filter = %+v", fake.filter)
 	}
 	if fake.page != (forms.Page{Offset: 5, Limit: 10}) {
@@ -83,7 +118,7 @@ func TestListFormsDefaultsAndInvalidQuery(t *testing.T) {
 		t.Fatalf("items must be an empty array, got %s", body)
 	}
 
-	for _, q := range []string{"limit=0", "limit=101", "offset=-1", "limit=x", "is_active=maybe"} {
+	for _, q := range []string{"limit=0", "limit=101", "offset=-1", "limit=x", "is_active=maybe", "is_draft=maybe"} {
 		assertStatus(t, do(t, testServices(), http.MethodGet, "/forms?"+q, "", true), http.StatusBadRequest)
 	}
 }
@@ -137,4 +172,15 @@ func TestGetPublicForm(t *testing.T) {
 		t.Fatalf("body = %+v", body)
 	}
 	assertStatus(t, do(t, svc, http.MethodGet, "/public/forms/nope", "", false), http.StatusNotFound)
+}
+
+func TestGetPublicFormDraftAndDeadline(t *testing.T) {
+	draft := ownForm
+	draft.ID, draft.Slug, draft.IsDraft = 3, "draft", true
+	closed := ownForm
+	closed.ID, closed.Slug, closed.EndDate = 4, "closed", ptrTo(time.Now().Add(-time.Hour))
+	svc := testServices(draft, closed)
+
+	assertStatus(t, do(t, svc, http.MethodGet, "/public/forms/draft", "", false), http.StatusNotFound)
+	assertStatus(t, do(t, svc, http.MethodGet, "/public/forms/closed", "", false), http.StatusGone)
 }
