@@ -13,6 +13,7 @@ import (
 	"app/internal/db"
 	"app/internal/handler"
 	authpkg "app/internal/pkg/auth"
+	"app/internal/pkg/customcomponents"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -22,24 +23,26 @@ import (
 
 // Services holds the domain repositories the controllers are built on.
 type Services struct {
-	tenants     tenants.Repository
-	forms       forms.Repository
-	submissions submissions.Repository
-	webhooks    webhooks.Repository
-	files       files.Repository
-	auth        *authpkg.Service
+	tenants          tenants.Repository
+	forms            forms.Repository
+	submissions      submissions.Repository
+	webhooks         webhooks.Repository
+	files            files.Repository
+	customComponents customcomponents.Repository
+	auth             *authpkg.Service
 }
 
 // NewServices returns the sqlc-backed implementation of every repository,
 // along with authSvc, which authenticates users.
 func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 	return Services{
-		auth:        authSvc,
-		tenants:     tenants.NewService(q),
-		forms:       forms.NewService(q),
-		submissions: submissions.NewService(q),
-		webhooks:    webhooks.NewService(q),
-		files:       files.NewService(q),
+		auth:             authSvc,
+		tenants:          tenants.NewService(q),
+		forms:            forms.NewService(q),
+		submissions:      submissions.NewService(q),
+		webhooks:         webhooks.NewService(q),
+		files:            files.NewService(q),
+		customComponents: customcomponents.NewService(q),
 	}
 }
 
@@ -96,8 +99,21 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("GET /public/forms/{slug}", guard(authpkg.Public, formsCtl.GetPublic))
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", guard(authpkg.Public, submissionsCtl.Create))
 
-	appCtl := &appController{forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
+	appCtl := &appController{
+		forms:            svc.forms,
+		files:            svc.files,
+		submissions:      svc.submissions,
+		customComponents: svc.customComponents,
+		auth:             svc.auth,
+	}
 	appCtl.mount(mux, appCfg)
+	// The builder only reaches these from /app/builder, an operator route
+	// guarded by HTTP Basic rather than a session cookie (see routes() in
+	// app_routes.go), so they must use the same credentials.
+	if appCfg.Enabled() {
+		mux.HandleFunc("POST /app/components", basicAuth(appCfg, appCtl.CreateComponent))
+		mux.HandleFunc("GET /app/components", basicAuth(appCfg, appCtl.ListComponents))
+	}
 
 	mux.HandleFunc("GET /fake/animes", FakeAnimes)
 	mux.HandleFunc("GET /fake/cars", FakeCars)

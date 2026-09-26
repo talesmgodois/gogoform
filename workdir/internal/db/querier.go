@@ -17,6 +17,7 @@ type Querier interface {
 	CountAllSubmissionsToday(ctx context.Context) (int64, error)
 	// Same filters as ListFormsByTenant, for pagination totals.
 	CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error)
+	CreateCustomComponent(ctx context.Context, arg CreateCustomComponentParams) (CustomComponent, error)
 	// Returns the metadata only: the blob was just sent by the caller.
 	CreateFile(ctx context.Context, arg CreateFileParams) (CreateFileRow, error)
 	CreateForm(ctx context.Context, arg CreateFormParams) (Form, error)
@@ -50,6 +51,8 @@ type Querier interface {
 	ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]ListAllFormsRow, error)
 	// Same as ListSubmissionsByForm without pagination, for exports.
 	ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmissionsByFormParams) ([]ListAllSubmissionsByFormRow, error)
+	// For the builder's "your components" sidebar.
+	ListCustomComponents(ctx context.Context) ([]CustomComponent, error)
 	// Optional filters: is_active and is_draft (nil = any) and search
 	// (case-insensitive title match).
 	ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error)

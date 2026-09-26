@@ -54,6 +54,14 @@ func (ns NullUserRole) Value() (driver.Value, error) {
 	return string(ns.UserRole), nil
 }
 
+type CustomComponent struct {
+	ID        int32           `db:"id" json:"id"`
+	UserID    *int32          `db:"user_id" json:"user_id"`
+	Name      string          `db:"name" json:"name"`
+	Field     json.RawMessage `db:"field" json:"field"`
+	CreatedAt time.Time       `db:"created_at" json:"created_at"`
+}
+
 type File struct {
 	ID             string    `db:"id" json:"id"`
 	TenantID       int32     `db:"tenant_id" json:"tenant_id"`

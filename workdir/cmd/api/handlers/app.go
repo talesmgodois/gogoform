@@ -15,6 +15,7 @@ import (
 	"app/internal/config"
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
+	"app/internal/pkg/customcomponents"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -101,10 +102,11 @@ type appPage struct {
 // files of every tenant, the submissions of each form, the form builder and
 // the account pages. Its routes are listed in app_routes.go.
 type appController struct {
-	forms       forms.Repository
-	files       files.Repository
-	submissions submissions.Repository
-	auth        *auth.Service
+	forms            forms.Repository
+	files            files.Repository
+	submissions      submissions.Repository
+	customComponents customcomponents.Repository
+	auth             *auth.Service
 	// mounted are the routes registered by mount.
 	mounted []appRoute
 }

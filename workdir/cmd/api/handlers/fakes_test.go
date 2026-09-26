@@ -15,6 +15,7 @@ import (
 	"app/internal/config"
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
+	"app/internal/pkg/customcomponents"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -162,6 +163,7 @@ type fakeSubmissions struct {
 	filter      submissions.ListSubmissionsFilter
 	page        submissions.Page
 	list        []submissions.Submission
+	countToday  int64
 }
 
 func (f *fakeSubmissions) Create(_ context.Context, in submissions.CreateSubmissionInput) (submissions.Submission, error) {
@@ -185,6 +187,14 @@ func (f *fakeSubmissions) ListByForm(_ context.Context, filter submissions.ListS
 func (f *fakeSubmissions) ListAllByForm(_ context.Context, filter submissions.ListSubmissionsFilter) ([]submissions.Submission, error) {
 	f.filter = filter
 	return f.list, nil
+}
+
+func (f *fakeSubmissions) CountAll(context.Context) (int64, error) {
+	return int64(len(f.list)), nil
+}
+
+func (f *fakeSubmissions) CountAllToday(context.Context) (int64, error) {
+	return f.countToday, nil
 }
 
 // fakeWebhooks is a webhooks.Repository recording its inputs.
@@ -246,6 +256,28 @@ func (f *fakeFiles) Delete(ctx context.Context, tenantID int32, id string) error
 	}
 	delete(f.files, id)
 	return nil
+}
+
+// fakeCustomComponents is a customcomponents.Repository recording its inputs.
+type fakeCustomComponents struct {
+	created customcomponents.CreateCustomComponentInput
+	list    []customcomponents.CustomComponent
+	err     error
+}
+
+func (f *fakeCustomComponents) Create(_ context.Context, in customcomponents.CreateCustomComponentInput) (customcomponents.CustomComponent, error) {
+	f.created = in
+	if f.err != nil {
+		return customcomponents.CustomComponent{}, f.err
+	}
+	return customcomponents.CustomComponent{ID: 1, Name: in.Name, Field: in.Field, UserID: in.UserID}, nil
+}
+
+func (f *fakeCustomComponents) List(_ context.Context) ([]customcomponents.CustomComponent, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.list, nil
 }
 
 // testPassword is the password of every user created by newTestAuth.
@@ -348,12 +380,13 @@ func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 // the users of newTestAuth.
 func testServices(fs ...forms.Form) Services {
 	return Services{
-		auth:        newTestAuth(),
-		tenants:     &fakeTenants{},
-		forms:       newFakeForms(fs...),
-		submissions: &fakeSubmissions{},
-		webhooks:    &fakeWebhooks{},
-		files:       &fakeFiles{files: map[string]files.File{}},
+		auth:             newTestAuth(),
+		tenants:          &fakeTenants{},
+		forms:            newFakeForms(fs...),
+		submissions:      &fakeSubmissions{},
+		webhooks:         &fakeWebhooks{},
+		files:            &fakeFiles{files: map[string]files.File{}},
+		customComponents: &fakeCustomComponents{},
 	}
 }
 

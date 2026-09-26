@@ -31,6 +31,10 @@
         <div id="panel-components" role="tabpanel" aria-labelledby="tab-components" class="flex-1 overflow-y-auto p-4">
           <p class="mb-3 text-[11px] text-slate-500">Click a component to add it, or drag it onto the form.</p>
           <div id="palette" class="space-y-2"></div>
+          <div id="your-components-section" class="mt-6 hidden">
+            <h3 class="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Your components</h3>
+            <div id="your-components" class="space-y-2"></div>
+          </div>
         </div>
         <div id="panel-code" role="tabpanel" aria-labelledby="tab-code" class="hidden flex-1 flex-col gap-3 overflow-hidden p-4">
           <div class="flex shrink-0 items-center justify-between gap-2">
@@ -95,6 +99,24 @@
     </div>
   </dialog>
 
+  <dialog id="save-component-dialog" aria-labelledby="save-component-dialog-title" class="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    <div class="border-b border-slate-800 px-5 py-4">
+      <h3 id="save-component-dialog-title" class="text-sm font-semibold">Save as reusable component?</h3>
+      <p class="mt-1 text-xs leading-snug text-slate-500">It will be saved with its current settings and appear in the sidebar so you can reuse it in any form.</p>
+    </div>
+    <div class="space-y-3 px-5 py-4">
+      <label class="block space-y-1.5">
+        <span class="block text-xs font-medium text-slate-300">Component name</span>
+        <input type="text" id="save-component-name" maxlength="255" class="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none">
+      </label>
+      <p id="save-component-error" class="hidden rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-300" role="alert"></p>
+    </div>
+    <div class="flex items-center justify-end gap-2 border-t border-slate-800 px-5 py-3">
+      <button type="button" data-cancel class="rounded-lg px-3 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100">Cancel</button>
+      <button type="button" id="save-component-confirm" class="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40">Save component</button>
+    </div>
+  </dialog>
+
   <script nonce="{{.Nonce}}">
     (() => {
       // Component catalog: the types of the "fields" of the form content.
@@ -117,6 +139,7 @@
       const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
       const DRAG_TYPE = "text/x-gogoform-type";
       const DRAG_FIELD = "text/x-gogoform-field";
+      const DRAG_COMPONENT = "text/x-gogoform-component";
 
       const INPUT = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none";
       const PREVIEW = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300 placeholder:text-slate-600";
@@ -601,6 +624,7 @@
               row("Help text", text(f.help, (v) => { f.help = v; changed(); })),
               check(f.required, "Required", (v) => { f.required = v; changed(); })),
             section("Settings", ...typeInputs(f)),
+            h("button", { type: "button", class: "flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800", onclick: () => openSaveComponentDialog(f) }, icon("squares"), "Save as reusable component"),
             h("button", { type: "button", class: "flex w-full items-center justify-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-500/10", onclick: () => remove(f.uid) }, icon("trash"), "Delete component")),
         ];
       };
@@ -733,7 +757,7 @@
         });
         return i === -1 ? cards.length : i;
       };
-      const isOurDrag = (e) => e.dataTransfer.types.includes(DRAG_TYPE) || e.dataTransfer.types.includes(DRAG_FIELD);
+      const isOurDrag = (e) => e.dataTransfer.types.includes(DRAG_TYPE) || e.dataTransfer.types.includes(DRAG_FIELD) || e.dataTransfer.types.includes(DRAG_COMPONENT);
       const stage = $("stage");
       stage.addEventListener("dragover", (e) => {
         if (!isOurDrag(e)) return;
@@ -755,7 +779,9 @@
         const i = dropIndex(e.clientY);
         const type = e.dataTransfer.getData(DRAG_TYPE);
         const uid = e.dataTransfer.getData(DRAG_FIELD);
+        const componentID = e.dataTransfer.getData(DRAG_COMPONENT);
         if (TYPES[type]) insert(newField(type), i);
+        else if (componentID) insertComponent(componentID, i);
         else if (field(uid)) move(state.fields.indexOf(field(uid)), i);
       });
       document.addEventListener("dragend", () => indicator.remove());
@@ -888,6 +914,86 @@
           "All answers are valid. This is a preview, so nothing was sent."));
       });
 
+      // ---- Save as reusable component --------------------------------------
+
+      const saveComponentDialog = $("save-component-dialog");
+      const saveComponentConfirm = $("save-component-confirm");
+      const saveComponentError = $("save-component-error");
+      let saveComponentField = null;
+      const showSaveComponentError = (message) => {
+        saveComponentError.textContent = message;
+        saveComponentError.classList.remove("hidden");
+      };
+      const openSaveComponentDialog = (f) => {
+        saveComponentField = f;
+        saveComponentError.classList.add("hidden");
+        saveComponentError.textContent = "";
+        saveComponentConfirm.disabled = false;
+        saveComponentConfirm.textContent = "Save component";
+        $("save-component-name").value = f.label || TYPES[f.type].label;
+        saveComponentDialog.showModal();
+        $("save-component-name").focus();
+      };
+      saveComponentConfirm.addEventListener("click", () => {
+        const name = $("save-component-name").value.trim();
+        if (!name) { showSaveComponentError("Name is required."); return; }
+        saveComponentConfirm.disabled = true;
+        saveComponentConfirm.textContent = "Saving…";
+        fetch("/app/components", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name, field: fieldJSON(saveComponentField) }),
+        })
+          .then((res) => res.json().catch(() => ({})).then((data) => ({ res: res, data: data })))
+          .then(({ res, data }) => {
+            if (!res.ok) throw new Error(data.message || "HTTP " + res.status);
+            saveComponentDialog.close();
+            loadComponents();
+          })
+          .catch((err) => {
+            showSaveComponentError("Could not save the component: " + err.message);
+          })
+          .finally(() => {
+            saveComponentConfirm.disabled = false;
+            saveComponentConfirm.textContent = "Save component";
+          });
+      });
+      saveComponentDialog.querySelector("[data-cancel]").addEventListener("click", () => saveComponentDialog.close());
+      saveComponentDialog.addEventListener("click", (e) => { if (e.target === saveComponentDialog) saveComponentDialog.close(); });
+
+      // ---- Your components (saved custom components) ----------------------
+
+      let components = [];
+      const insertComponent = (id, index) => {
+        const comp = components.find((c) => String(c.id) === String(id));
+        const f = comp && fromJSON(comp.field);
+        if (f) insert(f, index);
+      };
+      const renderComponentList = () => {
+        $("your-components-section").classList.toggle("hidden", components.length === 0);
+        $("your-components").replaceChildren(...components.map((comp) => {
+          const type = comp.field && comp.field.type;
+          const t = TYPES[type];
+          return h("button", {
+            type: "button", draggable: true,
+            class: "group flex w-full items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 p-3 text-left transition hover:border-indigo-500/50 hover:bg-slate-800/80",
+            onclick: () => insertComponent(comp.id, state.selected ? state.fields.indexOf(field(state.selected)) + 1 : null),
+            ondragstart: (e) => { e.dataTransfer.setData(DRAG_COMPONENT, String(comp.id)); e.dataTransfer.effectAllowed = "copy"; },
+          },
+            h("span", { class: "grid h-9 w-9 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold transition group-hover:scale-110 " + (t ? t.tone : "bg-slate-500/10 text-slate-400") }, t ? t.glyph : "?"),
+            h("span", { class: "min-w-0" },
+              h("span", { class: "block truncate text-xs font-semibold text-white" }, comp.name),
+              h("span", { class: "block truncate text-[11px] text-slate-400" }, t ? t.label : "Custom component")));
+        }));
+      };
+      // loadComponents refreshes the sidebar list; failures are silent since
+      // it just means the palette stays without saved components.
+      const loadComponents = () =>
+        fetch("/app/components")
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error("HTTP " + res.status))))
+          .then((data) => { components = Array.isArray(data) ? data : []; renderComponentList(); })
+          .catch(() => {});
+
       document.querySelectorAll("[data-icon]").forEach((el) => el.prepend(icon(el.dataset.icon)));
       document.querySelectorAll("[data-panel]").forEach((tab) => tab.addEventListener("click", () => showPanel(tab.dataset.panel)));
       $("sidebar").querySelector("[role=tablist]").addEventListener("keydown", (e) => {
@@ -969,6 +1075,7 @@
       setFormat(format);
       showPanel("components");
       render(true);
+      loadComponents();
     })();
   </script>
 </body>
