@@ -26,6 +26,11 @@ import (
 // the PostgreSQL contract suite at a reachable server.
 const testDatabaseURLEnv = "TEST_DATABASE_URL"
 
+// requirePostgresEnv names the environment variable that, when set to "1",
+// turns a missing testDatabaseURLEnv into a test failure instead of a skip.
+// CI sets this so the PostgreSQL contract suite can't silently no-op.
+const requirePostgresEnv = "CI_REQUIRE_POSTGRES"
+
 // querierFactory returns a fresh, empty, migrated db.Querier, isolated from
 // every other call (each subtest gets its own database).
 type querierFactory func(t *testing.T) db.Querier
@@ -42,6 +47,9 @@ func TestQuerierContract_SQLite(t *testing.T) {
 // when TEST_DATABASE_URL is unset.
 func TestQuerierContract_Postgres(t *testing.T) {
 	if os.Getenv(testDatabaseURLEnv) == "" {
+		if os.Getenv(requirePostgresEnv) == "1" {
+			t.Fatalf("%s not set but %s=1; PostgreSQL contract suite is required", testDatabaseURLEnv, requirePostgresEnv)
+		}
 		t.Skipf("%s not set; skipping PostgreSQL contract suite", testDatabaseURLEnv)
 	}
 	runQuerierContract(t, newPostgresTestQuerier)

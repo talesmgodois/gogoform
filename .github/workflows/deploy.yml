@@ -31,14 +31,68 @@ jobs:
           go-version-file: ${{ env.APP_DIR }}/go.mod
           cache-dependency-path: ${{ env.APP_DIR }}/go.sum
 
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0
+
+      - name: sqlc diff
+        run: sqlc diff
+
       - name: Vet
+        env:
+          CGO_ENABLED: "0"
         run: go vet ./...
 
       - name: Test
+        env:
+          CGO_ENABLED: "0"
         run: go test ./...
 
+  test-postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.APP_DIR }}/go.mod
+          cache-dependency-path: ${{ env.APP_DIR }}/go.sum
+
+      - name: Test (PostgreSQL contract + schema parity suites)
+        env:
+          CGO_ENABLED: "0"
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          CI_REQUIRE_POSTGRES: "1"
+        run: |
+          set -euo pipefail
+          go test -v ./internal/database/... | tee /tmp/database-test.log
+          if ! grep -q '^--- PASS: TestQuerierContract_Postgres' /tmp/database-test.log; then
+            echo "::error::TestQuerierContract_Postgres did not run/pass against PostgreSQL"
+            exit 1
+          fi
+          if ! grep -q '^--- PASS: TestSchemaParity' /tmp/database-test.log; then
+            echo "::error::TestSchemaParity did not run/pass against PostgreSQL"
+            exit 1
+          fi
+
   build:
-    needs: test
+    needs: [test, test-postgres]
     runs-on: ubuntu-latest
     permissions:
       contents: read
