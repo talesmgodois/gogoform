@@ -98,5 +98,10 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 
 	appCtl := &appController{forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
 	appCtl.mount(mux, appCfg)
+
+	mux.HandleFunc("GET /fake/animes", FakeAnimes)
+	mux.HandleFunc("GET /fake/cars", FakeCars)
+	mux.HandleFunc("GET /fake/people", FakePeople)
+	mux.HandleFunc("GET /fake/cities", FakeCities)
 	return mux
 }
