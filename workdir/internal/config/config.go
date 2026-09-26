@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ type Config struct {
 	Database DatabaseConfig `toml:"database"`
 	App      AppConfig      `toml:"app"`
 	Auth     AuthConfig     `toml:"auth"`
+	OIDC     OIDCConfig     `toml:"oidc"`
 }
 
 // minJWTSecretLen is the minimum length of AuthConfig.JWTSecret: 256 bits,
@@ -48,6 +50,10 @@ type AuthConfig struct {
 	// when no user with that username exists yet.
 	AdminUsername string `toml:"admin_username" env:"AUTH_ADMIN_USERNAME"`
 	AdminPassword string `toml:"admin_password" env:"AUTH_ADMIN_PASSWORD"`
+	// PasswordLoginEnabled gates password sign-in, sign-up and HTTP Basic
+	// auth on the API. When false, only OIDC sign-in works; the bootstrap
+	// admin above is still created.
+	PasswordLoginEnabled bool `toml:"password_login_enabled" env:"AUTH_PASSWORD_LOGIN_ENABLED"`
 }
 
 // TokenTTL returns TokenTTLMinutes as a duration.
@@ -66,6 +72,83 @@ type AppConfig struct {
 // Enabled reports whether the /app dashboard credentials are configured.
 func (c AppConfig) Enabled() bool {
 	return c.Username != "" && c.Password != ""
+}
+
+// OIDCConfig holds the settings of signing in through an external OpenID
+// Connect provider. OIDC is fully optional: with IssuerURL, ClientID and
+// RedirectURL all unset, the app behaves exactly as without this feature.
+type OIDCConfig struct {
+	IssuerURL    string `toml:"issuer_url"    env:"OIDC_ISSUER_URL"`
+	ClientID     string `toml:"client_id"     env:"OIDC_CLIENT_ID"`
+	// ClientSecret is optional for public clients that only use PKCE.
+	ClientSecret string `toml:"client_secret" env:"OIDC_CLIENT_SECRET"`
+	RedirectURL  string `toml:"redirect_url"  env:"OIDC_REDIRECT_URL"`
+	// ProviderName labels the "Sign in with <name>" button.
+	ProviderName string `toml:"provider_name" env:"OIDC_PROVIDER_NAME"`
+	// Scopes requested from the provider; "openid" is always included even
+	// if omitted here.
+	Scopes []string `toml:"scopes" env:"OIDC_SCOPES"`
+	// AllowedEmailDomains, when set, restricts sign-in to users with a
+	// verified email in one of these domains.
+	AllowedEmailDomains []string `toml:"allowed_email_domains" env:"OIDC_ALLOWED_EMAIL_DOMAINS"`
+	// AutoCreateUsers creates a local user on first login. When false, only
+	// identities already linked to a user may sign in.
+	AutoCreateUsers bool `toml:"auto_create_users" env:"OIDC_AUTO_CREATE_USERS"`
+	// DefaultRole is the role assigned to users created through OIDC.
+	DefaultRole string `toml:"default_role" env:"OIDC_DEFAULT_ROLE"`
+}
+
+// Enabled reports whether OIDC sign-in is configured. IssuerURL, ClientID
+// and RedirectURL must all be set together; validate() rejects a partial
+// configuration.
+func (c OIDCConfig) Enabled() bool {
+	return c.IssuerURL != "" && c.ClientID != "" && c.RedirectURL != ""
+}
+
+// configuredFields counts how many of IssuerURL, ClientID and RedirectURL
+// are set, to detect a partial configuration.
+func (c OIDCConfig) configuredFields() int {
+	n := 0
+	if c.IssuerURL != "" {
+		n++
+	}
+	if c.ClientID != "" {
+		n++
+	}
+	if c.RedirectURL != "" {
+		n++
+	}
+	return n
+}
+
+// normalize trims and deduplicates Scopes and AllowedEmailDomains, and makes
+// sure Scopes always includes "openid". It runs unconditionally, whether or
+// not OIDC is enabled, so the fields stay well-formed either way.
+func (c *OIDCConfig) normalize() {
+	c.Scopes = normalizeStringList(c.Scopes, false)
+	if !slices.Contains(c.Scopes, "openid") {
+		c.Scopes = append([]string{"openid"}, c.Scopes...)
+	}
+	c.AllowedEmailDomains = normalizeStringList(c.AllowedEmailDomains, true)
+}
+
+// normalizeStringList trims whitespace, drops empty entries and deduplicates
+// while preserving order. When lower is true, entries are lowercased first.
+func normalizeStringList(values []string, lower bool) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if lower {
+			v = strings.ToLower(v)
+		}
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 // DatabaseConfig holds the database connection settings.
@@ -162,6 +245,7 @@ func Load(path string) (*Config, error) {
 	if err := applyEnv(reflect.ValueOf(cfg).Elem()); err != nil {
 		return nil, err
 	}
+	cfg.OIDC.normalize()
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -175,10 +259,23 @@ func defaults() *Config {
 	cfg.Server.Env = "development"
 	cfg.Logger.Level = "info"
 	cfg.Auth.TokenTTLMinutes = 60
+	cfg.Auth.PasswordLoginEnabled = true
 	cfg.Database.SQLiteBusyTimeoutMS = 5000
 	cfg.Database.SQLiteJournalMode = "WAL"
+	cfg.OIDC.ProviderName = "SSO"
+	cfg.OIDC.Scopes = []string{"openid", "email", "profile"}
+	cfg.OIDC.AutoCreateUsers = true
+	cfg.OIDC.DefaultRole = defaultOIDCRole
 	return cfg
 }
+
+// defaultOIDCRole and oidcValidRoles mirror auth.DefaultRole and
+// auth.AllRoles. They are duplicated here, rather than imported, because
+// internal/pkg/auth transitively imports internal/config (through
+// internal/database), and importing it back would create an import cycle.
+const defaultOIDCRole = "BASIC"
+
+var oidcValidRoles = []string{"ADMIN", "FORM_CREATOR", "BASIC"}
 
 // applyEnv walks v recursively and overrides every field tagged with `env`
 // whose environment variable is set.
@@ -212,11 +309,36 @@ func applyEnv(v reflect.Value) error {
 				return fmt.Errorf("env %s: invalid integer %q", key, raw)
 			}
 			fv.SetInt(int64(n))
+		case reflect.Bool:
+			b, err := strconv.ParseBool(strings.TrimSpace(raw))
+			if err != nil {
+				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
+			}
+			fv.SetBool(b)
+		case reflect.Slice:
+			if fv.Type().Elem().Kind() != reflect.String {
+				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
+			}
+			fv.Set(reflect.ValueOf(splitCSV(raw)))
 		default:
 			return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
 		}
 	}
 	return nil
+}
+
+// splitCSV splits a comma-separated environment value into trimmed,
+// non-empty parts.
+func splitCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c *Config) validate() error {
@@ -253,6 +375,47 @@ func (c *Config) validate() error {
 	}
 	if (c.Auth.AdminUsername == "") != (c.Auth.AdminPassword == "") {
 		return fmt.Errorf("auth: admin_username and admin_password must be set together")
+	}
+	if err := c.OIDC.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validate checks the OIDC configuration. It never includes ClientSecret in
+// any returned error.
+func (c OIDCConfig) validate() error {
+	if n := c.configuredFields(); n != 0 && n != 3 {
+		return fmt.Errorf("oidc: issuer_url, client_id and redirect_url must be set together")
+	}
+	if !c.Enabled() {
+		return nil
+	}
+	if err := validateAbsoluteURL(c.IssuerURL); err != nil {
+		return fmt.Errorf("oidc.issuer_url: %w", err)
+	}
+	if err := validateAbsoluteURL(c.RedirectURL); err != nil {
+		return fmt.Errorf("oidc.redirect_url: %w", err)
+	}
+	if !slices.Contains(oidcValidRoles, c.DefaultRole) {
+		return fmt.Errorf("oidc.default_role: unsupported value %q", c.DefaultRole)
+	}
+	return nil
+}
+
+// validateAbsoluteURL requires an absolute http(s) URL with a host.
+func validateAbsoluteURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL")
+	}
+	switch u.Scheme {
+	case "http", "https":
+	default:
+		return fmt.Errorf("unsupported scheme %q, expected http or https", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host")
 	}
 	return nil
 }

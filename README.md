@@ -20,7 +20,7 @@ system sit on top for managing accounts.
 
 ## Requirements
 
-- Go 1.22+
+- Go 1.26+
 - Docker (for PostgreSQL via `docker compose`)
 - [dbmate](https://github.com/amacneil/dbmate) and [sqlc](https://sqlc.dev/)
   for the database pipeline (installed by `make setup-tools`)
