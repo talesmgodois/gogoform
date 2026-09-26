@@ -1,38 +1,46 @@
-// Package database opens the PostgreSQL connection pool used by the application.
+// Package database opens the connection to the application's database,
+// abstracting over the concrete engine (PostgreSQL, and later others).
 package database
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"app/internal/config"
+	"app/internal/db"
 )
 
-// pingTimeout bounds the connectivity check performed by Connect.
-const pingTimeout = 5 * time.Second
+// DB is an open, engine-neutral database connection.
+type DB struct {
+	// Querier runs the generated SQL queries.
+	Querier db.Querier
+	// Driver is the engine backing Querier.
+	Driver config.Driver
 
-// Connect creates a connection pool for uri and verifies the database is
-// reachable. The caller must Close the returned pool.
-func Connect(ctx context.Context, uri string) (*pgxpool.Pool, error) {
-	poolCfg, err := pgxpool.ParseConfig(uri)
-	if err != nil {
-		// Parse errors may echo the URI, which can contain credentials.
-		return nil, errors.New("database: invalid connection URI")
-	}
+	close    func()
+	logAttrs []any
+}
 
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return nil, fmt.Errorf("database: create pool: %w", err)
+// Open connects to the database identified by cfg and verifies it is
+// reachable. The caller must call Close on the returned DB.
+func Open(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
+	switch driver := cfg.Driver(); driver {
+	case config.DriverPostgres:
+		return openPostgres(ctx, cfg.URI)
+	default:
+		return nil, fmt.Errorf("database: unsupported driver %q", driver)
 	}
+}
 
-	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
-	defer cancel()
-	if err := pool.Ping(pingCtx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("database: ping %s:%d/%s: %w",
-			poolCfg.ConnConfig.Host, poolCfg.ConnConfig.Port, poolCfg.ConnConfig.Database, err)
+// Close releases the underlying connection(s).
+func (d *DB) Close() {
+	if d.close != nil {
+		d.close()
 	}
-	return pool, nil
+}
+
+// LogAttrs returns slog-style key/value pairs identifying the connected
+// database (host, port, database name), safe to log: never credentials.
+func (d *DB) LogAttrs() []any {
+	return d.logAttrs
 }
