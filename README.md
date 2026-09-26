@@ -28,19 +28,19 @@ system sit on top for managing accounts.
 ## Getting started
 
 ```bash
-cp .env.example .env
+cp workdir/.env.example workdir/.env
 make dev
 ```
 
 `make dev` starts PostgreSQL (waiting for its healthcheck) and runs the API
 locally on `SERVER_PORT` (default `8080`). Configuration is read from
-`config.toml`, with `.env` values taking precedence — see
-`.env.example` for every available setting.
+`workdir/config.toml`, with `workdir/.env` values taking precedence — see
+`workdir/.env.example` for every available setting.
 
 For hot reload during development, use `make watch` instead — it starts
 PostgreSQL and runs the API through [air](https://github.com/air-verse/air),
 rebuilding and restarting the server whenever a `.go`, `.html` or `.toml`
-file changes (config in `.air.toml`). Install it with `make setup-tools`.
+file changes (config in `workdir/.air.toml`). Install it with `make setup-tools`.
 
 Run `make help` to list every available target, including the database
 migration pipeline (`generate-schema`, `migrate-up`, `sqlc`, ...) and
@@ -73,4 +73,4 @@ implementation work.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](workdir/LICENSE).
