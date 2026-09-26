@@ -79,6 +79,7 @@ type Form struct {
 	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
 	PublicAvailable bool            `db:"public_available" json:"public_available"`
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 }
 
 type FormSubmission struct {

@@ -291,8 +291,54 @@ func TestGetPublicBySlug(t *testing.T) {
 	}
 }
 
+func TestGetPublicBySlugWindow(t *testing.T) {
+	before, after := now.Add(-time.Minute), now.Add(time.Minute)
+	tests := []struct {
+		name       string
+		start, end *time.Time
+		wantCode   apperrors.Code
+	}{
+		{"unbounded", nil, nil, ""},
+		{"inside the window", &before, &after, ""},
+		{"not open yet", &after, nil, apperrors.CodeNotFound},
+		{"deadline passed", nil, &before, apperrors.CodeGone},
+		{"deadline is now", nil, &now, apperrors.CodeGone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := dbForm
+			row.StartDate, row.EndDate = tt.start, tt.end
+			svc := NewService(&fakeQuerier{getPublicFormBySlug: func(string) (db.Form, error) {
+				return row, nil
+			}})
+			svc.now = func() time.Time { return now }
+
+			_, err := svc.GetPublicBySlug(context.Background(), "survey")
+
+			assertCode(t, err, tt.wantCode)
+		})
+	}
+}
+
+func TestCreateDraft(t *testing.T) {
+	var got db.CreateFormParams
+	svc := NewService(&fakeQuerier{createForm: func(arg db.CreateFormParams) (db.Form, error) {
+		got = arg
+		row := dbForm
+		row.IsDraft = true
+		return row, nil
+	}})
+
+	form, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, Title: "Survey", Slug: "survey", Content: content, IsDraft: true})
+
+	assertCode(t, err, "")
+	if !got.IsDraft || !form.IsDraft {
+		t.Fatalf("params.IsDraft = %v, form.IsDraft = %v, want true", got.IsDraft, form.IsDraft)
+	}
+}
+
 func TestList(t *testing.T) {
-	filter := ListFormsFilter{TenantID: 3, IsActive: ptr(true), Search: ptr("sur")}
+	filter := ListFormsFilter{TenantID: 3, IsActive: ptr(true), IsDraft: ptr(false), Search: ptr("sur")}
 	row := db.ListFormsByTenantRow{
 		ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
 		IsActive: ptr(true), StartDate: &now, FormContent: content,
@@ -314,7 +360,7 @@ func TestList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(&fakeQuerier{listFormsByTenant: func(arg db.ListFormsByTenantParams) ([]db.ListFormsByTenantRow, error) {
 				want := db.ListFormsByTenantParams{
-					TenantID: 3, IsActive: filter.IsActive, Search: filter.Search,
+					TenantID: 3, IsActive: filter.IsActive, IsDraft: filter.IsDraft, Search: filter.Search,
 					PageOffset: tt.page.Offset, PageLimit: tt.page.Limit,
 				}
 				if arg != want {
@@ -493,20 +539,31 @@ func TestUpdate(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      error
+		getErr   error // of the lookup made when no row is updated
 		wantCode apperrors.Code
 	}{
-		{"ok", nil, ""},
-		{"missing", pgx.ErrNoRows, apperrors.CodeNotFound},
-		{"slug taken", errUnique, apperrors.CodeConflict},
-		{"db failure", errDB, apperrors.CodeInternal},
+		{"ok", nil, nil, ""},
+		{"missing", pgx.ErrNoRows, pgx.ErrNoRows, apperrors.CodeNotFound},
+		{"locked by submissions", pgx.ErrNoRows, nil, apperrors.CodeConflict},
+		{"lookup failure", pgx.ErrNoRows, errDB, apperrors.CodeInternal},
+		{"slug taken", errUnique, nil, apperrors.CodeConflict},
+		{"db failure", errDB, nil, apperrors.CodeInternal},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got db.UpdateFormParams
-			svc := NewService(&fakeQuerier{updateForm: func(arg db.UpdateFormParams) (db.Form, error) {
-				got = arg
-				return dbForm, tt.err
-			}})
+			svc := NewService(&fakeQuerier{
+				updateForm: func(arg db.UpdateFormParams) (db.Form, error) {
+					got = arg
+					return dbForm, tt.err
+				},
+				getFormByID: func(arg db.GetFormByIDParams) (db.GetFormByIDRow, error) {
+					if arg != (db.GetFormByIDParams{ID: 7, TenantID: 3}) {
+						t.Fatalf("lookup params = %+v", arg)
+					}
+					return db.GetFormByIDRow{ID: 7, TenantID: 3}, tt.getErr
+				},
+			})
 
 			form, err := svc.Update(context.Background(), in)
 

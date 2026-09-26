@@ -15,6 +15,7 @@ const (
 	CodeForbidden       Code = "forbidden"
 	CodeNotFound        Code = "not_found"
 	CodeConflict        Code = "conflict"
+	CodeGone            Code = "gone"
 	CodeInternal        Code = "internal"
 )
 

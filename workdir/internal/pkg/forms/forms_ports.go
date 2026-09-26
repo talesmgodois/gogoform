@@ -14,8 +14,9 @@ type Repository interface {
 	// GetByID returns the tenant's form with the given ID.
 	GetByID(ctx context.Context, tenantID, id int32) (FormDetails, error)
 	// GetPublicBySlug returns the form with the given slug if it can be filled
-	// in publicly: the form and its tenant are active and now is inside the
-	// availability window.
+	// in publicly: the form is published (not a draft), it and its tenant are
+	// active and now is inside the availability window. A form past its
+	// end_date yields CodeGone; any other unavailable form CodeNotFound.
 	GetPublicBySlug(ctx context.Context, slug string) (Form, error)
 	// List returns the forms matching filter, newest first.
 	List(ctx context.Context, filter ListFormsFilter, page Page) ([]FormSummary, error)
@@ -29,7 +30,9 @@ type Repository interface {
 	// GetAnyByID returns the form with the given ID whatever its tenant. It
 	// is not scoped by tenant: only use it behind operator-level access.
 	GetAnyByID(ctx context.Context, id int32) (FormOverview, error)
-	// Update replaces the stored state of a form and returns it.
+	// Update replaces the stored state of a form and returns it. Once the
+	// form has submissions its content is locked and it cannot become a draft
+	// again: such changes yield CodeConflict.
 	Update(ctx context.Context, in UpdateFormInput) (Form, error)
 	// Delete removes the tenant's form with the given ID.
 	Delete(ctx context.Context, tenantID, id int32) error

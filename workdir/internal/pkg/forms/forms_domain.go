@@ -15,9 +15,13 @@ type Form struct {
 	Slug        string
 	Description *string
 	IsActive    bool
-	// StartDate and EndDate bound the availability window; nil means unbounded.
+	// StartDate and EndDate bound the availability window; nil means
+	// unbounded. EndDate is the deadline: no submissions are accepted from it on.
 	StartDate *time.Time
 	EndDate   *time.Time
+	// IsDraft forms are still being edited: they are never served to the
+	// people filling forms in until they are published (IsDraft false).
+	IsDraft bool
 	// Content is the form definition (fields, layout) as raw JSON.
 	Content json.RawMessage
 	// PublicAvailable forms can be read and filled in without signing in;
@@ -64,6 +68,8 @@ type CreateFormInput struct {
 	// form that does not accept anonymous submissions is rejected.
 	PublicAvailable *bool
 	AcceptAnonymous *bool
+	// IsDraft saves the form as a draft instead of publishing it.
+	IsDraft bool
 }
 
 // UpdateFormInput holds the full new state of an existing form. ID and
@@ -82,6 +88,8 @@ type UpdateFormInput struct {
 	// CreateFormInput.
 	PublicAvailable *bool
 	AcceptAnonymous *bool
+	// IsDraft false publishes a draft; true turns the form back into one.
+	IsDraft bool
 }
 
 // ListFormsFilter selects the forms of a tenant.
@@ -89,6 +97,8 @@ type ListFormsFilter struct {
 	TenantID int32
 	// IsActive nil matches forms in any state.
 	IsActive *bool
+	// IsDraft nil matches drafts and published forms alike.
+	IsDraft *bool
 	// Search nil matches any title; otherwise a case-insensitive substring match.
 	Search *string
 }
