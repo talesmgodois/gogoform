@@ -178,13 +178,13 @@ func TestAccessFlags(t *testing.T) {
 				updateForm: func(arg db.UpdateFormParams) (db.Form, error) { updated = arg; return dbForm, nil },
 			})
 
-			_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, PublicAvailable: tt.public, AcceptAnonymous: tt.anonymous})
+			_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, Content: content, PublicAvailable: tt.public, AcceptAnonymous: tt.anonymous})
 			assertCode(t, err, tt.wantCode)
 			if created.PublicAvailable != tt.wantPublic || created.AcceptAnonymous != tt.wantAnonymous {
 				t.Fatalf("create params = %+v", created)
 			}
 
-			_, err = svc.Update(context.Background(), UpdateFormInput{ID: 7, TenantID: 3, PublicAvailable: tt.public, AcceptAnonymous: tt.anonymous})
+			_, err = svc.Update(context.Background(), UpdateFormInput{ID: 7, TenantID: 3, Content: content, PublicAvailable: tt.public, AcceptAnonymous: tt.anonymous})
 			assertCode(t, err, tt.wantCode)
 			if updated.PublicAvailable != tt.wantPublic || updated.AcceptAnonymous != tt.wantAnonymous {
 				t.Fatalf("update params = %+v", updated)
@@ -197,7 +197,7 @@ func TestCreateCheckViolation(t *testing.T) {
 	svc := NewService(&fakeQuerier{createForm: func(db.CreateFormParams) (db.Form, error) {
 		return db.Form{}, &pgconn.PgError{Code: "23514"}
 	}})
-	_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3})
+	_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, Content: content})
 	assertCode(t, err, apperrors.CodeInvalidArgument)
 }
 
@@ -219,7 +219,7 @@ func TestCreateIsActive(t *testing.T) {
 				return dbForm, nil
 			}})
 
-			if _, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, IsActive: tt.in}); err != nil {
+			if _, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, Content: content, IsActive: tt.in}); err != nil {
 				t.Fatalf("err = %v", err)
 			}
 			if got == nil || *got != tt.want {
@@ -607,6 +607,105 @@ func TestDelete(t *testing.T) {
 			assertCode(t, svc.Delete(context.Background(), 3, 7), tt.wantCode)
 		})
 	}
+}
+
+func TestCanonicalizeJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"already canonical", `{"fields":[]}`, `{"fields":[]}`, false},
+		{"reordered keys", `{"b":1,"a":2}`, `{"a":2,"b":1}`, false},
+		{"extra whitespace", "{\n  \"a\" : 1,\n  \"b\" : 2\n}", `{"a":1,"b":2}`, false},
+		{"preserves number precision", `{"n":1.50}`, `{"n":1.50}`, false},
+		{"invalid json", `{not json}`, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := canonicalizeJSON(json.RawMessage(tt.in))
+			if tt.wantErr {
+				assertCode(t, err, apperrors.CodeInvalidArgument)
+				return
+			}
+			assertCode(t, err, "")
+			if string(got) != tt.want {
+				t.Fatalf("canonicalizeJSON(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCreateCanonicalizesContent shows that Create normalizes form_content
+// before it reaches the query, so key order and whitespace never end up
+// stored verbatim.
+func TestCreateCanonicalizesContent(t *testing.T) {
+	var got db.CreateFormParams
+	svc := NewService(&fakeQuerier{createForm: func(arg db.CreateFormParams) (db.Form, error) {
+		got = arg
+		return dbForm, nil
+	}})
+
+	in := CreateFormInput{TenantID: 3, Title: "Survey", Slug: "survey", Content: json.RawMessage(`{"b":1,   "a":2}`)}
+	if _, err := svc.Create(context.Background(), in); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if want := json.RawMessage(`{"a":2,"b":1}`); !reflect.DeepEqual(got.FormContent, want) {
+		t.Fatalf("FormContent = %s, want %s", got.FormContent, want)
+	}
+}
+
+func TestCreateInvalidContent(t *testing.T) {
+	svc := NewService(&fakeQuerier{createForm: func(db.CreateFormParams) (db.Form, error) {
+		t.Fatal("CreateForm should not be called with invalid content")
+		return db.Form{}, nil
+	}})
+
+	_, err := svc.Create(context.Background(), CreateFormInput{TenantID: 3, Content: json.RawMessage(`{not json}`)})
+	assertCode(t, err, apperrors.CodeInvalidArgument)
+}
+
+// TestUpdateSameContentDifferentFormattingCanonicalizesIdentically shows that
+// resubmitting the same content with reordered keys or extra whitespace
+// produces the exact same form_content bytes sent to UpdateForm. Since the
+// query only refuses the update (msgLocked) when form_content changes, two
+// requests carrying the same content in different textual forms are treated
+// identically instead of spuriously tripping the lock.
+func TestUpdateSameContentDifferentFormattingCanonicalizesIdentically(t *testing.T) {
+	variants := []json.RawMessage{
+		json.RawMessage(`{"a":1,"b":2}`),
+		json.RawMessage(`{"b":2,"a":1}`),
+		json.RawMessage("{\n  \"a\": 1,\n  \"b\": 2\n}"),
+	}
+	var params []db.UpdateFormParams
+	svc := NewService(&fakeQuerier{updateForm: func(arg db.UpdateFormParams) (db.Form, error) {
+		params = append(params, arg)
+		return dbForm, nil
+	}})
+
+	for _, v := range variants {
+		in := UpdateFormInput{ID: 7, TenantID: 3, Content: v}
+		if _, err := svc.Update(context.Background(), in); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+	}
+
+	for i, p := range params {
+		if !reflect.DeepEqual(p.FormContent, params[0].FormContent) {
+			t.Fatalf("variant %d canonicalized to %s, want %s", i, p.FormContent, params[0].FormContent)
+		}
+	}
+}
+
+func TestUpdateInvalidContent(t *testing.T) {
+	svc := NewService(&fakeQuerier{updateForm: func(db.UpdateFormParams) (db.Form, error) {
+		t.Fatal("UpdateForm should not be called with invalid content")
+		return db.Form{}, nil
+	}})
+
+	_, err := svc.Update(context.Background(), UpdateFormInput{ID: 7, TenantID: 3, Content: json.RawMessage(`{not json}`)})
+	assertCode(t, err, apperrors.CodeInvalidArgument)
 }
 
 func TestToFormNullColumns(t *testing.T) {
