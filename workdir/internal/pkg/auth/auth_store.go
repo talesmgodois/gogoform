@@ -2,9 +2,6 @@ package auth
 
 import (
 	"context"
-	"errors"
-
-	"github.com/jackc/pgx/v5"
 
 	"app/internal/database"
 	"app/internal/db"
@@ -105,7 +102,7 @@ func (s *UserStore) UpdateRole(ctx context.Context, id int32, role Role) (User, 
 
 // mapGetError translates the error of a single-row user query.
 func mapGetError(err error) error {
-	if errors.Is(err, pgx.ErrNoRows) {
+	if database.IsNoRows(err) {
 		return apperrors.NewNotFound(msgUserNotFound)
 	}
 	return apperrors.NewInternal(err)

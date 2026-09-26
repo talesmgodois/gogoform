@@ -2,9 +2,6 @@ package tenants
 
 import (
 	"context"
-	"errors"
-
-	"github.com/jackc/pgx/v5"
 
 	"app/internal/database"
 	"app/internal/db"
@@ -45,7 +42,7 @@ func (s *Service) Create(ctx context.Context, in CreateTenantInput) (Tenant, err
 func (s *Service) GetByAPIKey(ctx context.Context, apiKey string) (Tenant, error) {
 	row, err := s.q.GetTenantByAPIKey(ctx, apiKey)
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case database.IsNoRows(err):
 		return Tenant{}, apperrors.NewNotFound(msgNotFound)
 	case err != nil:
 		return Tenant{}, apperrors.NewInternal(err)
