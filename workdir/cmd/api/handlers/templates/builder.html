@@ -105,7 +105,12 @@
         "select-data": { label: "Select (data)", hint: "Options loaded from a URL", glyph: "{ }", tone: "bg-fuchsia-500/10 text-fuchsia-400" },
         "autocomplete-data": { label: "Autocomplete (data)", hint: "Suggestions searched from a URL", glyph: "A…", tone: "bg-amber-500/10 text-amber-400" },
         "file": { label: "File upload", hint: "Documents or images", glyph: "⇪", tone: "bg-emerald-500/10 text-emerald-400" },
+        "image-picker": { label: "Image picker", hint: "Upload an image with a thumbnail preview", glyph: "▣", tone: "bg-lime-500/10 text-lime-400" },
         "toggle": { label: "Toggle switch", hint: "Yes / no answer", glyph: "◑", tone: "bg-rose-500/10 text-rose-400" },
+        "checkbox": { label: "Checkbox group", hint: "Choose one or more options", glyph: "☑", tone: "bg-teal-500/10 text-teal-400" },
+        "radio-group": { label: "Radio group", hint: "Choose exactly one option", glyph: "◉", tone: "bg-orange-500/10 text-orange-400" },
+        "multi-select": { label: "Multi select", hint: "Choose several from a dropdown", glyph: "▤", tone: "bg-cyan-500/10 text-cyan-400" },
+        "rating": { label: "Rating scale", hint: "Star rating out of a configurable maximum", glyph: "★", tone: "bg-yellow-500/10 text-yellow-400" },
       };
       const INPUT_TYPES = ["text", "email", "number", "tel", "url", "date"];
       const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -154,6 +159,7 @@
         "duplicate": ["M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6"],
         "code": ["M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"],
         "squares": ["M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z"],
+        "photo": ["M3.75 4.5h16.5a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z", "M8.25 10.5a1.125 1.125 0 1 0 0-2.25 1.125 1.125 0 0 0 0 2.25Z", "M4.5 17.25l4.5-4.5 3 3 4.5-5.25 4.5 6.75"],
       };
       const SVG_NS = "http://www.w3.org/2000/svg";
       const icon = (name, size) => {
@@ -190,9 +196,10 @@
           help: "", required: false, placeholder: "", inputType: "text", rows: 4,
           options: [{ label: "Option 1", value: "option_1" }, { label: "Option 2", value: "option_2" }],
           source: { url: "", labelKey: "name", valueKey: "id", searchParam: "q" }, minChars: 2,
-          accept: "", multiple: false, maxSizeMb: 10, defaultValue: false,
+          accept: "", multiple: false, maxSizeMb: 10, defaultValue: false, maxStars: 5,
         }, props);
         if (!f.name) f.name = uniqueName(slugify(f.label, "_"), f.uid);
+        if (f.type === "image-picker" && !f.accept) f.accept = "image/*";
         return f;
       };
 
@@ -202,23 +209,30 @@
         const o = { type: f.type, name: f.name, label: f.label };
         if (f.help) o.help = f.help;
         o.required = f.required;
-        if (f.placeholder && f.type !== "file" && f.type !== "toggle") o.placeholder = f.placeholder;
+        if (f.placeholder && !["file", "image-picker", "toggle", "checkbox", "radio-group"].includes(f.type)) o.placeholder = f.placeholder;
         const source = { url: f.source.url, label_key: f.source.labelKey, value_key: f.source.valueKey };
         switch (f.type) {
           case "textfield": o.input_type = f.inputType; break;
           case "textarea": o.rows = f.rows; break;
-          case "select": o.options = f.options.map((opt) => ({ label: opt.label, value: opt.value })); break;
+          case "select":
+          case "checkbox":
+          case "radio-group":
+          case "multi-select":
+            o.options = f.options.map((opt) => ({ label: opt.label, value: opt.value }));
+            break;
           case "select-data": o.data_source = source; break;
           case "autocomplete-data":
             o.data_source = Object.assign(source, { search_param: f.source.searchParam });
             o.min_chars = f.minChars;
             break;
           case "file":
+          case "image-picker":
             if (f.accept) o.accept = f.accept;
             o.multiple = f.multiple;
             o.max_size_mb = f.maxSizeMb;
             break;
           case "toggle": o.default = f.defaultValue; break;
+          case "rating": o.max_stars = f.maxStars; break;
         }
         return o;
       };
@@ -270,6 +284,7 @@
           source: { url: str(src.url, ""), labelKey: str(src.label_key, "name"), valueKey: str(src.value_key, "id"), searchParam: str(src.search_param, "q") },
           minChars: num(o.min_chars, 2), accept: str(o.accept, ""), multiple: o.multiple === true,
           maxSizeMb: num(o.max_size_mb, 10), defaultValue: o.default === true,
+          maxStars: num(o.max_stars, 5),
         };
         if (Array.isArray(o.options)) {
           props.options = o.options.map((opt) => ({ label: str(opt && opt.label, ""), value: str(opt && opt.value, ""), valueEdited: true }));
@@ -294,7 +309,7 @@
           if (!NAME_RE.test(f.name)) add(f.uid, where + "name must start with a letter or _ and hold only letters, digits and _.");
           else if (names.has(f.name)) add(f.uid, where + "name \"" + f.name + "\" is used twice.");
           names.add(f.name);
-          if (f.type === "select") {
+          if (f.type === "select" || f.type === "checkbox" || f.type === "radio-group" || f.type === "multi-select") {
             if (!f.options.length) add(f.uid, where + "add at least one option.");
             const values = new Set();
             f.options.forEach((opt) => {
@@ -309,7 +324,8 @@
           }
           if (f.type === "autocomplete-data" && !f.source.searchParam) add(f.uid, where + "search parameter is required.");
           if (f.type === "textarea" && !(f.rows >= 1 && f.rows <= 30)) add(f.uid, where + "rows must be between 1 and 30.");
-          if (f.type === "file" && !(f.maxSizeMb > 0)) add(f.uid, where + "maximum size must be above 0.");
+          if ((f.type === "file" || f.type === "image-picker") && !(f.maxSizeMb > 0)) add(f.uid, where + "maximum size must be above 0.");
+          if (f.type === "rating" && !(f.maxStars >= 2 && f.maxStars <= 10)) add(f.uid, where + "maximum stars must be between 2 and 10.");
         });
         return out;
       };
@@ -332,6 +348,19 @@
             return control("select", { class: PREVIEW },
               h("option", { value: "" }, ph || "Select an option…"),
               f.options.map((opt) => h("option", { value: opt.value }, opt.label)));
+          case "multi-select":
+            return control("select", { multiple: true, class: PREVIEW + " min-h-[6rem]" },
+              f.options.map((opt) => h("option", { value: opt.value }, opt.label)));
+          case "checkbox":
+            return h("div", { class: "space-y-2" }, f.options.map((opt, i) =>
+              h("label", { class: "flex items-center gap-2 text-sm text-slate-300" },
+                h("input", { type: "checkbox", id: live ? "preview-" + f.uid + "-" + i : null, name: live ? f.name : null, value: opt.value, class: "h-4 w-4 rounded border-slate-700 bg-slate-950 accent-indigo-600" }),
+                opt.label)));
+          case "radio-group":
+            return h("div", { class: "space-y-2" }, f.options.map((opt, i) =>
+              h("label", { class: "flex items-center gap-2 text-sm text-slate-300" },
+                h("input", { type: "radio", id: live ? "preview-" + f.uid + "-" + i : null, name: live ? f.name : null, value: opt.value, class: "h-4 w-4 border-slate-700 bg-slate-950 accent-indigo-600" }),
+                opt.label)));
           case "select-data":
             return h("div", { class: "space-y-1.5" },
               control("select", { class: PREVIEW }, h("option", { value: "" }, ph || "Select an option…")),
@@ -351,6 +380,29 @@
               h("p", { class: "text-sm text-slate-300" }, f.multiple ? "Drop files here or browse" : "Drop a file here or browse"),
               h("p", { class: "mt-1 text-[11px] text-slate-500" }, limits));
           }
+          case "image-picker": {
+            const limits = (f.accept || "Any image type") + " · up to " + f.maxSizeMb + " MB" + (f.multiple ? " each" : "");
+            if (live) {
+              const thumb = h("img", { class: "mt-2 hidden h-24 w-24 rounded-lg border border-slate-700 object-cover", alt: "" });
+              return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-4" },
+                control("input", {
+                  type: "file", accept: f.accept || "image/*", multiple: f.multiple,
+                  class: "block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-200 hover:file:bg-slate-700",
+                  onchange: (e) => {
+                    const picked = e.target.files && e.target.files[0];
+                    if (picked) { thumb.src = URL.createObjectURL(picked); thumb.classList.remove("hidden"); }
+                    else { thumb.classList.add("hidden"); thumb.removeAttribute("src"); }
+                  },
+                }),
+                thumb,
+                h("p", { class: "mt-2 text-[11px] text-slate-500" }, limits));
+            }
+            return h("div", { class: "flex items-center gap-3 rounded-xl border-2 border-dashed border-slate-700 px-4 py-6" },
+              h("div", { class: "grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-slate-800 text-slate-500" }, icon("photo", "h-6 w-6")),
+              h("div", null,
+                h("p", { class: "text-sm text-slate-300" }, "Drop an image here or browse"),
+                h("p", { class: "mt-1 text-[11px] text-slate-500" }, limits)));
+          }
           case "toggle":
             if (live) {
               return h("label", { class: "inline-flex cursor-pointer items-center gap-3" },
@@ -362,6 +414,26 @@
               h("span", { class: "relative inline-flex h-6 w-11 shrink-0 rounded-full transition " + (f.defaultValue ? "bg-indigo-600" : "bg-slate-700") },
                 h("span", { class: "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " + (f.defaultValue ? "left-[1.375rem]" : "left-0.5") })),
               h("span", { class: "text-sm text-slate-400" }, f.defaultValue ? "Yes" : "No"));
+          case "rating": {
+            const stars = Array.from({ length: f.maxStars }, (_, i) => i + 1);
+            if (live) {
+              let value = 0;
+              const buttons = stars.map((n) =>
+                h("button", {
+                  type: "button", class: "text-2xl leading-none text-slate-600 transition hover:scale-110",
+                  "aria-label": n + " star" + (n === 1 ? "" : "s"), "aria-pressed": "false",
+                }, "☆"));
+              const render = () => buttons.forEach((b, i) => {
+                b.textContent = i < value ? "★" : "☆";
+                b.classList.toggle("text-yellow-400", i < value);
+                b.classList.toggle("text-slate-600", i >= value);
+                b.setAttribute("aria-pressed", String(i < value));
+              });
+              buttons.forEach((b, i) => b.addEventListener("click", () => { value = value === i + 1 ? 0 : i + 1; render(); }));
+              return h("div", { id: "preview-" + f.uid, class: "flex items-center gap-1", role: "radiogroup", "aria-label": f.label || "Rating" }, buttons);
+            }
+            return h("div", { class: "flex items-center gap-1 text-2xl leading-none text-slate-600" }, stars.map(() => h("span", null, "☆")));
+          }
         }
       };
 
@@ -471,7 +543,11 @@
           case "textarea":
             return [placeholder(), row("Rows", number(f.rows, (v) => { f.rows = v; changed(); }, { min: 1, max: 30 }))];
           case "select":
+          case "multi-select":
             return [placeholder(), optionsEditor(f)];
+          case "checkbox":
+          case "radio-group":
+            return [optionsEditor(f)];
           case "select-data":
             return [placeholder(), ...dataSourceInputs(f)];
           case "autocomplete-data":
@@ -488,8 +564,17 @@
               row("Max. size (MB)", number(f.maxSizeMb, (v) => { f.maxSizeMb = v; changed(); }, { min: 1 })),
               check(f.multiple, "Allow several files", (v) => { f.multiple = v; changed(); }),
             ];
+          case "image-picker":
+            return [
+              row("Accepted types", text(f.accept, (v) => { f.accept = v.trim(); changed(); }, { placeholder: "image/*", class: INPUT + " font-mono" }),
+                "Comma-separated image MIME types or extensions; empty accepts any image."),
+              row("Max. size (MB)", number(f.maxSizeMb, (v) => { f.maxSizeMb = v; changed(); }, { min: 1 })),
+              check(f.multiple, "Allow several images", (v) => { f.multiple = v; changed(); }),
+            ];
           case "toggle":
             return [check(f.defaultValue, "On by default", (v) => { f.defaultValue = v; changed(); })];
+          case "rating":
+            return [row("Maximum stars", number(f.maxStars, (v) => { f.maxStars = v; changed(); }, { min: 2, max: 10 }))];
         }
       };
 
@@ -787,7 +872,7 @@
             state.description.trim() ? h("p", { class: "mt-1 whitespace-pre-line text-sm text-slate-400 break-words" }, state.description.trim()) : null),
           ...(state.fields.length
             ? state.fields.map((f) => h("div", { class: "space-y-1.5" },
-              h(f.type === "toggle" ? "p" : "label", { class: "block text-sm font-semibold text-white break-words", htmlFor: f.type === "toggle" ? null : "preview-" + f.uid },
+              h(["toggle", "checkbox", "radio-group", "rating"].includes(f.type) ? "p" : "label", { class: "block text-sm font-semibold text-white break-words", htmlFor: ["toggle", "checkbox", "radio-group", "rating"].includes(f.type) ? null : "preview-" + f.uid },
                 f.label || "Untitled field", f.required ? h("span", { class: "text-rose-400" }, " *") : null),
               f.help ? h("p", { class: "text-xs text-slate-400 break-words" }, f.help) : null,
               preview(f, true)))
