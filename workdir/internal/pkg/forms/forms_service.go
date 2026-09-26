@@ -21,6 +21,7 @@ const (
 	msgInvalidPage    = "page offset must be >= 0 and limit must be > 0"
 	msgPublicNotAnon  = "a public form must accept anonymous submissions"
 	msgClosed         = "form is closed: its end_date has passed"
+	msgLocked         = "form has submissions: its content cannot change and it cannot become a draft again; duplicate it instead"
 )
 
 var _ Repository = (*Service)(nil)
@@ -253,7 +254,9 @@ func (s *Service) GetAnyByID(ctx context.Context, id int32) (FormOverview, error
 	}, nil
 }
 
-// Update replaces the stored state of a form and returns it.
+// Update replaces the stored state of a form and returns it. Once a form has
+// submissions, changing its content or turning it back into a draft yields a
+// conflict.
 func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) {
 	public, anonymous, err := resolveAccess(in.PublicAvailable, in.AcceptAnonymous)
 	if err != nil {
@@ -278,8 +281,15 @@ func (s *Service) Update(ctx context.Context, in UpdateFormInput) (Form, error) 
 		return Form{}, apperrors.NewConflict(msgSlugTaken)
 	case database.IsCheckViolation(err):
 		return Form{}, apperrors.NewBadRequest(msgPublicNotAnon)
+	case errors.Is(err, pgx.ErrNoRows):
+		// No row is updated both when the form does not exist and when its
+		// submissions lock the change: tell them apart.
+		if _, getErr := s.GetByID(ctx, in.TenantID, in.ID); getErr != nil {
+			return Form{}, getErr
+		}
+		return Form{}, apperrors.NewConflict(msgLocked)
 	case err != nil:
-		return Form{}, mapGetError(err)
+		return Form{}, apperrors.NewInternal(err)
 	}
 	return toForm(row), nil
 }

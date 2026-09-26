@@ -539,20 +539,31 @@ func TestUpdate(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      error
+		getErr   error // of the lookup made when no row is updated
 		wantCode apperrors.Code
 	}{
-		{"ok", nil, ""},
-		{"missing", pgx.ErrNoRows, apperrors.CodeNotFound},
-		{"slug taken", errUnique, apperrors.CodeConflict},
-		{"db failure", errDB, apperrors.CodeInternal},
+		{"ok", nil, nil, ""},
+		{"missing", pgx.ErrNoRows, pgx.ErrNoRows, apperrors.CodeNotFound},
+		{"locked by submissions", pgx.ErrNoRows, nil, apperrors.CodeConflict},
+		{"lookup failure", pgx.ErrNoRows, errDB, apperrors.CodeInternal},
+		{"slug taken", errUnique, nil, apperrors.CodeConflict},
+		{"db failure", errDB, nil, apperrors.CodeInternal},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got db.UpdateFormParams
-			svc := NewService(&fakeQuerier{updateForm: func(arg db.UpdateFormParams) (db.Form, error) {
-				got = arg
-				return dbForm, tt.err
-			}})
+			svc := NewService(&fakeQuerier{
+				updateForm: func(arg db.UpdateFormParams) (db.Form, error) {
+					got = arg
+					return dbForm, tt.err
+				},
+				getFormByID: func(arg db.GetFormByIDParams) (db.GetFormByIDRow, error) {
+					if arg != (db.GetFormByIDParams{ID: 7, TenantID: 3}) {
+						t.Fatalf("lookup params = %+v", arg)
+					}
+					return db.GetFormByIDRow{ID: 7, TenantID: 3}, tt.getErr
+				},
+			})
 
 			form, err := svc.Update(context.Background(), in)
 

@@ -46,7 +46,9 @@ WHERE f.tenant_id = sqlc.arg(tenant_id)
   AND (sqlc.narg(search)::text IS NULL OR f.title ILIKE '%' || sqlc.narg(search) || '%');
 
 -- name: UpdateForm :one
-UPDATE forms
+-- Once a form has submissions its content is locked and it cannot become a
+-- draft again: no row is updated then, as when the form does not exist.
+UPDATE forms f
 SET title = $3,
     slug = $4,
     description = $5,
@@ -58,7 +60,9 @@ SET title = $3,
     accept_anonymous = $11,
     is_draft = $12,
     updated_at = now()
-WHERE id = $1 AND tenant_id = $2
+WHERE f.id = $1 AND f.tenant_id = $2
+  AND (NOT EXISTS (SELECT 1 FROM form_submissions s WHERE s.form_id = f.id)
+       OR (f.form_content = $9 AND (NOT $12 OR f.is_draft)))
 RETURNING *;
 
 -- name: DeleteForm :execrows

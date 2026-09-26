@@ -497,7 +497,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true and an omitted is_draft is false, so saving a draft again needs is_draft true while omitting it publishes the form.",
+                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true and an omitted is_draft is false, so saving a draft again needs is_draft true while omitting it publishes the form. Once the form has submissions its content cannot change and it cannot become a draft again (409); duplicate it to change its fields.",
                 "consumes": [
                     "application/json"
                 ],
@@ -552,7 +552,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Slug already exists",
+                        "description": "Slug already exists, or the change is locked by existing submissions",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }

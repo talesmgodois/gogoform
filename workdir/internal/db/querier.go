@@ -52,6 +52,8 @@ type Querier interface {
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).
 	ListSubmissionsByForm(ctx context.Context, arg ListSubmissionsByFormParams) ([]ListSubmissionsByFormRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	// Once a form has submissions its content is locked and it cannot become a
+	// draft again: no row is updated then, as when the form does not exist.
 	UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error)
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error)
 }

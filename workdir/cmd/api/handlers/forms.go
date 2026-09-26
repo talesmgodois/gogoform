@@ -236,7 +236,7 @@ func (c *formsController) Get(w http.ResponseWriter, r *http.Request) {
 // Update replaces one of the authenticated tenant's forms.
 //
 //	@Summary		Update a form
-//	@Description	Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true and an omitted is_draft is false, so saving a draft again needs is_draft true while omitting it publishes the form.
+//	@Description	Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true and an omitted is_draft is false, so saving a draft again needs is_draft true while omitting it publishes the form. Once the form has submissions its content cannot change and it cannot become a draft again (409); duplicate it to change its fields.
 //	@Tags			forms
 //	@Accept			json
 //	@Produce		json
@@ -247,7 +247,7 @@ func (c *formsController) Get(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
-//	@Failure		409		{object}	errors.HTTPErrorResponse	"Slug already exists"
+//	@Failure		409		{object}	errors.HTTPErrorResponse	"Slug already exists, or the change is locked by existing submissions"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id} [put]
 func (c *formsController) Update(w http.ResponseWriter, r *http.Request) {

@@ -421,7 +421,7 @@ func (q *Queries) ListFormsByTenant(ctx context.Context, arg ListFormsByTenantPa
 }
 
 const updateForm = `-- name: UpdateForm :one
-UPDATE forms
+UPDATE forms f
 SET title = $3,
     slug = $4,
     description = $5,
@@ -433,7 +433,9 @@ SET title = $3,
     accept_anonymous = $11,
     is_draft = $12,
     updated_at = now()
-WHERE id = $1 AND tenant_id = $2
+WHERE f.id = $1 AND f.tenant_id = $2
+  AND (NOT EXISTS (SELECT 1 FROM form_submissions s WHERE s.form_id = f.id)
+       OR (f.form_content = $9 AND (NOT $12 OR f.is_draft)))
 RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous, is_draft
 `
 
@@ -452,6 +454,8 @@ type UpdateFormParams struct {
 	IsDraft         bool            `db:"is_draft" json:"is_draft"`
 }
 
+// Once a form has submissions its content is locked and it cannot become a
+// draft again: no row is updated then, as when the form does not exist.
 func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error) {
 	row := q.db.QueryRow(ctx, updateForm,
 		arg.ID,
