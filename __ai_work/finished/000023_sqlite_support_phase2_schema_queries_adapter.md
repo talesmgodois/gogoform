@@ -21,3 +21,21 @@ Goal: SQLite schema, queries, generated code and a `db.Querier` adapter exist an
 8. **Querier contract suite** (`internal/database/contract_test.go`): a table-driven suite taking a `db.Querier` factory, covering every method: CRUD round trips, tenant scoping, pagination order, the filters of `ListFormsByTenant`/`CountFormsByTenant`, `UpdateForm` refusing to change content or return to draft once a submission exists (and accepting the same content re-sent), `CreateUserIfNotExists` idempotency, `IsNoRows`, and unique / FK / check violations (duplicate slug, form of a missing tenant, public form not accepting anonymous, uppercase username). Run it on SQLite `:memory:` with the migration applied (read the `-- migrate:up` block of the files in `db/sqlite/migrations`), always, in `go test ./...`. Also run it against PostgreSQL when `TEST_DATABASE_URL` is set (skip otherwise), applying `db/postgres/migrations` to a fresh schema. Make it pass on both.
 
 9. Checks: `go vet ./...`, `go test ./...`, `CGO_ENABLED=0 go build ./...` in `workdir/`, and `make sqlc` leaves no diff.
+
+<!-- RUNNER:PLAN -->
+## Plan
+
+1. [x] Add `modernc.org/sqlite` to workdir/go.mod (Go 1.22.4-compatible version) and confirm `CGO_ENABLED=0 go build ./...` still succeeds.
+2. [x] Write the squashed SQLite migration in `db/sqlite/migrations/` reproducing the full PostgreSQL schema per the mapping table (tables, defaults, UNIQUE/CHECK/FK/index, including `forms_public_accepts_anonymous` and `username = lower(username)`).
+3. [x] Apply the migration to a fresh SQLite database and validate every table/constraint enforces as expected.
+4. [x] Port `db/postgres/queries/*.sql` to `db/sqlite/queries/*.sql` in SQLite dialect (placeholders, `LIKE`, `CURRENT_TIMESTAMP`, `json(...)` draft-lock comparison), same names/params/columns.
+5. [x] Add the `sqlite` engine entry to `sqlc.yaml` (package `sqlitegen`, out `internal/db/sqlitegen`, JSON/time overrides).
+6. [x] Run `make sqlc`; confirm `internal/db` is unchanged and `internal/db/sqlitegen` generates with correct nullable types (adjust casts in step 4 if needed).
+7. [x] Extend `internal/database/errors.go` to also match `*sqlite.Error` extended codes for unique/FK/check violations, with wrapped and unwrapped test cases.
+8. [x] Add `internal/database/sqlite.go` with `openSQLite` (DSN/pragmas, pool sizing, ping, `DB` construction) and add `DriverSQLite` to `config.Driver` without touching validation.
+9. [x] Implement the first half of `sqlite_querier.go` (tenants/users/files methods) with shared row-conversion helpers and error mapping.
+10. [x] Implement the remaining `sqlite_querier.go` methods (forms/submissions/webhooks) and confirm `var _ db.Querier = (*sqliteQuerier)(nil)` compiles.
+11. [x] Build `internal/database/contract_test.go` core CRUD/tenant-scoping/pagination coverage running against SQLite `:memory:`.
+12. [x] Extend the contract suite with forms/submissions filters, the `UpdateForm` draft-lock behavior, `CreateUserIfNotExists` idempotency, `IsNoRows`, and unique/FK/check violation scenarios.
+13. [x] Wire the contract suite to also run against PostgreSQL when `TEST_DATABASE_URL` is set, and reconcile any cross-engine behavior gaps.
+14. [x] Run final checks in workdir/: `go vet ./...`, `go test ./...`, `CGO_ENABLED=0 go build ./...`, and `make sqlc` with no diff.
