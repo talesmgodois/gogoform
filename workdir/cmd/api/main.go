@@ -76,7 +76,7 @@ func run() error {
 		return err
 	}
 	defer dbConn.Close()
-	log.Info("database connected", dbConn.LogAttrs()...)
+	log.Info("database connected", append([]any{"driver", dbConn.Driver}, dbConn.LogAttrs()...)...)
 
 	queries := dbConn.Querier
 	authSvc, err := newAuthService(ctx, log, queries, cfg.Auth)

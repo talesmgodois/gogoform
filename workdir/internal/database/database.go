@@ -5,6 +5,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"app/internal/config"
 	"app/internal/db"
@@ -27,6 +28,12 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 	switch driver := cfg.Driver(); driver {
 	case config.DriverPostgres:
 		return openPostgres(ctx, cfg.URI)
+	case config.DriverSQLite:
+		opts := sqliteOptions{
+			BusyTimeout: time.Duration(cfg.SQLiteBusyTimeoutMS) * time.Millisecond,
+			JournalMode: cfg.SQLiteJournalMode,
+		}
+		return openSQLite(ctx, cfg.SQLitePath(), opts)
 	default:
 		return nil, fmt.Errorf("database: unsupported driver %q", driver)
 	}

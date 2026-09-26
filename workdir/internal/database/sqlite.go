@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -21,6 +23,10 @@ const sqliteMemoryDSN = ":memory:"
 // sqliteOptions.BusyTimeout is zero.
 const sqliteBusyTimeout = 5 * time.Second
 
+// sqliteJournalMode is the default SQLite journal mode applied when
+// sqliteOptions.JournalMode is empty.
+const sqliteJournalMode = "WAL"
+
 // sqliteMaxOpenConns caps the connection pool for file-backed databases.
 const sqliteMaxOpenConns = 4
 
@@ -28,6 +34,9 @@ const sqliteMaxOpenConns = 4
 type sqliteOptions struct {
 	// BusyTimeout overrides sqliteBusyTimeout when non-zero.
 	BusyTimeout time.Duration
+	// JournalMode overrides sqliteJournalMode when non-empty: WAL, DELETE
+	// or TRUNCATE.
+	JournalMode string
 }
 
 // openSQLite opens the SQLite database at path (a file path, or ":memory:")
@@ -37,8 +46,18 @@ func openSQLite(ctx context.Context, path string, opts sqliteOptions) (*DB, erro
 	if busyTimeout <= 0 {
 		busyTimeout = sqliteBusyTimeout
 	}
+	journalMode := opts.JournalMode
+	if journalMode == "" {
+		journalMode = sqliteJournalMode
+	}
 
-	sqlDB, err := sql.Open("sqlite", sqliteDSN(path, busyTimeout))
+	if path != sqliteMemoryDSN {
+		if err := ensureSQLitePathWritable(path); err != nil {
+			return nil, err
+		}
+	}
+
+	sqlDB, err := sql.Open("sqlite", sqliteDSN(path, busyTimeout, journalMode))
 	if err != nil {
 		return nil, fmt.Errorf("database: open sqlite %s: %w", path, err)
 	}
@@ -65,20 +84,36 @@ func openSQLite(ctx context.Context, path string, opts sqliteOptions) (*DB, erro
 }
 
 // sqliteDSN builds the modernc.org/sqlite DSN for path: foreign keys on
-// (SQLite leaves them off by default), WAL journaling so readers don't block
-// the writer (skipped for in-memory databases, which have no journal file),
-// a busy timeout so writers wait instead of failing with SQLITE_BUSY,
-// immediate transaction locking to avoid deadlocks when a read transaction
-// is upgraded to a write, and a single time.Time text format so ordering on
-// timestamp columns stays correct.
-func sqliteDSN(path string, busyTimeout time.Duration) string {
+// (SQLite leaves them off by default), the configured journal mode (skipped
+// for in-memory databases, which have no journal file), a busy timeout so
+// writers wait instead of failing with SQLITE_BUSY, immediate transaction
+// locking to avoid deadlocks when a read transaction is upgraded to a
+// write, and a single time.Time text format so ordering on timestamp
+// columns stays correct.
+func sqliteDSN(path string, busyTimeout time.Duration, journalMode string) string {
 	q := url.Values{}
 	q.Add("_pragma", "foreign_keys(1)")
 	if path != sqliteMemoryDSN {
-		q.Add("_pragma", "journal_mode(WAL)")
+		q.Add("_pragma", fmt.Sprintf("journal_mode(%s)", journalMode))
 	}
 	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", busyTimeout.Milliseconds()))
 	q.Set("_txlock", "immediate")
 	q.Set("_time_format", "sqlite")
 	return path + "?" + q.Encode()
+}
+
+// ensureSQLitePathWritable creates path's parent directory if missing and
+// verifies the file itself can be created or opened for writing, so an
+// unwritable location fails with a clear error instead of a cryptic one
+// from the driver's lazy connection.
+func ensureSQLitePathWritable(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("database: create directory %s for sqlite database: %w", dir, err)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("database: sqlite path %s is not writable: %w", path, err)
+	}
+	return f.Close()
 }

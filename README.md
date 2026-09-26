@@ -46,6 +46,41 @@ Run `make help` to list every available target, including the database
 migration pipeline (`generate-schema`, `migrate-up`, `sqlc`, ...) and
 `make adminer` for a web UI to browse the database.
 
+## Choosing a database
+
+gogoform runs on PostgreSQL (the default) or SQLite. The engine is picked
+from `DATABASE_URL`'s scheme — no separate driver setting:
+
+```sh
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable  # default
+DATABASE_URL=sqlite:./data/gogoform.db                                           # single-binary, no server
+```
+
+Set it in `workdir/.env` (see `workdir/.env.example`) or `workdir/config.toml`.
+Optional SQLite tuning (`DATABASE_SQLITE_BUSY_TIMEOUT_MS`,
+`DATABASE_SQLITE_JOURNAL_MODE`) is documented in both files and ignored on
+PostgreSQL.
+
+Migrations are run with `make migrate-up` (and `migrate-down`/`migrate-status`/
+`migrate-new`) for either engine — the target reads the migrations directory
+that matches the current `DATABASE_URL`. Targets that only make sense for a
+database server (`db-up`, `db-logs`, `adminer`, `generate-schema`,
+`migrate-init`) require PostgreSQL and fail with a clear error under SQLite.
+`make dev` starts the PostgreSQL container only when `DATABASE_URL` points at
+it; with a `sqlite:` URL it just runs the API.
+
+Known limits of SQLite, worth knowing before choosing it:
+
+- **Single writer.** Fine for self-hosting and small teams, not for high
+  write concurrency — use PostgreSQL for that.
+- **Uploads live in the database file.** Uploaded files are stored as blobs
+  inside it, so it grows with every upload. Back it up with
+  `sqlite3 app.db ".backup ..."` or `VACUUM INTO`, not by copying the file
+  while the server is running.
+- **ASCII-only case-insensitive search.** Title search ignores case for
+  ASCII letters only; accented characters are compared case-sensitively.
+- No data migration tool between engines.
+
 ## Testing
 
 ```bash

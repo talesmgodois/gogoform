@@ -144,6 +144,10 @@ func TestDatabaseConfigDriver(t *testing.T) {
 	}{
 		{name: "postgres scheme", uri: "postgres://user:pass@localhost:5432/db", want: DriverPostgres},
 		{name: "postgresql scheme", uri: "postgresql://user:pass@localhost:5432/db", want: DriverPostgres},
+		{name: "sqlite relative path", uri: "sqlite:./data/app.db", want: DriverSQLite},
+		{name: "sqlite absolute path no slashes", uri: "sqlite:/abs/path.db", want: DriverSQLite},
+		{name: "sqlite absolute path with slashes", uri: "sqlite:///abs/path.db", want: DriverSQLite},
+		{name: "sqlite memory", uri: "sqlite::memory:", want: DriverSQLite},
 		{name: "unsupported scheme", uri: "mysql://user:pass@localhost/db", want: ""},
 		{name: "empty uri", uri: "", want: ""},
 		{name: "invalid uri", uri: "://bad", want: ""},
@@ -153,6 +157,119 @@ func TestDatabaseConfigDriver(t *testing.T) {
 			cfg := DatabaseConfig{URI: tt.uri}
 			if got := cfg.Driver(); got != tt.want {
 				t.Fatalf("Driver() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDatabaseConfigSQLitePath(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		want string
+	}{
+		{name: "relative path", uri: "sqlite:./data/app.db", want: "./data/app.db"},
+		{name: "absolute path no slashes", uri: "sqlite:/abs/path.db", want: "/abs/path.db"},
+		{name: "absolute path with slashes", uri: "sqlite:///abs/path.db", want: "/abs/path.db"},
+		{name: "memory", uri: "sqlite::memory:", want: ":memory:"},
+		{name: "missing path", uri: "sqlite:", want: ""},
+		{name: "non-sqlite scheme", uri: "postgres://user:pass@localhost:5432/db", want: ""},
+		{name: "empty uri", uri: "", want: ""},
+		{name: "invalid uri", uri: "://bad", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DatabaseConfig{URI: tt.uri}
+			if got := cfg.SQLitePath(); got != tt.want {
+				t.Fatalf("SQLitePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateDatabaseURI(t *testing.T) {
+	tests := []struct {
+		name    string
+		uri     string
+		wantErr bool
+	}{
+		{name: "postgres with host", uri: "postgres://user:pass@localhost:5432/db", wantErr: false},
+		{name: "postgresql with host", uri: "postgresql://user:pass@localhost:5432/db", wantErr: false},
+		{name: "postgres without host", uri: "postgres:///db", wantErr: true},
+		{name: "sqlite relative path", uri: "sqlite:./data/app.db", wantErr: false},
+		{name: "sqlite absolute path no slashes", uri: "sqlite:/abs/path.db", wantErr: false},
+		{name: "sqlite absolute path with slashes", uri: "sqlite:///abs/path.db", wantErr: false},
+		{name: "sqlite memory", uri: "sqlite::memory:", wantErr: false},
+		{name: "sqlite without path", uri: "sqlite:", wantErr: true},
+		{name: "unsupported scheme", uri: "mysql://user:pass@localhost/db", wantErr: true},
+		{name: "empty uri", uri: "", wantErr: true},
+		{name: "invalid uri", uri: "://bad", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDatabaseURI(tt.uri)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateDatabaseURI(%q) error = %v, wantErr %v", tt.uri, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestUnsupportedSchemeListsSupportedEngines(t *testing.T) {
+	err := validateDatabaseURI("mysql://user:pass@localhost/db")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	for _, want := range []string{"postgres", "postgresql", "sqlite"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestSQLiteTuningDefaults(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.SQLiteBusyTimeoutMS != 5000 {
+		t.Fatalf("SQLiteBusyTimeoutMS = %d, want 5000", cfg.Database.SQLiteBusyTimeoutMS)
+	}
+	if cfg.Database.SQLiteJournalMode != "WAL" {
+		t.Fatalf("SQLiteJournalMode = %q, want WAL", cfg.Database.SQLiteJournalMode)
+	}
+}
+
+func TestSQLiteTuningEnvOverrides(t *testing.T) {
+	t.Setenv("DATABASE_SQLITE_BUSY_TIMEOUT_MS", "1000")
+	t.Setenv("DATABASE_SQLITE_JOURNAL_MODE", "DELETE")
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.SQLiteBusyTimeoutMS != 1000 {
+		t.Fatalf("SQLiteBusyTimeoutMS = %d, want 1000", cfg.Database.SQLiteBusyTimeoutMS)
+	}
+	if cfg.Database.SQLiteJournalMode != "DELETE" {
+		t.Fatalf("SQLiteJournalMode = %q, want DELETE", cfg.Database.SQLiteJournalMode)
+	}
+}
+
+func TestSQLiteTuningValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{name: "negative busy timeout", env: map[string]string{"DATABASE_SQLITE_BUSY_TIMEOUT_MS": "-1"}},
+		{name: "invalid journal mode", env: map[string]string{"DATABASE_SQLITE_JOURNAL_MODE": "MEMORY"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(writeConfig(t, sample)); err == nil {
+				t.Fatal("expected error, got nil")
 			}
 		})
 	}

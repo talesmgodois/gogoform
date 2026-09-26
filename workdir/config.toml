@@ -6,7 +6,15 @@ env = "development"
 level = "debug"
 
 [database]
+# Pick the engine by changing the scheme: postgres:// (default) or sqlite:.
 uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
+# uri = "sqlite:./data/gogoform.db"
+
+# SQLite-only tuning, ignored on PostgreSQL.
+# How long a writer waits for a lock before failing with SQLITE_BUSY.
+# sqlite_busy_timeout_ms = 5000
+# Journal mode: WAL (default, concurrent readers), DELETE or TRUNCATE.
+# sqlite_journal_mode = "WAL"
 
 # HTTP Basic credentials of the read-only /app dashboard, which lists every
 # tenant's forms and files. The dashboard is disabled while they are unset.
