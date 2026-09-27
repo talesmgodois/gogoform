@@ -16,6 +16,11 @@ uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
 # Journal mode: WAL (default, concurrent readers), DELETE or TRUNCATE.
 # sqlite_journal_mode = "WAL"
 
+# Apply pending migrations on startup. Defaults to true for SQLite (zero
+# external setup) and false for PostgreSQL (operators usually run migrations
+# as a separate deploy step).
+# auto_migrate = true
+
 # HTTP Basic credentials of the read-only /app dashboard, which lists every
 # tenant's forms and files. The dashboard is disabled while they are unset.
 # Prefer APP_USERNAME / APP_PASSWORD over committing them here.

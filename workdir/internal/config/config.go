@@ -77,6 +77,21 @@ type DatabaseConfig struct {
 	// SQLiteJournalMode is the SQLite journal mode: WAL, DELETE or TRUNCATE.
 	// Ignored on PostgreSQL.
 	SQLiteJournalMode string `toml:"sqlite_journal_mode" env:"DATABASE_SQLITE_JOURNAL_MODE"`
+	// AutoMigrate controls whether the app applies pending migrations on
+	// startup. Nil means "unset"; use AutoMigrateEnabled to resolve it.
+	AutoMigrate *bool `toml:"auto_migrate" env:"DATABASE_AUTO_MIGRATE"`
+}
+
+// AutoMigrateEnabled reports whether the app should apply pending
+// migrations on startup. It defaults to true for SQLite, since it is meant
+// to run with zero external setup, and false for PostgreSQL, since its
+// operators usually run migrations as a separate deploy step rather than
+// letting every replica race to apply them at boot.
+func (c DatabaseConfig) AutoMigrateEnabled() bool {
+	if c.AutoMigrate != nil {
+		return *c.AutoMigrate
+	}
+	return c.Driver() == DriverSQLite
 }
 
 // Driver identifies a supported database engine.
@@ -212,6 +227,15 @@ func applyEnv(v reflect.Value) error {
 				return fmt.Errorf("env %s: invalid integer %q", key, raw)
 			}
 			fv.SetInt(int64(n))
+		case reflect.Ptr:
+			if fv.Type().Elem().Kind() != reflect.Bool {
+				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
+			}
+			b, err := strconv.ParseBool(strings.TrimSpace(raw))
+			if err != nil {
+				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
+			}
+			fv.Set(reflect.ValueOf(&b))
 		default:
 			return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
 		}

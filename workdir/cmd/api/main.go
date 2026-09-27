@@ -78,6 +78,16 @@ func run() error {
 	defer dbConn.Close()
 	log.Info("database connected", append([]any{"driver", dbConn.Driver}, dbConn.LogAttrs()...)...)
 
+	if cfg.Database.AutoMigrateEnabled() {
+		applied, err := database.Migrate(ctx, dbConn)
+		if err != nil {
+			return fmt.Errorf("database: migrate: %w", err)
+		}
+		for _, version := range applied {
+			log.Info("database: migration applied", "version", version)
+		}
+	}
+
 	queries := dbConn.Querier
 	authSvc, err := newAuthService(ctx, log, queries, cfg.Auth)
 	if err != nil {

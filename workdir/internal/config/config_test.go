@@ -275,6 +275,77 @@ func TestSQLiteTuningValidation(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateEnabledDefaults(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		want bool
+	}{
+		{name: "sqlite defaults to enabled", uri: "sqlite:./data/app.db", want: true},
+		{name: "postgres defaults to disabled", uri: "postgres://user:pass@localhost:5432/db", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DatabaseConfig{URI: tt.uri}
+			if got := cfg.AutoMigrateEnabled(); got != tt.want {
+				t.Fatalf("AutoMigrateEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutoMigrateEnabledExplicit(t *testing.T) {
+	trueVal, falseVal := true, false
+	tests := []struct {
+		name string
+		uri  string
+		set  *bool
+		want bool
+	}{
+		{name: "sqlite explicit false", uri: "sqlite:./data/app.db", set: &falseVal, want: false},
+		{name: "postgres explicit true", uri: "postgres://user:pass@localhost:5432/db", set: &trueVal, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DatabaseConfig{URI: tt.uri, AutoMigrate: tt.set}
+			if got := cfg.AutoMigrateEnabled(); got != tt.want {
+				t.Fatalf("AutoMigrateEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutoMigrateEnvOverride(t *testing.T) {
+	t.Setenv("DATABASE_AUTO_MIGRATE", "false")
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.AutoMigrate == nil || *cfg.Database.AutoMigrate != false {
+		t.Fatalf("AutoMigrate = %v, want pointer to false", cfg.Database.AutoMigrate)
+	}
+	if cfg.Database.AutoMigrateEnabled() {
+		t.Fatal("AutoMigrateEnabled() = true, want false")
+	}
+}
+
+func TestAutoMigrateUnsetByDefault(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.AutoMigrate != nil {
+		t.Fatalf("AutoMigrate = %v, want nil", cfg.Database.AutoMigrate)
+	}
+}
+
+func TestAutoMigrateInvalidEnv(t *testing.T) {
+	t.Setenv("DATABASE_AUTO_MIGRATE", "not-a-bool")
+	if _, err := Load(writeConfig(t, sample)); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 func TestValidateDatabaseURIErrorsDoNotLeakCredentials(t *testing.T) {
 	const secret = "super-secret-password"
 	tests := []struct {
