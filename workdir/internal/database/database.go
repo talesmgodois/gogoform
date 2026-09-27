@@ -4,8 +4,11 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"app/internal/config"
 	"app/internal/db"
@@ -20,6 +23,12 @@ type DB struct {
 
 	close    func()
 	logAttrs []any
+
+	// pgPool and sqlDB expose the raw connection for the migrator, which
+	// needs driver-specific behavior (advisory locks, transactions) beyond
+	// what Querier offers. Exactly one is set, matching Driver.
+	pgPool *pgxpool.Pool
+	sqlDB  *sql.DB
 }
 
 // Open connects to the database identified by cfg and verifies it is
