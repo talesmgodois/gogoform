@@ -25,7 +25,7 @@ export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
 .DEFAULT_GOAL := help
 .PHONY: help dev watch db-up db-down db-logs adminer build run test swagger require-postgres \
-        setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
+        setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db up-sqlite
 
 # DEV_DEPS: `make dev`/`make watch` only need the docker database for postgres;
 # sqlite has no container to start.
@@ -99,3 +99,6 @@ build-db: ## Full pipeline: generate-schema -> migrate-init -> migrate-up -> sql
 	$(MAKE) migrate-init
 	$(MAKE) migrate-up
 	$(MAKE) sqlc
+
+up-sqlite: ## Build and start the zero-setup SQLite API container (auto-migrates on startup)
+	$(COMPOSE) --profile sqlite up -d --build api-sqlite

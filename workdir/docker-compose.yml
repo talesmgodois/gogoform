@@ -33,5 +33,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Zero-setup single-binary experience: SQLite, no external services, schema
+  # created on startup. Opt in with `docker compose --profile sqlite up`.
+  api-sqlite:
+    profiles: ["sqlite"]
+    build:
+      context: .
+    environment:
+      DATABASE_URL: sqlite:/app/data/gogoform.db
+      DATABASE_AUTO_MIGRATE: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - sqlite_data:/app/data
+    restart: unless-stopped
+
 volumes:
   postgres18_data:
+  sqlite_data:
