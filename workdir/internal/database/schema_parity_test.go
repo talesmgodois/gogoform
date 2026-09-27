@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"app/internal/config"
 )
 
 // schemaMigrationsTable is dbmate's own bookkeeping table. It exists in both
@@ -49,16 +51,19 @@ func TestSchemaParity(t *testing.T) {
 // database and reads back its schema via pragma_table_info.
 func sqliteSchemaFor(t *testing.T) tableSchema {
 	t.Helper()
+	ctx := context.Background()
 
-	sqlDB, err := sql.Open("sqlite", sqliteDSN(sqliteMemoryDSN, sqliteBusyTimeout, sqliteJournalMode))
+	d, err := openSQLite(ctx, sqliteMemoryDSN, sqliteOptions{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(d.Close)
 
-	applySQLiteMigrations(t, sqlDB)
+	if _, err := Migrate(ctx, d); err != nil {
+		t.Fatalf("migrate sqlite: %v", err)
+	}
 
+	sqlDB := d.sqlDB
 	names, err := sqliteTableNames(sqlDB)
 	if err != nil {
 		t.Fatalf("list sqlite tables: %v", err)
@@ -171,7 +176,10 @@ func postgresSchemaFor(t *testing.T) tableSchema {
 	}
 	t.Cleanup(pool.Close)
 
-	applyPostgresMigrations(t, ctx, pool)
+	d := &DB{Driver: config.DriverPostgres, pgPool: pool}
+	if _, err := Migrate(ctx, d); err != nil {
+		t.Fatalf("migrate postgres: %v", err)
+	}
 
 	names, err := postgresTableNames(ctx, pool, schemaName.Sanitize())
 	if err != nil {

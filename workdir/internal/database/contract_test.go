@@ -6,19 +6,17 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"app/internal/config"
 	"app/internal/db"
 )
 
@@ -73,77 +71,24 @@ func runQuerierContract(t *testing.T, newQuerier querierFactory) {
 }
 
 // newSQLiteTestQuerier opens a private SQLite :memory: database, applies
-// db/sqlite/migrations, and wraps it as a db.Querier. Capping the pool at
-// one connection is required for :memory: databases: every new connection
-// otherwise opens its own empty database.
+// db/sqlite/migrations via Migrate, and wraps it as a db.Querier. Capping the
+// pool at one connection is required for :memory: databases: every new
+// connection otherwise opens its own empty database.
 func newSQLiteTestQuerier(t *testing.T) db.Querier {
 	t.Helper()
+	ctx := context.Background()
 
-	sqlDB, err := sql.Open("sqlite", sqliteDSN(sqliteMemoryDSN, sqliteBusyTimeout, sqliteJournalMode))
+	d, err := openSQLite(ctx, sqliteMemoryDSN, sqliteOptions{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(d.Close)
 
-	applySQLiteMigrations(t, sqlDB)
-
-	return newSQLiteQuerier(sqlDB)
-}
-
-// applySQLiteMigrations runs the "-- migrate:up" block of every migration in
-// db/sqlite/migrations, in filename order, against sqlDB.
-func applySQLiteMigrations(t *testing.T, sqlDB *sql.DB) {
-	t.Helper()
-
-	dir := filepath.Join("..", "..", "db", "sqlite", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
+	if _, err := Migrate(ctx, d); err != nil {
+		t.Fatalf("migrate sqlite: %v", err)
 	}
 
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no migrations found in %s", dir)
-	}
-
-	for _, name := range names {
-		up := readMigrationUp(t, filepath.Join(dir, name))
-		if _, err := sqlDB.Exec(up); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
-}
-
-// readMigrationUp extracts the dbmate "-- migrate:up" block from path,
-// stopping before "-- migrate:down" if present.
-func readMigrationUp(t *testing.T, path string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read migration %s: %v", path, err)
-	}
-
-	const upMarker = "-- migrate:up"
-	const downMarker = "-- migrate:down"
-
-	content := string(data)
-	upStart := strings.Index(content, upMarker)
-	if upStart < 0 {
-		t.Fatalf("migration %s missing %q marker", path, upMarker)
-	}
-	content = content[upStart+len(upMarker):]
-	if downStart := strings.Index(content, downMarker); downStart >= 0 {
-		content = content[:downStart]
-	}
-	return content
+	return d.Querier
 }
 
 // newPostgresTestQuerier connects to TEST_DATABASE_URL, creates a private
@@ -191,39 +136,12 @@ func newPostgresTestQuerier(t *testing.T) db.Querier {
 	}
 	t.Cleanup(pool.Close)
 
-	applyPostgresMigrations(t, ctx, pool)
-
-	return db.New(pool)
-}
-
-// applyPostgresMigrations runs the "-- migrate:up" block of every migration
-// in db/postgres/migrations, in filename order, against pool.
-func applyPostgresMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
-	t.Helper()
-
-	dir := filepath.Join("..", "..", "db", "postgres", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
+	d := &DB{Querier: db.New(pool), Driver: config.DriverPostgres, pgPool: pool}
+	if _, err := Migrate(ctx, d); err != nil {
+		t.Fatalf("migrate postgres: %v", err)
 	}
 
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no migrations found in %s", dir)
-	}
-
-	for _, name := range names {
-		up := readMigrationUp(t, filepath.Join(dir, name))
-		if _, err := pool.Exec(ctx, up); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
+	return d.Querier
 }
 
 // Small helpers to build pointer-typed params without repeating &v literals.
