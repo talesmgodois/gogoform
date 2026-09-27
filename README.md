@@ -61,6 +61,38 @@ Optional SQLite tuning (`DATABASE_SQLITE_BUSY_TIMEOUT_MS`,
 `DATABASE_SQLITE_JOURNAL_MODE`) is documented in both files and ignored on
 PostgreSQL.
 
+### Quick start with SQLite
+
+SQLite needs no external tools or containers — the schema is created on
+startup.
+
+Single binary:
+
+```sh
+cd workdir
+DATABASE_URL=sqlite:./data/gogoform.db go run ./cmd/api
+```
+
+One container, via Docker Compose:
+
+```sh
+cd workdir
+make up-sqlite   # docker compose --profile sqlite up -d --build api-sqlite
+curl localhost:8080/healthz
+```
+
+`make up-sqlite` builds the `api-sqlite` service (profile `sqlite`), storing
+the database file on a named volume mounted at `/app/data`. It leaves the
+default `docker compose up` (PostgreSQL + Adminer) untouched — the two
+profiles don't interfere with each other.
+
+Both paths rely on `DATABASE_AUTO_MIGRATE` (TOML `[database] auto_migrate`,
+default `true`), which applies any pending migrations right after startup.
+PostgreSQL defaults it to `false` instead, since operators of a shared
+database server usually run migrations as a separate deploy step rather than
+letting every replica race to apply them at boot; set it explicitly to
+override either default.
+
 Migrations are run with `make migrate-up` (and `migrate-down`/`migrate-status`/
 `migrate-new`) for either engine — the target reads the migrations directory
 that matches the current `DATABASE_URL`. Targets that only make sense for a
