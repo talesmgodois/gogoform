@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,10 @@ const testIssuer = "https://idp.example.com"
 func newExternalTestService(t *testing.T, autoCreate bool) (*Service, *memUsers) {
 	t.Helper()
 	now := time.Unix(1_800_000_000, 0)
-	return newTestServiceWith(t, &now, Options{External: ExternalOptions{AutoCreateUsers: autoCreate, DefaultRole: RoleFormCreator}})
+	return newTestServiceWith(t, &now, Options{
+		Methods:  []Method{MethodBasic, MethodJWT, MethodOIDC},
+		External: ExternalOptions{AutoCreateUsers: autoCreate, DefaultRole: RoleFormCreator},
+	})
 }
 
 func TestSignInExternalCreatesThenFindsUser(t *testing.T) {
@@ -163,25 +167,59 @@ func TestCheckPasswordRejectsUserWithoutPassword(t *testing.T) {
 	}
 }
 
-func TestPasswordLoginDisabled(t *testing.T) {
-	now := time.Now()
-	svc, _ := newTestServiceWith(t, &now, Options{PasswordLoginDisabled: true})
+func TestMethods(t *testing.T) {
 	ctx := context.Background()
-	if svc.PasswordLoginEnabled() {
-		t.Fatal("PasswordLoginEnabled() = true")
+	identity := ExternalIdentity{Issuer: testIssuer, Subject: "sub-1", PreferredUsername: "carol"}
+	tests := []struct {
+		methods                         []Method
+		signUp, signIn, basic, external apperrors.Code // "" = allowed
+	}{
+		{methods: nil, external: apperrors.CodeForbidden},
+		{methods: []Method{MethodBasic}, signIn: apperrors.CodeForbidden, external: apperrors.CodeForbidden},
+		{methods: []Method{MethodJWT}, basic: apperrors.CodeUnauthorized, external: apperrors.CodeForbidden},
+		{methods: []Method{MethodOIDC}, signUp: apperrors.CodeForbidden, signIn: apperrors.CodeForbidden, basic: apperrors.CodeUnauthorized},
+		{methods: []Method{MethodBasic, MethodJWT, MethodOIDC}},
 	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprint(tt.methods), func(t *testing.T) {
+			now := time.Now()
+			svc, _ := newTestServiceWith(t, &now, Options{Methods: tt.methods, External: ExternalOptions{AutoCreateUsers: true}})
 
-	// The bootstrap admin is still created...
-	if created, err := svc.EnsureUser(ctx, "admin", "correct horse", RoleAdmin); err != nil || !created {
-		t.Fatalf("EnsureUser = %v, %v", created, err)
+			// The bootstrap admin is created whatever the methods.
+			if created, err := svc.EnsureUser(ctx, "admin", "correct horse", RoleAdmin); err != nil || !created {
+				t.Fatalf("EnsureUser = %v, %v", created, err)
+			}
+			_, err := svc.SignUp(ctx, "bob", "correct horse")
+			assertAllowed(t, "SignUp", err, tt.signUp)
+			_, err = svc.SignIn(ctx, "admin", "correct horse")
+			assertAllowed(t, "SignIn", err, tt.signIn)
+			_, err = svc.CheckPassword(ctx, "admin", "correct horse")
+			assertAllowed(t, "CheckPassword", err, tt.basic)
+			_, err = svc.SignInExternal(ctx, identity)
+			assertAllowed(t, "SignInExternal", err, tt.external)
+		})
 	}
-	// ...but no password can be used.
-	_, err := svc.SignIn(ctx, "admin", "correct horse")
-	assertCode(t, err, apperrors.CodeForbidden)
-	_, err = svc.CheckPassword(ctx, "admin", "correct horse")
-	assertCode(t, err, apperrors.CodeForbidden)
-	_, err = svc.SignUp(ctx, "bob", "correct horse")
-	assertCode(t, err, apperrors.CodeForbidden)
+}
+
+// assertAllowed checks err is nil when want is empty, else has code want.
+func assertAllowed(t *testing.T, name string, err error, want apperrors.Code) {
+	t.Helper()
+	if want == "" {
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", name, err)
+		}
+		return
+	}
+	appErr, ok := apperrors.As(err)
+	if !ok || appErr.Code != want {
+		t.Fatalf("%s: err = %v, want code %s", name, err, want)
+	}
+}
+
+func TestNewServiceRejectsUnknownMethod(t *testing.T) {
+	if _, err := NewService(&memUsers{}, Options{Secret: testSecret, Methods: []Method{"kerberos"}}); err == nil {
+		t.Fatal("want error for an unknown method")
+	}
 }
 
 func TestNewServiceRejectsInvalidExternalRole(t *testing.T) {

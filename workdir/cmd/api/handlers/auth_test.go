@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,5 +204,40 @@ func TestCreateFormAccessFlags(t *testing.T) {
 	in := svc.forms.(*fakeForms).created
 	if in.PublicAvailable == nil || *in.PublicAvailable || in.AcceptAnonymous == nil || *in.AcceptAnonymous {
 		t.Fatalf("created = %+v", in)
+	}
+}
+
+// TestAuthMethods checks each method of AUTH_METHODS turns its scheme on and
+// off on the API: basic for "Authorization: Basic", jwt for sign-in and
+// "Authorization: Bearer".
+func TestAuthMethods(t *testing.T) {
+	// A token issued while jwt was on, to present once it is off.
+	token := tokenFor(t, testServices(), "basic")
+
+	tests := []struct {
+		methods               []auth.Method
+		signIn, basic, bearer int
+	}{
+		{[]auth.Method{auth.MethodBasic, auth.MethodJWT}, http.StatusOK, http.StatusOK, http.StatusOK},
+		{[]auth.Method{auth.MethodBasic}, http.StatusForbidden, http.StatusOK, http.StatusUnauthorized},
+		{[]auth.Method{auth.MethodJWT}, http.StatusOK, http.StatusUnauthorized, http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprint(tt.methods), func(t *testing.T) {
+			svc := testServices()
+			svc.auth = newTestAuthWith(auth.Options{Methods: tt.methods})
+
+			req := httptest.NewRequest(http.MethodPost, "/auth/signin", nil)
+			req.SetBasicAuth("basic", testPassword)
+			assertStatus(t, serve(svc, req), tt.signIn)
+
+			req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+			req.SetBasicAuth("basic", testPassword)
+			assertStatus(t, serve(svc, req), tt.basic)
+
+			req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			assertStatus(t, serve(svc, req), tt.bearer)
+		})
 	}
 }

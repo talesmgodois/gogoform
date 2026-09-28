@@ -97,7 +97,7 @@ func run() error {
 		return err
 	}
 	services := handlers.NewServices(queries, authSvc)
-	if cfg.OIDC.Enabled() {
+	if cfg.Auth.Uses(config.AuthOIDC) {
 		client, err := oidc.New(ctx, oidc.Config{
 			IssuerURL:           cfg.OIDC.IssuerURL,
 			ClientID:            cfg.OIDC.ClientID,
@@ -113,8 +113,9 @@ func run() error {
 		log.Info("oidc: sign-in enabled", "issuer", cfg.OIDC.IssuerURL, "provider", cfg.OIDC.ProviderName,
 			"auto_create_users", cfg.OIDC.AutoCreateUsers, "default_role", cfg.OIDC.DefaultRole)
 	}
-	if !cfg.Auth.PasswordLoginEnabled {
-		log.Info("auth: password sign-in disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)")
+	log.Info("auth: methods enabled", "methods", cfg.Auth.Methods)
+	if cfg.OIDC.Configured() && !cfg.Auth.Uses(config.AuthOIDC) {
+		log.Warn("oidc: settings are present but oidc is not in AUTH_METHODS, so OIDC sign-in is off")
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
@@ -172,12 +173,11 @@ func jwtSecret(log *slog.Logger, cfg config.AuthConfig) []byte {
 // newAuthService builds the user authentication service and creates the
 // bootstrap admin of cfg, if any.
 func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, secret []byte, cfg config.AuthConfig, oidcCfg config.OIDCConfig) (*auth.Service, error) {
-	opts := auth.Options{
-		Secret:                secret,
-		TokenTTL:              cfg.TokenTTL(),
-		PasswordLoginDisabled: !cfg.PasswordLoginEnabled,
+	opts := auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL(), Methods: []auth.Method{}}
+	for _, m := range cfg.Methods {
+		opts.Methods = append(opts.Methods, auth.Method(m))
 	}
-	if oidcCfg.Enabled() {
+	if cfg.Uses(config.AuthOIDC) {
 		opts.External = auth.ExternalOptions{AutoCreateUsers: oidcCfg.AutoCreateUsers, DefaultRole: auth.Role(oidcCfg.DefaultRole)}
 	}
 	svc, err := auth.NewService(auth.NewUserStore(q), opts)

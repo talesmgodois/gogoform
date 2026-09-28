@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +40,10 @@ const (
 	msgInvalidPassword    = "password must be 8 to 72 bytes long"
 	msgInvalidRole        = "role must be one of ADMIN, FORM_CREATOR, BASIC"
 	msgOwnRole            = "you cannot change your own role"
-	msgPasswordDisabled   = "password sign-in is disabled; sign in through the identity provider"
+	msgBasicDisabled      = "HTTP Basic authentication is disabled"
+	msgJWTDisabled        = "password sign-in is disabled"
+	msgSignUpDisabled     = "password accounts are disabled"
+	msgExternalDisabled   = "sign-in through an identity provider is disabled"
 	msgExternalInvalid    = "the identity provider did not identify the user"
 	msgExternalInactive   = "this account is disabled"
 	msgExternalUnknown    = "no account is linked to this identity"
@@ -63,10 +67,10 @@ type Options struct {
 	PasswordCost int
 	// Now returns the current time; time.Now when nil.
 	Now func() time.Time
-	// PasswordLoginDisabled rejects password sign-in, sign-up and HTTP
-	// Basic credentials, for SSO-only deployments. EnsureUser still creates
-	// accounts, so a bootstrap admin can exist.
-	PasswordLoginDisabled bool
+	// Methods lists how users may authenticate; DefaultMethods when nil.
+	// EnsureUser creates accounts whatever the methods, so a bootstrap
+	// admin can always exist.
+	Methods []Method
 	// External configures SignInExternal.
 	External ExternalOptions
 }
@@ -84,12 +88,11 @@ type ExternalOptions struct {
 // Service authenticates users with a password (sign in, HTTP Basic) or a
 // token (JWT bearer) and manages their accounts.
 type Service struct {
-	users  Repository
-	tokens tokenSigner
-	cost   int
-	// passwordLogin is false when Options.PasswordLoginDisabled is set.
-	passwordLogin bool
-	external      ExternalOptions
+	users    Repository
+	tokens   tokenSigner
+	cost     int
+	methods  []Method
+	external ExternalOptions
 	// dummyHash is compared against when the username is unknown, so a
 	// failed sign-in takes as long whether or not the user exists.
 	dummyHash []byte
@@ -112,6 +115,14 @@ func NewService(users Repository, opts Options) (*Service, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.Methods == nil {
+		opts.Methods = DefaultMethods
+	}
+	for _, m := range opts.Methods {
+		if m != MethodBasic && m != MethodJWT && m != MethodOIDC {
+			return nil, fmt.Errorf("auth: unknown method %q", m)
+		}
+	}
 	if opts.External.DefaultRole == "" {
 		opts.External.DefaultRole = DefaultRole
 	}
@@ -123,12 +134,12 @@ func NewService(users Repository, opts Options) (*Service, error) {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 	return &Service{
-		users:         users,
-		tokens:        tokenSigner{secret: opts.Secret, ttl: opts.TokenTTL, now: opts.Now},
-		cost:          opts.PasswordCost,
-		dummyHash:     dummy,
-		passwordLogin: !opts.PasswordLoginDisabled,
-		external:      opts.External,
+		users:     users,
+		tokens:    tokenSigner{secret: opts.Secret, ttl: opts.TokenTTL, now: opts.Now},
+		cost:      opts.PasswordCost,
+		dummyHash: dummy,
+		methods:   slices.Clone(opts.Methods),
+		external:  opts.External,
 	}, nil
 }
 
@@ -138,16 +149,16 @@ func NormalizeUsername(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
 
-// PasswordLoginEnabled reports whether users may sign in and sign up with a
-// password.
-func (s *Service) PasswordLoginEnabled() bool {
-	return s.passwordLogin
+// Allows reports whether users may authenticate with m.
+func (s *Service) Allows(m Method) bool {
+	return slices.Contains(s.methods, m)
 }
 
-// SignUp creates a user with DefaultRole.
+// SignUp creates a user with DefaultRole. It needs a password method
+// (basic or jwt), since the account signs in with a password.
 func (s *Service) SignUp(ctx context.Context, username, password string) (User, error) {
-	if !s.passwordLogin {
-		return User{}, apperrors.NewForbidden(msgPasswordDisabled)
+	if !s.Allows(MethodBasic) && !s.Allows(MethodJWT) {
+		return User{}, apperrors.NewForbidden(msgSignUpDisabled)
 	}
 	in, err := s.newUser(username, password, DefaultRole)
 	if err != nil {
@@ -170,9 +181,12 @@ func (s *Service) EnsureUser(ctx context.Context, username, password string, rol
 	return s.users.CreateIfNotExists(ctx, in)
 }
 
-// SignIn checks the credentials and issues a token.
+// SignIn checks the credentials and issues a token (MethodJWT).
 func (s *Service) SignIn(ctx context.Context, username, password string) (Token, error) {
-	u, err := s.CheckPassword(ctx, username, password)
+	if !s.Allows(MethodJWT) {
+		return Token{}, apperrors.NewForbidden(msgJWTDisabled)
+	}
+	u, err := s.checkPassword(ctx, username, password)
 	if err != nil {
 		return Token{}, err
 	}
@@ -185,6 +199,9 @@ func (s *Service) SignIn(ctx context.Context, username, password string) (Token,
 // (issuer, subject): never by email or username, which a provider may let
 // people choose, so an identity can't take over an existing account.
 func (s *Service) SignInExternal(ctx context.Context, id ExternalIdentity) (Token, error) {
+	if !s.Allows(MethodOIDC) {
+		return Token{}, apperrors.NewForbidden(msgExternalDisabled)
+	}
 	if id.Issuer == "" || id.Subject == "" {
 		return Token{}, apperrors.NewUnauthorized(msgExternalInvalid)
 	}
@@ -303,13 +320,19 @@ func (s *Service) issue(u User) (Token, error) {
 	return Token{AccessToken: tok, ExpiresAt: exp, User: u}, nil
 }
 
-// CheckPassword returns the active user matching the credentials. Unknown
-// users, inactive users, users without a password and wrong passwords all
-// yield the same unauthorized error, in about the same time.
+// CheckPassword returns the active user matching HTTP Basic credentials
+// (MethodBasic). Unknown users, inactive users, users without a password
+// and wrong passwords all yield the same unauthorized error, in about the
+// same time.
 func (s *Service) CheckPassword(ctx context.Context, username, password string) (User, error) {
-	if !s.passwordLogin {
-		return User{}, apperrors.NewForbidden(msgPasswordDisabled)
+	if !s.Allows(MethodBasic) {
+		return User{}, apperrors.NewUnauthorized(msgBasicDisabled)
 	}
+	return s.checkPassword(ctx, username, password)
+}
+
+// checkPassword is CheckPassword for any method.
+func (s *Service) checkPassword(ctx context.Context, username, password string) (User, error) {
 	su, err := s.users.GetByUsername(ctx, NormalizeUsername(username))
 	if err != nil {
 		if !isNotFound(err) {

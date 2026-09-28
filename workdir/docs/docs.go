@@ -155,7 +155,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Password sign-in is disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)",
+                        "description": "Password sign-in is disabled: AUTH_METHODS has no jwt",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -207,7 +207,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Password sign-up is disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)",
+                        "description": "Password accounts are disabled: AUTH_METHODS has neither basic nor jwt",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }

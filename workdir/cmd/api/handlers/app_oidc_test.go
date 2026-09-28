@@ -185,10 +185,11 @@ func newOIDCTest(t *testing.T, cfg oidcTestConfig) *oidcTest {
 		t.Fatal(err)
 	}
 	svc := testServices()
-	svc.auth = newTestAuthWith(auth.Options{
-		PasswordLoginDisabled: !cfg.passwordLogin,
-		External:              auth.ExternalOptions{AutoCreateUsers: true},
-	})
+	methods := []auth.Method{auth.MethodOIDC}
+	if cfg.passwordLogin {
+		methods = append(methods, auth.MethodBasic, auth.MethodJWT)
+	}
+	svc.auth = newTestAuthWith(auth.Options{Methods: methods, External: auth.ExternalOptions{AutoCreateUsers: true}})
 	svc = svc.WithOIDC(OIDCOptions{Client: client, ProviderName: "TestIdP", FlowKey: testSecret, Now: cfg.now})
 	return &oidcTest{provider: p, svc: svc, handler: Routes(svc, testAppConfig)}
 }
@@ -424,7 +425,7 @@ func TestOIDCSignInPage(t *testing.T) {
 	}
 }
 
-func TestPasswordLoginDisabled(t *testing.T) {
+func TestOIDCOnly(t *testing.T) {
 	o := newOIDCTest(t, oidcTestConfig{passwordLogin: false})
 
 	rec := o.serve(httptest.NewRequest(http.MethodGet, "/app/signin", nil))
@@ -439,14 +440,17 @@ func TestPasswordLoginDisabled(t *testing.T) {
 	}
 	appSignIn := basic(httptest.NewRequest(http.MethodPost, "/app/signin", nil))
 	appSignIn.Header.Set("Origin", "http://example.com")
-	for name, req := range map[string]*http.Request{
-		"app sign-in": appSignIn,
-		"api sign-in": basic(httptest.NewRequest(http.MethodPost, "/auth/signin", nil)),
-		"api basic":   basic(httptest.NewRequest(http.MethodGet, "/auth/me", nil)),
-		"api sign-up": httptest.NewRequest(http.MethodPost, "/auth/signup", strings.NewReader(`{"username":"bob","password":"correct horse"}`)),
+	for name, tt := range map[string]struct {
+		req    *http.Request
+		status int
+	}{
+		"app sign-in": {appSignIn, http.StatusForbidden},
+		"api sign-in": {basic(httptest.NewRequest(http.MethodPost, "/auth/signin", nil)), http.StatusForbidden},
+		"api basic":   {basic(httptest.NewRequest(http.MethodGet, "/auth/me", nil)), http.StatusUnauthorized},
+		"api sign-up": {httptest.NewRequest(http.MethodPost, "/auth/signup", strings.NewReader(`{"username":"bob","password":"correct horse"}`)), http.StatusForbidden},
 	} {
 		t.Run(name, func(t *testing.T) {
-			assertStatus(t, o.serve(req), http.StatusForbidden)
+			assertStatus(t, o.serve(tt.req), tt.status)
 		})
 	}
 

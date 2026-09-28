@@ -23,7 +23,8 @@ type appSignInPage struct {
 	appLayout
 	// Next is the local page to open once signed in.
 	Next string
-	// PasswordLogin shows the username/password form and sign-up tab.
+	// PasswordLogin shows the username/password form and sign-up tab, which
+	// issue a session token: the jwt method.
 	PasswordLogin bool
 	// OIDCProvider and OIDCLoginURL show the "Sign in with <provider>"
 	// button; empty when OIDC is not configured.
@@ -78,7 +79,7 @@ func (c *appController) SignInPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
 	}
-	page := appSignInPage{appLayout: appLayout{Active: "signin"}, Next: next, PasswordLogin: c.auth.PasswordLoginEnabled()}
+	page := appSignInPage{appLayout: appLayout{Active: "signin"}, Next: next, PasswordLogin: c.auth.Allows(auth.MethodJWT)}
 	if c.oidc != nil {
 		page.OIDCProvider, page.OIDCLoginURL = c.oidc.providerName, c.oidc.loginURL(next)
 	}

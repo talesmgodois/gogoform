@@ -366,10 +366,10 @@ func TestOIDCDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.OIDC.Enabled() {
+	if cfg.OIDC.Configured() || cfg.Auth.Uses(AuthOIDC) {
 		t.Fatal("OIDC enabled without configuration")
 	}
-	if !cfg.Auth.PasswordLoginEnabled || !cfg.OIDC.AutoCreateUsers || cfg.OIDC.DefaultRole != "BASIC" || cfg.OIDC.ProviderName != "SSO" {
+	if strings.Join(cfg.Auth.Methods, ",") != "basic,jwt" || !cfg.OIDC.AutoCreateUsers || cfg.OIDC.DefaultRole != "BASIC" || cfg.OIDC.ProviderName != "SSO" {
 		t.Fatalf("defaults = auth %+v, oidc %+v", cfg.Auth, cfg.OIDC)
 	}
 	if strings.Join(cfg.OIDC.Scopes, ",") != "openid,email,profile" {
@@ -387,14 +387,14 @@ func TestOIDCEnabledFromEnv(t *testing.T) {
 	t.Setenv("OIDC_ALLOWED_EMAIL_DOMAINS", " Example.com ,corp.example.com")
 	t.Setenv("OIDC_AUTO_CREATE_USERS", "false")
 	t.Setenv("OIDC_DEFAULT_ROLE", "FORM_CREATOR")
-	t.Setenv("AUTH_PASSWORD_LOGIN_ENABLED", "0")
+	t.Setenv("AUTH_METHODS", "OIDC")
 
 	cfg, err := Load(writeConfig(t, sample))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	o := cfg.OIDC
-	if !o.Enabled() || o.ProviderName != "Keycloak" || o.ClientSecret != "s3cret" || o.AutoCreateUsers || o.DefaultRole != "FORM_CREATOR" {
+	if !o.Configured() || o.ProviderName != "Keycloak" || o.ClientSecret != "s3cret" || o.AutoCreateUsers || o.DefaultRole != "FORM_CREATOR" {
 		t.Fatalf("OIDC = %+v", o)
 	}
 	if got := strings.Join(o.Scopes, ","); got != "openid,email,groups" {
@@ -403,8 +403,8 @@ func TestOIDCEnabledFromEnv(t *testing.T) {
 	if got := strings.Join(o.AllowedEmailDomains, ","); got != "example.com,corp.example.com" {
 		t.Fatalf("AllowedEmailDomains = %q, want trimmed and lowercased", got)
 	}
-	if cfg.Auth.PasswordLoginEnabled {
-		t.Fatal("PasswordLoginEnabled = true, want false")
+	if got := strings.Join(cfg.Auth.Methods, ","); got != "oidc" {
+		t.Fatalf("Methods = %q, want oidc", got)
 	}
 }
 
@@ -420,7 +420,7 @@ allowed_email_domains = ["example.com"]
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !cfg.OIDC.Enabled() || strings.Join(cfg.OIDC.Scopes, ",") != "openid,email" || cfg.OIDC.AllowedEmailDomains[0] != "example.com" {
+	if !cfg.Auth.Uses(AuthOIDC) || strings.Join(cfg.OIDC.Scopes, ",") != "openid,email" || cfg.OIDC.AllowedEmailDomains[0] != "example.com" {
 		t.Fatalf("OIDC = %+v", cfg.OIDC)
 	}
 }
@@ -443,7 +443,6 @@ func TestOIDCValidation(t *testing.T) {
 		{name: "bad redirect", env: map[string]string{"OIDC_REDIRECT_URL": "/app/oidc/callback"}, wants: "oidc.redirect_url"},
 		{name: "bad role", env: map[string]string{"OIDC_DEFAULT_ROLE": "ROOT"}, wants: "oidc.default_role"},
 		{name: "bad bool", env: map[string]string{"OIDC_AUTO_CREATE_USERS": "sometimes"}, wants: "OIDC_AUTO_CREATE_USERS"},
-		{name: "bad password login bool", env: map[string]string{"AUTH_PASSWORD_LOGIN_ENABLED": "nope"}, wants: "AUTH_PASSWORD_LOGIN_ENABLED"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -467,6 +466,52 @@ func TestOIDCValidation(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "top-secret-value") {
 				t.Fatalf("error leaks the client secret: %v", err)
+			}
+		})
+	}
+}
+
+func TestAuthMethods(t *testing.T) {
+	const oidcTOML = `
+[oidc]
+issuer_url = "https://idp.example.com"
+client_id = "gogoform"
+redirect_url = "http://localhost:8080/app/oidc/callback"
+`
+	tests := []struct {
+		name    string
+		content string
+		env     string
+		want    string
+		wantErr string
+	}{
+		{name: "default", content: sample, want: "basic,jwt"},
+		{name: "default adds oidc when configured", content: sample + oidcTOML, want: "basic,jwt,oidc"},
+		{name: "env basic only", content: sample, env: "basic", want: "basic"},
+		{name: "env jwt only", content: sample, env: " JWT ", want: "jwt"},
+		{name: "env oidc only", content: sample + oidcTOML, env: "oidc", want: "oidc"},
+		{name: "explicit list leaves configured oidc off", content: sample + oidcTOML, env: "jwt", want: "jwt"},
+		{name: "toml list", content: sample + "\n[auth]\nmethods = [\"basic\", \"jwt\"]\n", want: "basic,jwt"},
+		{name: "unknown method", content: sample, env: "basic,kerberos", wantErr: `unsupported value "kerberos"`},
+		{name: "oidc without settings", content: sample, env: "oidc", wantErr: "oidc requires"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("AUTH_METHODS", tt.env)
+			}
+			cfg, err := Load(writeConfig(t, tt.content))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Load error = %v, want one mentioning %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := strings.Join(cfg.Auth.Methods, ","); got != tt.want {
+				t.Fatalf("Methods = %q, want %q", got, tt.want)
 			}
 		})
 	}

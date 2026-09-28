@@ -31,6 +31,24 @@ func (r Role) Valid() bool {
 	return slices.Contains(AllRoles, r)
 }
 
+// Method is a way users may authenticate.
+type Method string
+
+// The authentication methods a Service can allow.
+const (
+	// MethodBasic: username and password on every request (HTTP Basic).
+	MethodBasic Method = "basic"
+	// MethodJWT: username and password exchanged for a token (SignIn),
+	// then sent as a bearer token.
+	MethodJWT Method = "jwt"
+	// MethodOIDC: sign-in through an external OpenID Connect provider
+	// (SignInExternal).
+	MethodOIDC Method = "oidc"
+)
+
+// DefaultMethods are the methods of a Service whose Options.Methods is nil.
+var DefaultMethods = []Method{MethodBasic, MethodJWT}
+
 // User is an account. It signs in with a username and password, through an
 // external OpenID Connect identity linked to it, or both.
 type User struct {
