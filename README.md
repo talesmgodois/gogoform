@@ -69,6 +69,39 @@ database server (`db-up`, `db-logs`, `adminer`, `generate-schema`,
 `make dev` starts the PostgreSQL container only when `DATABASE_URL` points at
 it; with a `sqlite:` URL it just runs the API.
 
+### Quick start with SQLite
+
+No database server, migration tool or setup step: the schema is created when
+the API starts.
+
+```sh
+# Single binary
+cd workdir && make build
+DATABASE_URL=sqlite:./data/gogoform.db ./bin/api
+
+# Or one container (compose profile "sqlite"), data kept in a named volume
+cd workdir && make up-sqlite
+curl localhost:8080/healthz
+```
+
+### Applying migrations at startup (`DATABASE_AUTO_MIGRATE`)
+
+The migrations are embedded in the binary. With `DATABASE_AUTO_MIGRATE=true`
+(TOML: `[database] auto_migrate = true`) the API applies the pending ones at
+startup and logs each applied version. It records them in dbmate's own
+`schema_migrations` table, so `make migrate-*` and the API can be used on the
+same database. Only the up direction is applied; roll back with
+`make migrate-down`.
+
+| Engine     | Default | Why |
+|------------|---------|-----|
+| SQLite     | `true`  | zero-setup single binary / container |
+| PostgreSQL | `false` | migrations usually run as a separate deploy step (`make migrate-up`) |
+
+Setting it explicitly overrides the default either way. On PostgreSQL an
+advisory lock makes several replicas starting at once apply each migration
+only once.
+
 Known limits of SQLite, worth knowing before choosing it:
 
 - **Single writer.** Fine for self-hosting and small teams, not for high
