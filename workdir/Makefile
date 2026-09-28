@@ -24,7 +24,7 @@ export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR DATABASE_URL
 export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
 .DEFAULT_GOAL := help
-.PHONY: help dev watch dev-postgres dev-sqlite watch-postgres watch-sqlite db-up db-down db-logs adminer up-sqlite build run test swagger require-postgres \
+.PHONY: help dev watch dev-postgres dev-sqlite watch-postgres watch-sqlite keycloak-up keycloak-down db-up db-down db-logs adminer up-sqlite build run test swagger require-postgres \
         setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
 
 # Connection URLs used by the dev-*/watch-* shortcuts, which pick the engine
@@ -37,9 +37,44 @@ SQLITE_URL   ?= sqlite:./data/gogoform.db
 # so a fresh database works without running dbmate first.
 ENGINE_MAKE   = $(MAKE) --no-print-directory DATABASE_AUTO_MIGRATE=true
 
+# AUTH picks how users authenticate, for any target that runs the app (dev,
+# watch, run and the dev-*/watch-* shortcuts), overriding AUTH_METHODS from
+# .env. It is a comma-separated list of:
+#   basic     HTTP Basic (username and password) on every API request
+#   jwt       username and password exchanged for a JWT, sent as a Bearer token;
+#             also the password form of the /app sign-in page
+#   password  basic and jwt (the default when AUTH and AUTH_METHODS are unset)
+#   oidc      sign-in through the OIDC provider set by OIDC_* in .env
+#   keycloak  oidc against the local Keycloak of docker-compose.yml, started
+#             automatically (users alice/alice, bob/bob)
+# e.g. `make dev-sqlite AUTH=keycloak`, `make dev-postgres AUTH=jwt,keycloak`.
+AUTH_PRESETS := basic jwt password oidc keycloak
+comma := ,
+empty :=
+space := $(empty) $(empty)
+KEYCLOAK_PORT ?= 8081
+ifneq ($(strip $(AUTH)),)
+  AUTH_LIST := $(subst $(comma),$(space),$(AUTH))
+  ifneq ($(filter-out $(AUTH_PRESETS),$(AUTH_LIST)),)
+    $(error AUTH: unknown value "$(filter-out $(AUTH_PRESETS),$(AUTH_LIST))", expected a comma-separated list of: $(AUTH_PRESETS))
+  endif
+  override AUTH_METHODS := $(subst $(space),$(comma),$(sort $(patsubst keycloak,oidc,$(patsubst password,basic jwt,$(AUTH_LIST)))))
+  export AUTH_METHODS
+  ifneq ($(filter keycloak,$(AUTH_LIST)),)
+    # The local Keycloak realm (keycloak/realm-gogoform.json).
+    override OIDC_ISSUER_URL    := http://localhost:$(KEYCLOAK_PORT)/realms/gogoform
+    override OIDC_CLIENT_ID     := gogoform
+    override OIDC_CLIENT_SECRET := gogoform-dev-secret
+    override OIDC_REDIRECT_URL  := http://localhost:$(or $(SERVER_PORT),8080)/app/oidc/callback
+    override OIDC_PROVIDER_NAME := Keycloak
+    export OIDC_ISSUER_URL OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_REDIRECT_URL OIDC_PROVIDER_NAME
+    KEYCLOAK_DEP := keycloak-up
+  endif
+endif
+
 # DEV_DEPS: `make dev`/`make watch` only need the docker database for postgres;
-# sqlite has no container to start.
-DEV_DEPS := $(if $(filter sqlite,$(DB_ENGINE)),,db-up)
+# sqlite has no container to start. AUTH=keycloak also starts Keycloak.
+DEV_DEPS := $(if $(filter sqlite,$(DB_ENGINE)),,db-up) $(KEYCLOAK_DEP)
 
 help: ## Show commands and descriptions
 	@echo "DB_ENGINE=$(DB_ENGINE) (from DATABASE_URL, override with DATABASE_URL=sqlite:... or postgres://...)"
@@ -64,6 +99,12 @@ watch-postgres: ## Like dev-postgres, with hot reload (via air)
 watch-sqlite: ## Like dev-sqlite, with hot reload (via air)
 	@$(ENGINE_MAKE) watch DATABASE_URL='$(SQLITE_URL)'
 
+keycloak-up: ## Start the local Keycloak (realm gogoform, users alice/alice and bob/bob) on KEYCLOAK_PORT (default 8081)
+	$(COMPOSE) --profile keycloak up -d --wait keycloak
+
+keycloak-down: ## Stop and remove the local Keycloak container
+	$(COMPOSE) --profile keycloak rm -sf keycloak
+
 require-postgres:
 	@test "$(DB_ENGINE)" = postgres || { echo "ERROR: this target requires PostgreSQL, but DATABASE_URL is sqlite:... (DB_ENGINE=$(DB_ENGINE))" >&2; exit 1; }
 
@@ -85,7 +126,7 @@ up-sqlite: ## Build and start the API alone on SQLite (compose profile "sqlite")
 build: ## Compile the API binary to ./bin/api
 	go build -o $(BIN) $(PKG)
 
-run: build ## Build and execute the compiled binary
+run: build $(KEYCLOAK_DEP) ## Build and execute the compiled binary
 	./$(BIN)
 
 test: ## Run unit/integration tests
