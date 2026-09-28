@@ -41,6 +41,7 @@ func openPostgres(ctx context.Context, uri string) (*DB, error) {
 		Querier: db.New(pool),
 		Driver:  config.DriverPostgres,
 		close:   pool.Close,
+		pool:    pool,
 		logAttrs: []any{
 			"host", poolCfg.ConnConfig.Host,
 			"port", poolCfg.ConnConfig.Port,

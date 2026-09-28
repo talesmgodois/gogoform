@@ -4,8 +4,11 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"app/internal/config"
 	"app/internal/db"
@@ -20,6 +23,11 @@ type DB struct {
 
 	close    func()
 	logAttrs []any
+
+	// Exactly one of sqlDB and pool is set, matching Driver; Migrate runs
+	// the migrations through it.
+	sqlDB *sql.DB
+	pool  *pgxpool.Pool
 }
 
 // Open connects to the database identified by cfg and verifies it is

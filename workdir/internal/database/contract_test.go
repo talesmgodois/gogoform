@@ -10,15 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"app/internal/config"
 	"app/internal/db"
 )
 
@@ -91,65 +90,29 @@ func newSQLiteTestQuerier(t *testing.T) db.Querier {
 	return newSQLiteQuerier(sqlDB)
 }
 
-// applySQLiteMigrations runs the "-- migrate:up" block of every migration in
-// db/sqlite/migrations, in filename order, against sqlDB.
+// applySQLiteMigrations applies db/sqlite/migrations to sqlDB with Migrate,
+// so the suite runs against the schema the app itself would create.
 func applySQLiteMigrations(t *testing.T, sqlDB *sql.DB) {
 	t.Helper()
-
-	dir := filepath.Join("..", "..", "db", "sqlite", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
+	if _, err := Migrate(context.Background(), &DB{Driver: config.DriverSQLite, sqlDB: sqlDB}); err != nil {
+		t.Fatalf("migrate sqlite: %v", err)
 	}
-
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no migrations found in %s", dir)
-	}
-
-	for _, name := range names {
-		up := readMigrationUp(t, filepath.Join(dir, name))
-		if _, err := sqlDB.Exec(up); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
-}
-
-// readMigrationUp extracts the dbmate "-- migrate:up" block from path,
-// stopping before "-- migrate:down" if present.
-func readMigrationUp(t *testing.T, path string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read migration %s: %v", path, err)
-	}
-
-	const upMarker = "-- migrate:up"
-	const downMarker = "-- migrate:down"
-
-	content := string(data)
-	upStart := strings.Index(content, upMarker)
-	if upStart < 0 {
-		t.Fatalf("migration %s missing %q marker", path, upMarker)
-	}
-	content = content[upStart+len(upMarker):]
-	if downStart := strings.Index(content, downMarker); downStart >= 0 {
-		content = content[:downStart]
-	}
-	return content
 }
 
 // newPostgresTestQuerier connects to TEST_DATABASE_URL, creates a private
 // schema, applies db/postgres/migrations into it, and wraps the resulting
 // pool as a db.Querier. The schema is dropped when the test finishes.
 func newPostgresTestQuerier(t *testing.T) db.Querier {
+	t.Helper()
+	pool := newPostgresTestPool(t)
+	applyPostgresMigrations(t, context.Background(), pool)
+	return db.New(pool)
+}
+
+// newPostgresTestPool connects to TEST_DATABASE_URL and returns a pool
+// whose search_path is a fresh, empty, private schema. The schema is
+// dropped when the test finishes.
+func newPostgresTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
 	dbURL := os.Getenv(testDatabaseURLEnv)
@@ -190,39 +153,15 @@ func newPostgresTestQuerier(t *testing.T) db.Querier {
 		t.Fatalf("open postgres pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-
-	applyPostgresMigrations(t, ctx, pool)
-
-	return db.New(pool)
+	return pool
 }
 
-// applyPostgresMigrations runs the "-- migrate:up" block of every migration
-// in db/postgres/migrations, in filename order, against pool.
+// applyPostgresMigrations applies db/postgres/migrations to pool with
+// Migrate, so the suite runs against the schema the app itself would create.
 func applyPostgresMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-
-	dir := filepath.Join("..", "..", "db", "postgres", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no migrations found in %s", dir)
-	}
-
-	for _, name := range names {
-		up := readMigrationUp(t, filepath.Join(dir, name))
-		if _, err := pool.Exec(ctx, up); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
+	if _, err := Migrate(ctx, &DB{Driver: config.DriverPostgres, pool: pool}); err != nil {
+		t.Fatalf("migrate postgres: %v", err)
 	}
 }
 
