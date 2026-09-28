@@ -114,6 +114,20 @@ Known limits of SQLite, worth knowing before choosing it:
   ASCII letters only; accented characters are compared case-sensitively.
 - No data migration tool between engines.
 
+## Signing in with an OpenID Connect provider
+
+The `/app` pages can sign people in through any standards-compliant OpenID
+Connect provider (Keycloak, Authentik, Auth0, Okta, Google, Microsoft Entra,
+GitLab, ...). It is off unless `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and
+`OIDC_REDIRECT_URL` are set, and adds a "Sign in with <provider>" button to
+the sign-in page. The provider only proves who the person is: the app then
+finds or creates the local user and issues its own token, so roles, the API
+and the session cookie work as with a password. Set
+`AUTH_PASSWORD_LOGIN_ENABLED=false` to run SSO-only.
+
+See [docs/oidc.md](docs/oidc.md) for the settings and how to register the app
+at Keycloak or Google.
+
 ## Testing
 
 ```bash

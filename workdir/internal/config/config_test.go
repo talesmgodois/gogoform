@@ -360,3 +360,114 @@ func TestSingleton(t *testing.T) {
 		t.Fatal("GetConfig returned a different instance")
 	}
 }
+
+func TestOIDCDisabledByDefault(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OIDC.Enabled() {
+		t.Fatal("OIDC enabled without configuration")
+	}
+	if !cfg.Auth.PasswordLoginEnabled || !cfg.OIDC.AutoCreateUsers || cfg.OIDC.DefaultRole != "BASIC" || cfg.OIDC.ProviderName != "SSO" {
+		t.Fatalf("defaults = auth %+v, oidc %+v", cfg.Auth, cfg.OIDC)
+	}
+	if strings.Join(cfg.OIDC.Scopes, ",") != "openid,email,profile" {
+		t.Fatalf("Scopes = %v", cfg.OIDC.Scopes)
+	}
+}
+
+func TestOIDCEnabledFromEnv(t *testing.T) {
+	t.Setenv("OIDC_ISSUER_URL", "https://idp.example.com/realms/main")
+	t.Setenv("OIDC_CLIENT_ID", "gogoform")
+	t.Setenv("OIDC_CLIENT_SECRET", "s3cret")
+	t.Setenv("OIDC_REDIRECT_URL", "http://localhost:8080/app/oidc/callback")
+	t.Setenv("OIDC_PROVIDER_NAME", "Keycloak")
+	t.Setenv("OIDC_SCOPES", "email, groups,email")
+	t.Setenv("OIDC_ALLOWED_EMAIL_DOMAINS", " Example.com ,corp.example.com")
+	t.Setenv("OIDC_AUTO_CREATE_USERS", "false")
+	t.Setenv("OIDC_DEFAULT_ROLE", "FORM_CREATOR")
+	t.Setenv("AUTH_PASSWORD_LOGIN_ENABLED", "0")
+
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	o := cfg.OIDC
+	if !o.Enabled() || o.ProviderName != "Keycloak" || o.ClientSecret != "s3cret" || o.AutoCreateUsers || o.DefaultRole != "FORM_CREATOR" {
+		t.Fatalf("OIDC = %+v", o)
+	}
+	if got := strings.Join(o.Scopes, ","); got != "openid,email,groups" {
+		t.Fatalf("Scopes = %q, want openid added and duplicates dropped", got)
+	}
+	if got := strings.Join(o.AllowedEmailDomains, ","); got != "example.com,corp.example.com" {
+		t.Fatalf("AllowedEmailDomains = %q, want trimmed and lowercased", got)
+	}
+	if cfg.Auth.PasswordLoginEnabled {
+		t.Fatal("PasswordLoginEnabled = true, want false")
+	}
+}
+
+func TestOIDCFromTOML(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample+`
+[oidc]
+issuer_url = "https://accounts.google.com"
+client_id = "id.apps.googleusercontent.com"
+redirect_url = "https://forms.example.com/app/oidc/callback"
+scopes = ["email"]
+allowed_email_domains = ["example.com"]
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.OIDC.Enabled() || strings.Join(cfg.OIDC.Scopes, ",") != "openid,email" || cfg.OIDC.AllowedEmailDomains[0] != "example.com" {
+		t.Fatalf("OIDC = %+v", cfg.OIDC)
+	}
+}
+
+func TestOIDCValidation(t *testing.T) {
+	full := map[string]string{
+		"OIDC_ISSUER_URL":   "https://idp.example.com",
+		"OIDC_CLIENT_ID":    "gogoform",
+		"OIDC_REDIRECT_URL": "http://localhost:8080/app/oidc/callback",
+	}
+	tests := []struct {
+		name  string
+		env   map[string]string
+		wants string
+	}{
+		{name: "issuer only", env: map[string]string{"OIDC_ISSUER_URL": "https://idp.example.com"}, wants: "must be set together"},
+		{name: "client id only", env: map[string]string{"OIDC_CLIENT_ID": "gogoform"}, wants: "must be set together"},
+		{name: "secret without the rest", env: map[string]string{"OIDC_CLIENT_ID": "gogoform", "OIDC_CLIENT_SECRET": "s3cret"}, wants: "must be set together"},
+		{name: "relative issuer", env: map[string]string{"OIDC_ISSUER_URL": "idp.example.com"}, wants: "oidc.issuer_url"},
+		{name: "bad redirect", env: map[string]string{"OIDC_REDIRECT_URL": "/app/oidc/callback"}, wants: "oidc.redirect_url"},
+		{name: "bad role", env: map[string]string{"OIDC_DEFAULT_ROLE": "ROOT"}, wants: "oidc.default_role"},
+		{name: "bad bool", env: map[string]string{"OIDC_AUTO_CREATE_USERS": "sometimes"}, wants: "OIDC_AUTO_CREATE_USERS"},
+		{name: "bad password login bool", env: map[string]string{"AUTH_PASSWORD_LOGIN_ENABLED": "nope"}, wants: "AUTH_PASSWORD_LOGIN_ENABLED"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := tt.env
+			if !strings.Contains(tt.wants, "together") {
+				env = map[string]string{}
+				for k, v := range full {
+					env[k] = v
+				}
+				for k, v := range tt.env {
+					env[k] = v
+				}
+			}
+			env["OIDC_CLIENT_SECRET"] = "top-secret-value"
+			for k, v := range env {
+				t.Setenv(k, v)
+			}
+			_, err := Load(writeConfig(t, sample))
+			if err == nil || !strings.Contains(err.Error(), tt.wants) {
+				t.Fatalf("Load error = %v, want one mentioning %q", err, tt.wants)
+			}
+			if strings.Contains(err.Error(), "top-secret-value") {
+				t.Fatalf("error leaks the client secret: %v", err)
+			}
+		})
+	}
+}
