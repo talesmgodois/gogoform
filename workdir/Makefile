@@ -24,8 +24,18 @@ export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR DATABASE_URL
 export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
 .DEFAULT_GOAL := help
-.PHONY: help dev watch db-up db-down db-logs adminer up-sqlite build run test swagger require-postgres \
+.PHONY: help dev watch dev-postgres dev-sqlite watch-postgres watch-sqlite db-up db-down db-logs adminer up-sqlite build run test swagger require-postgres \
         setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
+
+# Connection URLs used by the dev-*/watch-* shortcuts, which pick the engine
+# no matter what DATABASE_URL says in .env. The PostgreSQL one follows the
+# docker compose credentials (POSTGRES_* in .env). Override either on the CLI,
+# e.g. `make dev-sqlite SQLITE_URL=sqlite:/tmp/test.db`.
+POSTGRES_URL ?= postgres://$(or $(POSTGRES_USER),postgres):$(or $(POSTGRES_PASSWORD),postgres)@localhost:5432/$(or $(POSTGRES_DB),app_db)?sslmode=disable
+SQLITE_URL   ?= sqlite:./data/gogoform.db
+# The shortcuts also apply pending migrations at startup (DATABASE_AUTO_MIGRATE),
+# so a fresh database works without running dbmate first.
+ENGINE_MAKE   = $(MAKE) --no-print-directory DATABASE_AUTO_MIGRATE=true
 
 # DEV_DEPS: `make dev`/`make watch` only need the docker database for postgres;
 # sqlite has no container to start.
@@ -41,6 +51,18 @@ dev: $(DEV_DEPS) ## Start the database (postgres only), wait until healthy, then
 watch: $(DEV_DEPS) ## Start the database (postgres only), then run the app with hot reload (via air)
 	@command -v air >/dev/null 2>&1 || { echo "air not found; run: make setup-tools"; exit 1; }
 	air -c .air.toml
+
+dev-postgres: ## Run the app on PostgreSQL (starts the container, applies migrations), whatever .env says
+	@$(ENGINE_MAKE) dev DATABASE_URL='$(POSTGRES_URL)'
+
+dev-sqlite: ## Run the app on SQLite (SQLITE_URL, default ./data/gogoform.db, schema created at startup), whatever .env says
+	@$(ENGINE_MAKE) dev DATABASE_URL='$(SQLITE_URL)'
+
+watch-postgres: ## Like dev-postgres, with hot reload (via air)
+	@$(ENGINE_MAKE) watch DATABASE_URL='$(POSTGRES_URL)'
+
+watch-sqlite: ## Like dev-sqlite, with hot reload (via air)
+	@$(ENGINE_MAKE) watch DATABASE_URL='$(SQLITE_URL)'
 
 require-postgres:
 	@test "$(DB_ENGINE)" = postgres || { echo "ERROR: this target requires PostgreSQL, but DATABASE_URL is sqlite:... (DB_ENGINE=$(DB_ENGINE))" >&2; exit 1; }

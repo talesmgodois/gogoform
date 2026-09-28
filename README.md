@@ -69,6 +69,23 @@ database server (`db-up`, `db-logs`, `adminer`, `generate-schema`,
 `make dev` starts the PostgreSQL container only when `DATABASE_URL` points at
 it; with a `sqlite:` URL it just runs the API.
 
+### Switching engines with one command
+
+To run the app locally on either engine, use the matching target. It
+overrides `DATABASE_URL` from `.env` and applies pending migrations at
+startup:
+
+```sh
+cd workdir
+make dev-postgres   # starts the PostgreSQL container, then the API
+make dev-sqlite     # API only, database file in ./data/gogoform.db
+make watch-postgres # the same, with hot reload (air)
+make watch-sqlite
+```
+
+The URLs can be overridden with `POSTGRES_URL=...` or `SQLITE_URL=...`, e.g.
+`make dev-sqlite SQLITE_URL=sqlite:/tmp/other.db`.
+
 ### Quick start with SQLite
 
 No database server, migration tool or setup step: the schema is created when
