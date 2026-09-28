@@ -131,16 +131,47 @@ Known limits of SQLite, worth knowing before choosing it:
   ASCII letters only; accented characters are compared case-sensitively.
 - No data migration tool between engines.
 
+## Choosing how users authenticate
+
+One setting, `AUTH_METHODS` (TOML: `[auth] methods`), lists the methods that
+are on:
+
+| Method  | What it does |
+|---------|--------------|
+| `basic` | HTTP Basic (username and password) on every API request |
+| `jwt`   | username and password exchanged once for a JWT (`POST /auth/signin`, the `/app` sign-in form), then sent as `Authorization: Bearer` |
+| `oidc`  | sign-in through an OpenID Connect provider such as Keycloak (see below) |
+
+The default is `basic,jwt`, plus `oidc` when the `OIDC_*` settings are
+complete. Examples: `AUTH_METHODS=jwt`, `AUTH_METHODS=oidc` (SSO only),
+`AUTH_METHODS=jwt,oidc`.
+
+For local runs, `make` takes an `AUTH=` shortcut on every target that starts
+the app. `keycloak` also starts a ready-made local Keycloak (realm `gogoform`,
+users `alice`/`alice` and `bob`/`bob`, admin console on
+http://localhost:8081 with `admin`/`admin`) and points the app at it:
+
+```sh
+cd workdir
+make dev-sqlite AUTH=keycloak       # SSO only, through the local Keycloak
+make dev-sqlite AUTH=jwt            # username/password -> Bearer token
+make dev-postgres AUTH=basic        # HTTP Basic only
+make dev-postgres AUTH=jwt,keycloak # both
+```
+
+`AUTH` accepts `basic`, `jwt`, `password` (basic and jwt), `oidc` (your
+provider from `.env`) and `keycloak`. `make keycloak-down` stops Keycloak.
+
 ## Signing in with an OpenID Connect provider
 
 The `/app` pages can sign people in through any standards-compliant OpenID
 Connect provider (Keycloak, Authentik, Auth0, Okta, Google, Microsoft Entra,
-GitLab, ...). It is off unless `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and
-`OIDC_REDIRECT_URL` are set, and adds a "Sign in with <provider>" button to
-the sign-in page. The provider only proves who the person is: the app then
+GitLab, ...). It is on when `AUTH_METHODS` includes `oidc` and `OIDC_ISSUER_URL`,
+`OIDC_CLIENT_ID` and `OIDC_REDIRECT_URL` are set. It adds a "Sign in with
+<provider>" button to the sign-in page. The provider only proves who the person is: the app then
 finds or creates the local user and issues its own token, so roles, the API
-and the session cookie work as with a password. Set
-`AUTH_PASSWORD_LOGIN_ENABLED=false` to run SSO-only.
+and the session cookie work as with a password. Use
+`AUTH_METHODS=oidc` to run SSO-only.
 
 See [docs/oidc.md](docs/oidc.md) for the settings and how to register the app
 at Keycloak or Google.

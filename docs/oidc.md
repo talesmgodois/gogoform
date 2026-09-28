@@ -3,7 +3,14 @@
 gogoform can sign people in to the `/app` pages through an external OpenID
 Connect (OIDC) provider. It works with any standards-compliant provider and is
 configured only through `config.toml` (`[oidc]`) or environment variables.
-With the settings below unset, nothing changes.
+It is on when `AUTH_METHODS` includes `oidc`, which is the default once the
+provider settings below are complete. `AUTH_METHODS=oidc` turns off the
+password methods for SSO only. See "Choosing how users authenticate" in the
+README.
+
+To try it locally with no setup, run `make dev-sqlite AUTH=keycloak`. It
+starts a Keycloak with a ready-made realm from `workdir/keycloak/` (users
+`alice`/`alice` and `bob`/`bob`) and points the app at it.
 
 ## How it works
 
@@ -43,10 +50,10 @@ password. Disabled users cannot sign in through the provider either.
 | `OIDC_ALLOWED_EMAIL_DOMAINS` | `allowed_email_domains` | empty | When set, only people with a **verified** email in one of these domains may sign in |
 | `OIDC_AUTO_CREATE_USERS` | `auto_create_users` | `true` | Create a user on first sign-in; when false, only identities already linked may sign in |
 | `OIDC_DEFAULT_ROLE` | `default_role` | `BASIC` | Role of the users created through OIDC |
-| `AUTH_PASSWORD_LOGIN_ENABLED` | `[auth] password_login_enabled` | `true` | `false` rejects password sign-in, sign-up and HTTP Basic on the API; the `AUTH_ADMIN_*` bootstrap admin is still created |
+| `AUTH_METHODS` | `[auth] methods` | `basic,jwt` (+ `oidc` when configured) | Methods that are on; `oidc` alone is SSO only (the `AUTH_ADMIN_*` bootstrap admin is still created) |
 
-OIDC is enabled when issuer, client id and redirect URL are all set. Setting
-only some of them is a startup error. Lists are comma-separated in
+Issuer, client id and redirect URL must be set together; setting only some
+of them is a startup error, and so is `oidc` in `AUTH_METHODS` without them. Lists are comma-separated in
 environment variables.
 
 The flow cookie is signed with `AUTH_JWT_SECRET`. Set that secret when you run
