@@ -24,7 +24,7 @@ export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR DATABASE_URL
 export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
 .DEFAULT_GOAL := help
-.PHONY: help dev watch db-up db-down db-logs adminer build run test swagger require-postgres \
+.PHONY: help dev watch db-up db-down db-logs adminer up-sqlite build run test swagger require-postgres \
         setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
 
 # DEV_DEPS: `make dev`/`make watch` only need the docker database for postgres;
@@ -56,6 +56,9 @@ db-logs: require-postgres ## Tail PostgreSQL logs (postgres only)
 
 adminer: require-postgres ## Start Adminer (web UI to query PostgreSQL) on ADMINER_PORT (default 8088) (postgres only)
 	$(COMPOSE) up -d --wait adminer
+
+up-sqlite: ## Build and start the API alone on SQLite (compose profile "sqlite"), schema created at startup, on port 8080
+	$(COMPOSE) --profile sqlite up -d --build api-sqlite
 
 build: ## Compile the API binary to ./bin/api
 	go build -o $(BIN) $(PKG)

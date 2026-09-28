@@ -33,5 +33,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # The API alone on SQLite, schema created at startup: `make up-sqlite`, then
+  # http://localhost:8080. Behind a profile so `docker compose up` keeps
+  # starting only PostgreSQL and Adminer.
+  api-sqlite:
+    profiles: ["sqlite"]
+    build: .
+    environment:
+      DATABASE_URL: sqlite:/app/data/gogoform.db
+      DATABASE_AUTO_MIGRATE: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      # The image's /app/data is owned by nonroot, and a new named volume
+      # copies that ownership, so the API can create the database file.
+      - sqlite_data:/app/data
+    restart: unless-stopped
+
 volumes:
   postgres18_data:
+  sqlite_data:
