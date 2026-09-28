@@ -31,7 +31,8 @@ func (r Role) Valid() bool {
 	return slices.Contains(AllRoles, r)
 }
 
-// User is an account that signs in with a username and password.
+// User is an account. It signs in with a username and password, through an
+// external OpenID Connect identity linked to it, or both.
 type User struct {
 	ID        int32
 	Username  string
@@ -42,10 +43,35 @@ type User struct {
 }
 
 // StoredUser is a User together with its password hash, as needed to check
-// credentials. Never expose the hash outside this package.
+// credentials. PasswordHash is empty for users without a password (created
+// through OIDC sign-in). Never expose the hash outside this package.
 type StoredUser struct {
 	User
 	PasswordHash string
+}
+
+// ExternalIdentity is a person authenticated by an external OpenID Connect
+// provider. (Issuer, Subject) identifies them; the other claims are only
+// used to name a new account and are never trusted to find an existing one.
+type ExternalIdentity struct {
+	Issuer            string
+	Subject           string
+	Email             string
+	EmailVerified     bool
+	PreferredUsername string
+	Name              string
+}
+
+// CreateExternalUserInput holds the data needed to store a user without a
+// password along with the external identity it signs in with.
+type CreateExternalUserInput struct {
+	// Username must already be normalized and valid.
+	Username string
+	Role     Role
+	Issuer   string
+	Subject  string
+	// Email is informative only; empty when the provider sent none.
+	Email string
 }
 
 // CreateUserInput holds the data needed to store a user.

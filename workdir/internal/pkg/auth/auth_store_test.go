@@ -15,9 +15,14 @@ import (
 // without a stub panics through the nil embedded interface.
 type fakeQuerier struct {
 	db.Querier
-	createUser        func(db.CreateUserParams) (db.User, error)
-	getUserByUsername func(string) (db.User, error)
-	updateUserRole    func(db.UpdateUserRoleParams) (db.User, error)
+	createUser             func(db.CreateUserParams) (db.User, error)
+	getUserByUsername      func(string) (db.User, error)
+	updateUserRole         func(db.UpdateUserRoleParams) (db.User, error)
+	createUserWithIdentity func(db.CreateUserWithIdentityParams) (db.CreateUserWithIdentityRow, error)
+}
+
+func (f *fakeQuerier) CreateUserWithIdentity(_ context.Context, arg db.CreateUserWithIdentityParams) (db.CreateUserWithIdentityRow, error) {
+	return f.createUserWithIdentity(arg)
 }
 
 func (f *fakeQuerier) CreateUser(_ context.Context, arg db.CreateUserParams) (db.User, error) {
@@ -42,7 +47,7 @@ func TestUserStoreCreate(t *testing.T) {
 	if err != nil || u.ID != 4 || u.Role != RoleFormCreator {
 		t.Fatalf("Create = %+v, %v", u, err)
 	}
-	if got.Role != db.UserRoleFORMCREATOR || got.PasswordHash != "hash" {
+	if got.Role != db.UserRoleFORMCREATOR || got.PasswordHash == nil || *got.PasswordHash != "hash" {
 		t.Fatalf("params = %+v", got)
 	}
 
@@ -64,4 +69,36 @@ func TestUserStoreNotFound(t *testing.T) {
 	assertCode(t, err, apperrors.CodeNotFound)
 	_, err = store.List(context.Background(), Page{Limit: 0})
 	assertCode(t, err, apperrors.CodeInvalidArgument)
+}
+
+func TestUserStoreNullPasswordHash(t *testing.T) {
+	store := NewUserStore(&fakeQuerier{getUserByUsername: func(username string) (db.User, error) {
+		return db.User{ID: 1, Username: username, Role: db.UserRoleBASIC, IsActive: true}, nil
+	}})
+	su, err := store.GetByUsername(context.Background(), "oidc-user")
+	if err != nil || su.PasswordHash != "" {
+		t.Fatalf("GetByUsername = %+v, %v; want an empty hash", su, err)
+	}
+}
+
+func TestUserStoreCreateWithIdentity(t *testing.T) {
+	var got db.CreateUserWithIdentityParams
+	store := NewUserStore(&fakeQuerier{createUserWithIdentity: func(arg db.CreateUserWithIdentityParams) (db.CreateUserWithIdentityRow, error) {
+		got = arg
+		return db.CreateUserWithIdentityRow{ID: 7, Username: arg.Username, Role: arg.Role, IsActive: true}, nil
+	}})
+	in := CreateExternalUserInput{Username: "alice", Role: RoleBasic, Issuer: "https://idp", Subject: "sub-1"}
+	u, err := store.CreateWithIdentity(context.Background(), in)
+	if err != nil || u.ID != 7 || u.Username != "alice" {
+		t.Fatalf("CreateWithIdentity = %+v, %v", u, err)
+	}
+	if got.Email != nil || got.Issuer != "https://idp" || got.Subject != "sub-1" {
+		t.Fatalf("params = %+v; want a NULL email", got)
+	}
+
+	store = NewUserStore(&fakeQuerier{createUserWithIdentity: func(db.CreateUserWithIdentityParams) (db.CreateUserWithIdentityRow, error) {
+		return db.CreateUserWithIdentityRow{}, &pgconn.PgError{Code: "23505"}
+	}})
+	_, err = store.CreateWithIdentity(context.Background(), in)
+	assertCode(t, err, apperrors.CodeConflict)
 }
