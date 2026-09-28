@@ -23,12 +23,19 @@ type appSignInPage struct {
 	appLayout
 	// Next is the local page to open once signed in.
 	Next string
+	// PasswordLogin shows the username/password form and sign-up tab.
+	PasswordLogin bool
+	// OIDCProvider and OIDCLoginURL show the "Sign in with <provider>"
+	// button; empty when OIDC is not configured.
+	OIDCProvider, OIDCLoginURL string
 }
 
 // appAccountPage is the data rendered by templates/account.html.
 type appAccountPage struct {
 	appLayout
 	Routes []appRouteAccess
+	// LinkedIdentities counts the external OIDC identities of the user.
+	LinkedIdentities int
 }
 
 // appRouteAccess describes an /app route and whether the viewer may open it.
@@ -71,7 +78,11 @@ func (c *appController) SignInPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
 	}
-	renderAppPage(w, r, appSignInTemplate, &appSignInPage{appLayout: appLayout{Active: "signin"}, Next: next})
+	page := appSignInPage{appLayout: appLayout{Active: "signin"}, Next: next, PasswordLogin: c.auth.PasswordLoginEnabled()}
+	if c.oidc != nil {
+		page.OIDCProvider, page.OIDCLoginURL = c.oidc.providerName, c.oidc.loginURL(next)
+	}
+	renderAppPage(w, r, appSignInTemplate, &page)
 }
 
 // SignIn checks the HTTP Basic credentials sent by the sign-in page and
@@ -91,6 +102,13 @@ func (c *appController) SignIn(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
+	setSessionCookie(w, r, tok)
+	setAppNoStoreHeaders(w.Header())
+	writeJSON(w, r, http.StatusOK, toUserResponse(tok.User))
+}
+
+// setSessionCookie stores tok in the session cookie of the /app pages.
+func setSessionCookie(w http.ResponseWriter, r *http.Request, tok auth.Token) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    tok.AccessToken,
@@ -101,8 +119,6 @@ func (c *appController) SignIn(w http.ResponseWriter, r *http.Request) {
 		Secure:   isHTTPS(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	setAppNoStoreHeaders(w.Header())
-	writeJSON(w, r, http.StatusOK, toUserResponse(tok.User))
 }
 
 // SignOut clears the session cookie.
@@ -120,6 +136,12 @@ func (c *appController) SignOut(w http.ResponseWriter, r *http.Request) {
 func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	page := appAccountPage{appLayout: appLayout{Active: "account"}}
+	n, err := c.auth.LinkedIdentities(r.Context(), u.ID)
+	if err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	page.LinkedIdentities = n
 	for _, rt := range c.mounted {
 		page.Routes = append(page.Routes, appRouteAccess{Pattern: rt.Pattern, Access: describeAccess(rt), Allowed: rt.Access.Allows(u)})
 	}

@@ -532,6 +532,59 @@ info:
   title: App API
   version: "1.0"
 paths:
+  /app/oidc/callback:
+    get:
+      description: 'Only registered when OIDC is configured. The provider redirects
+        here: the state is checked against the flow cookie, the code is exchanged
+        with the PKCE verifier and the ID token verified (signature, issuer, audience,
+        expiry, nonce). The user is then found or created, the session cookie set
+        and the browser redirected to the page it came from. Errors render an HTML
+        page.'
+      parameters:
+      - description: Authorization code
+        in: query
+        name: code
+        type: string
+      - description: State of the flow
+        in: query
+        name: state
+        type: string
+      - description: Error reported by the provider
+        in: query
+        name: error
+        type: string
+      - description: Description of the provider error
+        in: query
+        name: error_description
+        type: string
+      responses:
+        "303":
+          description: Signed in; redirect to the next page
+        "400":
+          description: Invalid, expired or cancelled sign-in
+        "401":
+          description: The ID token could not be verified
+        "403":
+          description: The account is not allowed to sign in
+      summary: Complete OIDC sign-in (browser)
+      tags:
+      - app
+  /app/oidc/login:
+    get:
+      description: 'Only registered when OIDC is configured. Starts the authorization
+        code flow with PKCE: stores the flow in a short-lived signed cookie and redirects
+        the browser to the provider. Meant for the /app pages, not for API clients.'
+      parameters:
+      - description: Local /app page to open once signed in
+        in: query
+        name: next
+        type: string
+      responses:
+        "302":
+          description: Redirect to the provider
+      summary: Start OIDC sign-in (browser)
+      tags:
+      - app
   /auth/me:
     get:
       description: Returns the user authenticated by the bearer token or Basic credentials.
@@ -572,6 +625,10 @@ paths:
           description: Missing or invalid credentials
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Password sign-in is disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
           description: Internal error
           schema:
@@ -602,6 +659,10 @@ paths:
             $ref: '#/definitions/handlers.UserResponse'
         "400":
           description: Invalid username or password
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Password sign-up is disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "409":

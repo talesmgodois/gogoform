@@ -254,6 +254,43 @@ const testPassword = "correct horse"
 // fakeUsers is an in-memory auth.Repository.
 type fakeUsers struct {
 	users []auth.StoredUser
+	// identities maps "issuer|subject" to a user ID.
+	identities map[string]int32
+}
+
+func (f *fakeUsers) GetByIdentity(ctx context.Context, issuer, subject string) (auth.User, error) {
+	id, ok := f.identities[issuer+"|"+subject]
+	if !ok {
+		return auth.User{}, apperrors.NewNotFound("user not found")
+	}
+	return f.GetByID(ctx, id)
+}
+
+func (f *fakeUsers) CreateWithIdentity(ctx context.Context, in auth.CreateExternalUserInput) (auth.User, error) {
+	if _, ok := f.identities[in.Issuer+"|"+in.Subject]; ok {
+		return auth.User{}, apperrors.NewConflict("identity already linked")
+	}
+	u, err := f.Create(ctx, auth.CreateUserInput{Username: in.Username, Role: in.Role})
+	if err != nil {
+		return auth.User{}, err
+	}
+	if f.identities == nil {
+		f.identities = map[string]int32{}
+	}
+	f.identities[in.Issuer+"|"+in.Subject] = u.ID
+	return u, nil
+}
+
+func (f *fakeUsers) TouchIdentity(context.Context, string, string, string) error { return nil }
+
+func (f *fakeUsers) CountIdentities(_ context.Context, userID int32) (int, error) {
+	n := 0
+	for _, id := range f.identities {
+		if id == userID {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeUsers) Create(_ context.Context, in auth.CreateUserInput) (auth.User, error) {
@@ -312,7 +349,14 @@ func (f *fakeUsers) UpdateRole(_ context.Context, id int32, role auth.Role) (aut
 // role: "admin" (ID 1), "creator" (ID 2) and "basic" (ID 3), all with
 // testPassword.
 func newTestAuth() *auth.Service {
-	svc, err := auth.NewService(&fakeUsers{}, auth.Options{Secret: []byte(strings.Repeat("k", auth.MinSecretLen)), PasswordCost: bcrypt.MinCost})
+	return newTestAuthWith(auth.Options{})
+}
+
+// newTestAuthWith is newTestAuth with extra options; the secret and bcrypt
+// cost are always set.
+func newTestAuthWith(opts auth.Options) *auth.Service {
+	opts.Secret, opts.PasswordCost = testSecret, bcrypt.MinCost
+	svc, err := auth.NewService(&fakeUsers{}, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -326,6 +370,9 @@ func newTestAuth() *auth.Service {
 	}
 	return svc
 }
+
+// testSecret signs the tokens of newTestAuth.
+var testSecret = []byte(strings.Repeat("k", auth.MinSecretLen))
 
 // tokenFor signs in as username and returns the access token.
 func tokenFor(t *testing.T, svc Services, username string) string {

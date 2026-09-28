@@ -15,6 +15,77 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/app/oidc/callback": {
+            "get": {
+                "description": "Only registered when OIDC is configured. The provider redirects here: the state is checked against the flow cookie, the code is exchanged with the PKCE verifier and the ID token verified (signature, issuer, audience, expiry, nonce). The user is then found or created, the session cookie set and the browser redirected to the page it came from. Errors render an HTML page.",
+                "tags": [
+                    "app"
+                ],
+                "summary": "Complete OIDC sign-in (browser)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Authorization code",
+                        "name": "code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "State of the flow",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Error reported by the provider",
+                        "name": "error",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Description of the provider error",
+                        "name": "error_description",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "303": {
+                        "description": "Signed in; redirect to the next page"
+                    },
+                    "400": {
+                        "description": "Invalid, expired or cancelled sign-in"
+                    },
+                    "401": {
+                        "description": "The ID token could not be verified"
+                    },
+                    "403": {
+                        "description": "The account is not allowed to sign in"
+                    }
+                }
+            }
+        },
+        "/app/oidc/login": {
+            "get": {
+                "description": "Only registered when OIDC is configured. Starts the authorization code flow with PKCE: stores the flow in a short-lived signed cookie and redirects the browser to the provider. Meant for the /app pages, not for API clients.",
+                "tags": [
+                    "app"
+                ],
+                "summary": "Start OIDC sign-in (browser)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Local /app page to open once signed in",
+                        "name": "next",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to the provider"
+                    }
+                }
+            }
+        },
         "/auth/me": {
             "get": {
                 "security": [
@@ -83,6 +154,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "403": {
+                        "description": "Password sign-in is disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal error",
                         "schema": {
@@ -125,6 +202,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Invalid username or password",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Password sign-up is disabled (AUTH_PASSWORD_LOGIN_ENABLED=false)",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }

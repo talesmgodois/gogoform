@@ -28,6 +28,7 @@ type Services struct {
 	webhooks    webhooks.Repository
 	files       files.Repository
 	auth        *authpkg.Service
+	oidc        *OIDCOptions
 }
 
 // NewServices returns the sqlc-backed implementation of every repository,
@@ -41,6 +42,13 @@ func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 		webhooks:    webhooks.NewService(q),
 		files:       files.NewService(q),
 	}
+}
+
+// WithOIDC returns svc with sign-in through an external OpenID Connect
+// provider enabled on the /app pages.
+func (svc Services) WithOIDC(o OIDCOptions) Services {
+	svc.oidc = &o
+	return svc
 }
 
 // Routes builds the HTTP handler. Tenant-scoped endpoints authenticate with
@@ -97,6 +105,9 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", guard(authpkg.Public, submissionsCtl.Create))
 
 	appCtl := &appController{forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
+	if svc.oidc != nil {
+		appCtl.oidc = newAppOIDC(*svc.oidc)
+	}
 	appCtl.mount(mux, appCfg)
 	return mux
 }
