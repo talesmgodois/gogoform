@@ -16,12 +16,13 @@ import (
 // SQLite's int64/string-only types to the int32/db.UserRole types the rest
 // of the app expects.
 type sqliteQuerier struct {
-	q *sqlitegen.Queries
+	q  *sqlitegen.Queries
+	db *sql.DB
 }
 
-// newSQLiteQuerier wraps dbtx (typically a *sql.DB) as a db.Querier.
-func newSQLiteQuerier(dbtx sqlitegen.DBTX) *sqliteQuerier {
-	return &sqliteQuerier{q: sqlitegen.New(dbtx)}
+// newSQLiteQuerier wraps sqlDB as a db.Querier.
+func newSQLiteQuerier(sqlDB *sql.DB) *sqliteQuerier {
+	return &sqliteQuerier{q: sqlitegen.New(sqlDB), db: sqlDB}
 }
 
 // mapSQLiteErr translates database/sql's no-rows sentinel to the
@@ -500,6 +501,67 @@ func (s *sqliteQuerier) UpdateUserRole(ctx context.Context, arg db.UpdateUserRol
 		return db.User{}, mapSQLiteErr(err)
 	}
 	return toUser(u)
+}
+
+func (s *sqliteQuerier) GetUserByIdentity(ctx context.Context, arg db.GetUserByIdentityParams) (db.User, error) {
+	u, err := s.q.GetUserByIdentity(ctx, sqlitegen.GetUserByIdentityParams{
+		Issuer:  arg.Issuer,
+		Subject: arg.Subject,
+	})
+	if err != nil {
+		return db.User{}, mapSQLiteErr(err)
+	}
+	return toUser(u)
+}
+
+func (s *sqliteQuerier) TouchUserIdentity(ctx context.Context, arg db.TouchUserIdentityParams) error {
+	return mapSQLiteErr(s.q.TouchUserIdentity(ctx, sqlitegen.TouchUserIdentityParams{
+		Email:   arg.Email,
+		Issuer:  arg.Issuer,
+		Subject: arg.Subject,
+	}))
+}
+
+// CreateUserWithIdentity runs the two inserts PostgreSQL does in a single
+// CTE statement inside one transaction, so neither row exists without the
+// other.
+func (s *sqliteQuerier) CreateUserWithIdentity(ctx context.Context, arg db.CreateUserWithIdentityParams) (db.CreateUserWithIdentityRow, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return db.CreateUserWithIdentityRow{}, err
+	}
+	defer tx.Rollback()
+
+	q := s.q.WithTx(tx)
+	u, err := q.CreateUserWithoutPassword(ctx, sqlitegen.CreateUserWithoutPasswordParams{
+		Username: arg.Username,
+		Role:     string(arg.Role),
+	})
+	if err != nil {
+		return db.CreateUserWithIdentityRow{}, mapSQLiteErr(err)
+	}
+	if err := q.CreateUserIdentity(ctx, sqlitegen.CreateUserIdentityParams{
+		UserID:  u.ID,
+		Issuer:  arg.Issuer,
+		Subject: arg.Subject,
+		Email:   arg.Email,
+	}); err != nil {
+		return db.CreateUserWithIdentityRow{}, mapSQLiteErr(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return db.CreateUserWithIdentityRow{}, err
+	}
+
+	user, err := toUser(u)
+	if err != nil {
+		return db.CreateUserWithIdentityRow{}, err
+	}
+	return db.CreateUserWithIdentityRow(user), nil
+}
+
+func (s *sqliteQuerier) CountUserIdentities(ctx context.Context, userID int32) (int64, error) {
+	n, err := s.q.CountUserIdentities(ctx, int64(userID))
+	return n, mapSQLiteErr(err)
 }
 
 // Files.

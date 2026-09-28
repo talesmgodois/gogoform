@@ -68,6 +68,7 @@ func runQuerierContract(t *testing.T, newQuerier querierFactory) {
 	t.Run("ListAndCountFormsByTenantFilters", func(t *testing.T) { testListAndCountFormsByTenantFilters(t, newQuerier(t)) })
 	t.Run("UpdateFormDraftLock", func(t *testing.T) { testUpdateFormDraftLock(t, newQuerier(t)) })
 	t.Run("CreateUserIfNotExistsIdempotency", func(t *testing.T) { testCreateUserIfNotExistsIdempotency(t, newQuerier(t)) })
+	t.Run("UserIdentities", func(t *testing.T) { testUserIdentities(t, newQuerier(t)) })
 	t.Run("Violations", func(t *testing.T) { testViolations(t, newQuerier(t)) })
 }
 
@@ -223,7 +224,7 @@ func testUserCRUD(t *testing.T, q db.Querier) {
 
 	created, err := q.CreateUser(ctx, db.CreateUserParams{
 		Username:     "alice",
-		PasswordHash: "hash-1",
+		PasswordHash: stringPtr("hash-1"),
 		Role:         db.UserRoleBASIC,
 	})
 	if err != nil {
@@ -267,7 +268,7 @@ func testUserCRUD(t *testing.T, q db.Querier) {
 	for i := 0; i < 3; i++ {
 		u, err := q.CreateUser(ctx, db.CreateUserParams{
 			Username:     "user" + string(rune('a'+i)),
-			PasswordHash: "hash",
+			PasswordHash: stringPtr("hash"),
 			Role:         db.UserRoleBASIC,
 		})
 		if err != nil {
@@ -906,7 +907,7 @@ func testCreateUserIfNotExistsIdempotency(t *testing.T, q db.Querier) {
 
 	n, err := q.CreateUserIfNotExists(ctx, db.CreateUserIfNotExistsParams{
 		Username:     "bootstrap",
-		PasswordHash: "hash-first",
+		PasswordHash: stringPtr("hash-first"),
 		Role:         db.UserRoleADMIN,
 	})
 	if err != nil {
@@ -918,7 +919,7 @@ func testCreateUserIfNotExistsIdempotency(t *testing.T, q db.Querier) {
 
 	n, err = q.CreateUserIfNotExists(ctx, db.CreateUserIfNotExistsParams{
 		Username:     "bootstrap",
-		PasswordHash: "hash-second",
+		PasswordHash: stringPtr("hash-second"),
 		Role:         db.UserRoleBASIC,
 	})
 	if err != nil {
@@ -932,8 +933,76 @@ func testCreateUserIfNotExistsIdempotency(t *testing.T, q db.Querier) {
 	if err != nil {
 		t.Fatalf("GetUserByUsername: %v", err)
 	}
-	if got.PasswordHash != "hash-first" || got.Role != db.UserRoleADMIN {
+	if got.PasswordHash == nil || *got.PasswordHash != "hash-first" || got.Role != db.UserRoleADMIN {
 		t.Fatalf("CreateUserIfNotExists (second) overwrote the existing row: got %+v", got)
+	}
+}
+
+// testUserIdentities covers the OIDC queries: a user created with its
+// identity has no password, is found through the identity whether active or
+// not, and a taken identity rolls the whole creation back.
+func testUserIdentities(t *testing.T, q db.Querier) {
+	ctx := context.Background()
+	const issuer = "https://idp.example.com"
+
+	created, err := q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: "oidc-alice",
+		Role:     db.UserRoleFORMCREATOR,
+		Issuer:   issuer,
+		Subject:  "sub-1",
+		Email:    stringPtr("alice@example.com"),
+	})
+	if err != nil {
+		t.Fatalf("CreateUserWithIdentity: %v", err)
+	}
+	if created.PasswordHash != nil || created.Role != db.UserRoleFORMCREATOR || !created.IsActive {
+		t.Fatalf("CreateUserWithIdentity: got %+v, want an active FORM_CREATOR without password", created)
+	}
+
+	found, err := q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: issuer, Subject: "sub-1"})
+	if err != nil || found.ID != created.ID {
+		t.Fatalf("GetUserByIdentity: got %+v, %v; want user %d", found, err, created.ID)
+	}
+	if _, err := q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: issuer, Subject: "other"}); !IsNoRows(err) {
+		t.Fatalf("GetUserByIdentity: expected IsNoRows for an unknown subject, got %v", err)
+	}
+	if _, err := q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: "https://other.example.com", Subject: "sub-1"}); !IsNoRows(err) {
+		t.Fatalf("GetUserByIdentity: expected IsNoRows for another issuer, got %v", err)
+	}
+
+	if err := q.TouchUserIdentity(ctx, db.TouchUserIdentityParams{Issuer: issuer, Subject: "sub-1", Email: nil}); err != nil {
+		t.Fatalf("TouchUserIdentity: %v", err)
+	}
+	if n, err := q.CountUserIdentities(ctx, created.ID); err != nil || n != 1 {
+		t.Fatalf("CountUserIdentities: got %d, %v; want 1", n, err)
+	}
+
+	// The same identity again: the user insert must be rolled back too.
+	_, err = q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: "oidc-alice2",
+		Role:     db.UserRoleBASIC,
+		Issuer:   issuer,
+		Subject:  "sub-1",
+	})
+	if !IsUniqueViolation(err) {
+		t.Fatalf("CreateUserWithIdentity (taken identity): expected a unique violation, got %v", err)
+	}
+	if _, err := q.GetUserByUsername(ctx, "oidc-alice2"); !IsNoRows(err) {
+		t.Fatalf("CreateUserWithIdentity (taken identity) left its user behind: %v", err)
+	}
+
+	// A taken username fails the same way.
+	_, err = q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: "oidc-alice",
+		Role:     db.UserRoleBASIC,
+		Issuer:   issuer,
+		Subject:  "sub-2",
+	})
+	if !IsUniqueViolation(err) {
+		t.Fatalf("CreateUserWithIdentity (taken username): expected a unique violation, got %v", err)
+	}
+	if n, err := q.CountUserIdentities(ctx, created.ID); err != nil || n != 1 {
+		t.Fatalf("CountUserIdentities after failed creations: got %d, %v; want 1", n, err)
 	}
 }
 
@@ -1005,7 +1074,7 @@ func testViolations(t *testing.T, q db.Querier) {
 	t.Run("CheckUsernameMustBeLowercase", func(t *testing.T) {
 		_, err := q.CreateUser(ctx, db.CreateUserParams{
 			Username:     "Uppercase",
-			PasswordHash: "hash",
+			PasswordHash: stringPtr("hash"),
 			Role:         db.UserRoleBASIC,
 		})
 		if err == nil {
