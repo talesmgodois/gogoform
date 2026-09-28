@@ -255,6 +255,48 @@ func TestSQLiteTuningEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestAutoMigrate(t *testing.T) {
+	const sqliteSample = `
+[database]
+uri = "sqlite:./data/app.db"
+`
+	tests := []struct {
+		name    string
+		content string
+		env     string
+		want    bool
+	}{
+		{name: "postgres defaults to off", content: sample, want: false},
+		{name: "sqlite defaults to on", content: sqliteSample, want: true},
+		{name: "toml turns it on for postgres", content: sample + "auto_migrate = true\n", want: true},
+		{name: "toml turns it off for sqlite", content: sqliteSample + "auto_migrate = false\n", want: false},
+		{name: "env turns it on for postgres", content: sample, env: "true", want: true},
+		{name: "env turns it off for sqlite", content: sqliteSample, env: "0", want: false},
+		{name: "env overrides toml", content: sqliteSample + "auto_migrate = false\n", env: "1", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("DATABASE_AUTO_MIGRATE", tt.env)
+			}
+			cfg, err := Load(writeConfig(t, tt.content))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Database.AutoMigrateEnabled(); got != tt.want {
+				t.Fatalf("AutoMigrateEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutoMigrateInvalidEnv(t *testing.T) {
+	t.Setenv("DATABASE_AUTO_MIGRATE", "maybe")
+	if _, err := Load(writeConfig(t, sample)); err == nil || !strings.Contains(err.Error(), "DATABASE_AUTO_MIGRATE") {
+		t.Fatalf("Load error = %v, want one naming DATABASE_AUTO_MIGRATE", err)
+	}
+}
+
 func TestSQLiteTuningValidation(t *testing.T) {
 	tests := []struct {
 		name string

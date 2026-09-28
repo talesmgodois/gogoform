@@ -78,8 +78,8 @@ func (c AppConfig) Enabled() bool {
 // Connect provider. OIDC is fully optional: with IssuerURL, ClientID and
 // RedirectURL all unset, the app behaves exactly as without this feature.
 type OIDCConfig struct {
-	IssuerURL    string `toml:"issuer_url"    env:"OIDC_ISSUER_URL"`
-	ClientID     string `toml:"client_id"     env:"OIDC_CLIENT_ID"`
+	IssuerURL string `toml:"issuer_url"    env:"OIDC_ISSUER_URL"`
+	ClientID  string `toml:"client_id"     env:"OIDC_CLIENT_ID"`
 	// ClientSecret is optional for public clients that only use PKCE.
 	ClientSecret string `toml:"client_secret" env:"OIDC_CLIENT_SECRET"`
 	RedirectURL  string `toml:"redirect_url"  env:"OIDC_REDIRECT_URL"`
@@ -160,6 +160,20 @@ type DatabaseConfig struct {
 	// SQLiteJournalMode is the SQLite journal mode: WAL, DELETE or TRUNCATE.
 	// Ignored on PostgreSQL.
 	SQLiteJournalMode string `toml:"sqlite_journal_mode" env:"DATABASE_SQLITE_JOURNAL_MODE"`
+	// AutoMigrate applies pending migrations at startup. Unset, it follows
+	// the engine; see AutoMigrateEnabled.
+	AutoMigrate *bool `toml:"auto_migrate" env:"DATABASE_AUTO_MIGRATE"`
+}
+
+// AutoMigrateEnabled reports whether pending migrations are applied at
+// startup. When AutoMigrate is unset it defaults to true for SQLite, so a
+// single binary works with zero setup, and to false for PostgreSQL, whose
+// operators usually run migrations as a separate deploy step.
+func (c DatabaseConfig) AutoMigrateEnabled() bool {
+	if c.AutoMigrate != nil {
+		return *c.AutoMigrate
+	}
+	return c.Driver() == DriverSQLite
 }
 
 // Driver identifies a supported database engine.
@@ -315,6 +329,16 @@ func applyEnv(v reflect.Value) error {
 				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
 			}
 			fv.SetBool(b)
+		case reflect.Pointer:
+			// *bool distinguishes "unset" from false, for defaults that depend on other settings.
+			if fv.Type().Elem().Kind() != reflect.Bool {
+				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
+			}
+			b, err := strconv.ParseBool(strings.TrimSpace(raw))
+			if err != nil {
+				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
+			}
+			fv.Set(reflect.ValueOf(&b))
 		case reflect.Slice:
 			if fv.Type().Elem().Kind() != reflect.String {
 				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
