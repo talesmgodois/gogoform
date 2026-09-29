@@ -255,6 +255,48 @@ func TestSQLiteTuningEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestAutoMigrate(t *testing.T) {
+	const sqliteSample = `
+[database]
+uri = "sqlite:./data/app.db"
+`
+	tests := []struct {
+		name    string
+		content string
+		env     string
+		want    bool
+	}{
+		{name: "postgres defaults to off", content: sample, want: false},
+		{name: "sqlite defaults to on", content: sqliteSample, want: true},
+		{name: "toml turns it on for postgres", content: sample + "auto_migrate = true\n", want: true},
+		{name: "toml turns it off for sqlite", content: sqliteSample + "auto_migrate = false\n", want: false},
+		{name: "env turns it on for postgres", content: sample, env: "true", want: true},
+		{name: "env turns it off for sqlite", content: sqliteSample, env: "0", want: false},
+		{name: "env overrides toml", content: sqliteSample + "auto_migrate = false\n", env: "1", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("DATABASE_AUTO_MIGRATE", tt.env)
+			}
+			cfg, err := Load(writeConfig(t, tt.content))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Database.AutoMigrateEnabled(); got != tt.want {
+				t.Fatalf("AutoMigrateEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAutoMigrateInvalidEnv(t *testing.T) {
+	t.Setenv("DATABASE_AUTO_MIGRATE", "maybe")
+	if _, err := Load(writeConfig(t, sample)); err == nil || !strings.Contains(err.Error(), "DATABASE_AUTO_MIGRATE") {
+		t.Fatalf("Load error = %v, want one naming DATABASE_AUTO_MIGRATE", err)
+	}
+}
+
 func TestSQLiteTuningValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -316,5 +358,161 @@ func TestSingleton(t *testing.T) {
 	}
 	if second := GetConfig(); second != first {
 		t.Fatal("GetConfig returned a different instance")
+	}
+}
+
+func TestOIDCDisabledByDefault(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OIDC.Configured() || cfg.Auth.Uses(AuthOIDC) {
+		t.Fatal("OIDC enabled without configuration")
+	}
+	if strings.Join(cfg.Auth.Methods, ",") != "basic,jwt" || !cfg.OIDC.AutoCreateUsers || cfg.OIDC.DefaultRole != "BASIC" || cfg.OIDC.ProviderName != "SSO" {
+		t.Fatalf("defaults = auth %+v, oidc %+v", cfg.Auth, cfg.OIDC)
+	}
+	if strings.Join(cfg.OIDC.Scopes, ",") != "openid,email,profile" {
+		t.Fatalf("Scopes = %v", cfg.OIDC.Scopes)
+	}
+}
+
+func TestOIDCEnabledFromEnv(t *testing.T) {
+	t.Setenv("OIDC_ISSUER_URL", "https://idp.example.com/realms/main")
+	t.Setenv("OIDC_CLIENT_ID", "gogoform")
+	t.Setenv("OIDC_CLIENT_SECRET", "s3cret")
+	t.Setenv("OIDC_REDIRECT_URL", "http://localhost:8080/app/oidc/callback")
+	t.Setenv("OIDC_PROVIDER_NAME", "Keycloak")
+	t.Setenv("OIDC_SCOPES", "email, groups,email")
+	t.Setenv("OIDC_ALLOWED_EMAIL_DOMAINS", " Example.com ,corp.example.com")
+	t.Setenv("OIDC_AUTO_CREATE_USERS", "false")
+	t.Setenv("OIDC_DEFAULT_ROLE", "FORM_CREATOR")
+	t.Setenv("AUTH_METHODS", "OIDC")
+
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	o := cfg.OIDC
+	if !o.Configured() || o.ProviderName != "Keycloak" || o.ClientSecret != "s3cret" || o.AutoCreateUsers || o.DefaultRole != "FORM_CREATOR" {
+		t.Fatalf("OIDC = %+v", o)
+	}
+	if got := strings.Join(o.Scopes, ","); got != "openid,email,groups" {
+		t.Fatalf("Scopes = %q, want openid added and duplicates dropped", got)
+	}
+	if got := strings.Join(o.AllowedEmailDomains, ","); got != "example.com,corp.example.com" {
+		t.Fatalf("AllowedEmailDomains = %q, want trimmed and lowercased", got)
+	}
+	if got := strings.Join(cfg.Auth.Methods, ","); got != "oidc" {
+		t.Fatalf("Methods = %q, want oidc", got)
+	}
+}
+
+func TestOIDCFromTOML(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample+`
+[oidc]
+issuer_url = "https://accounts.google.com"
+client_id = "id.apps.googleusercontent.com"
+redirect_url = "https://forms.example.com/app/oidc/callback"
+scopes = ["email"]
+allowed_email_domains = ["example.com"]
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Auth.Uses(AuthOIDC) || strings.Join(cfg.OIDC.Scopes, ",") != "openid,email" || cfg.OIDC.AllowedEmailDomains[0] != "example.com" {
+		t.Fatalf("OIDC = %+v", cfg.OIDC)
+	}
+}
+
+func TestOIDCValidation(t *testing.T) {
+	full := map[string]string{
+		"OIDC_ISSUER_URL":   "https://idp.example.com",
+		"OIDC_CLIENT_ID":    "gogoform",
+		"OIDC_REDIRECT_URL": "http://localhost:8080/app/oidc/callback",
+	}
+	tests := []struct {
+		name  string
+		env   map[string]string
+		wants string
+	}{
+		{name: "issuer only", env: map[string]string{"OIDC_ISSUER_URL": "https://idp.example.com"}, wants: "must be set together"},
+		{name: "client id only", env: map[string]string{"OIDC_CLIENT_ID": "gogoform"}, wants: "must be set together"},
+		{name: "secret without the rest", env: map[string]string{"OIDC_CLIENT_ID": "gogoform", "OIDC_CLIENT_SECRET": "s3cret"}, wants: "must be set together"},
+		{name: "relative issuer", env: map[string]string{"OIDC_ISSUER_URL": "idp.example.com"}, wants: "oidc.issuer_url"},
+		{name: "bad redirect", env: map[string]string{"OIDC_REDIRECT_URL": "/app/oidc/callback"}, wants: "oidc.redirect_url"},
+		{name: "bad role", env: map[string]string{"OIDC_DEFAULT_ROLE": "ROOT"}, wants: "oidc.default_role"},
+		{name: "bad bool", env: map[string]string{"OIDC_AUTO_CREATE_USERS": "sometimes"}, wants: "OIDC_AUTO_CREATE_USERS"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := tt.env
+			if !strings.Contains(tt.wants, "together") {
+				env = map[string]string{}
+				for k, v := range full {
+					env[k] = v
+				}
+				for k, v := range tt.env {
+					env[k] = v
+				}
+			}
+			env["OIDC_CLIENT_SECRET"] = "top-secret-value"
+			for k, v := range env {
+				t.Setenv(k, v)
+			}
+			_, err := Load(writeConfig(t, sample))
+			if err == nil || !strings.Contains(err.Error(), tt.wants) {
+				t.Fatalf("Load error = %v, want one mentioning %q", err, tt.wants)
+			}
+			if strings.Contains(err.Error(), "top-secret-value") {
+				t.Fatalf("error leaks the client secret: %v", err)
+			}
+		})
+	}
+}
+
+func TestAuthMethods(t *testing.T) {
+	const oidcTOML = `
+[oidc]
+issuer_url = "https://idp.example.com"
+client_id = "gogoform"
+redirect_url = "http://localhost:8080/app/oidc/callback"
+`
+	tests := []struct {
+		name    string
+		content string
+		env     string
+		want    string
+		wantErr string
+	}{
+		{name: "default", content: sample, want: "basic,jwt"},
+		{name: "default adds oidc when configured", content: sample + oidcTOML, want: "basic,jwt,oidc"},
+		{name: "env basic only", content: sample, env: "basic", want: "basic"},
+		{name: "env jwt only", content: sample, env: " JWT ", want: "jwt"},
+		{name: "env oidc only", content: sample + oidcTOML, env: "oidc", want: "oidc"},
+		{name: "explicit list leaves configured oidc off", content: sample + oidcTOML, env: "jwt", want: "jwt"},
+		{name: "toml list", content: sample + "\n[auth]\nmethods = [\"basic\", \"jwt\"]\n", want: "basic,jwt"},
+		{name: "unknown method", content: sample, env: "basic,kerberos", wantErr: `unsupported value "kerberos"`},
+		{name: "oidc without settings", content: sample, env: "oidc", wantErr: "oidc requires"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("AUTH_METHODS", tt.env)
+			}
+			cfg, err := Load(writeConfig(t, tt.content))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Load error = %v, want one mentioning %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := strings.Join(cfg.Auth.Methods, ","); got != tt.want {
+				t.Fatalf("Methods = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

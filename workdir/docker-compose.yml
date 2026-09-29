@@ -33,5 +33,49 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # The API alone on SQLite, schema created at startup: `make up-sqlite`, then
+  # http://localhost:8080. Behind a profile so `docker compose up` keeps
+  # starting only PostgreSQL and Adminer.
+  api-sqlite:
+    profiles: ["sqlite"]
+    build: .
+    environment:
+      DATABASE_URL: sqlite:/app/data/gogoform.db
+      DATABASE_AUTO_MIGRATE: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      # The image's /app/data is owned by nonroot, and a new named volume
+      # copies that ownership, so the API can create the database file.
+      - sqlite_data:/app/data
+    restart: unless-stopped
+
+  # Local Keycloak to try OIDC sign-in: `make keycloak-up`, or any dev/watch
+  # target with AUTH=keycloak. Admin console on http://localhost:8081
+  # (admin/admin). The "gogoform" realm, with client "gogoform" (secret
+  # gogoform-dev-secret) and users alice/alice and bob/bob, is imported from
+  # keycloak/realm-gogoform.json on first start. For development only.
+  keycloak:
+    profiles: ["keycloak"]
+    image: keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # The image has no curl: ask the management port for /health/ready by hand.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   postgres18_data:
+  sqlite_data:

@@ -50,10 +50,35 @@ type AuthConfig struct {
 	// when no user with that username exists yet.
 	AdminUsername string `toml:"admin_username" env:"AUTH_ADMIN_USERNAME"`
 	AdminPassword string `toml:"admin_password" env:"AUTH_ADMIN_PASSWORD"`
-	// PasswordLoginEnabled gates password sign-in, sign-up and HTTP Basic
-	// auth on the API. When false, only OIDC sign-in works; the bootstrap
-	// admin above is still created.
-	PasswordLoginEnabled bool `toml:"password_login_enabled" env:"AUTH_PASSWORD_LOGIN_ENABLED"`
+	// Methods lists how users may authenticate; see AuthMethod. When
+	// unset it is basic and jwt, plus oidc when the [oidc] settings are
+	// complete. The bootstrap admin above is created whatever the methods.
+	Methods []string `toml:"methods" env:"AUTH_METHODS"`
+}
+
+// AuthMethod is a way users may authenticate, listed in AuthConfig.Methods.
+type AuthMethod string
+
+// The supported authentication methods.
+const (
+	// AuthBasic accepts "Authorization: Basic" (username and password) on
+	// every API request.
+	AuthBasic AuthMethod = "basic"
+	// AuthJWT exchanges a username and password for a JWT (POST
+	// /auth/signin, the /app sign-in form) and accepts it as
+	// "Authorization: Bearer" on the API.
+	AuthJWT AuthMethod = "jwt"
+	// AuthOIDC signs users in to the /app pages through an external OpenID
+	// Connect provider such as Keycloak (see OIDCConfig).
+	AuthOIDC AuthMethod = "oidc"
+)
+
+// authMethods lists every AuthMethod, in the order errors mention them.
+var authMethods = []AuthMethod{AuthBasic, AuthJWT, AuthOIDC}
+
+// Uses reports whether m is one of the configured methods.
+func (c AuthConfig) Uses(m AuthMethod) bool {
+	return slices.Contains(c.Methods, string(m))
 }
 
 // TokenTTL returns TokenTTLMinutes as a duration.
@@ -78,8 +103,8 @@ func (c AppConfig) Enabled() bool {
 // Connect provider. OIDC is fully optional: with IssuerURL, ClientID and
 // RedirectURL all unset, the app behaves exactly as without this feature.
 type OIDCConfig struct {
-	IssuerURL    string `toml:"issuer_url"    env:"OIDC_ISSUER_URL"`
-	ClientID     string `toml:"client_id"     env:"OIDC_CLIENT_ID"`
+	IssuerURL string `toml:"issuer_url"    env:"OIDC_ISSUER_URL"`
+	ClientID  string `toml:"client_id"     env:"OIDC_CLIENT_ID"`
 	// ClientSecret is optional for public clients that only use PKCE.
 	ClientSecret string `toml:"client_secret" env:"OIDC_CLIENT_SECRET"`
 	RedirectURL  string `toml:"redirect_url"  env:"OIDC_REDIRECT_URL"`
@@ -98,10 +123,10 @@ type OIDCConfig struct {
 	DefaultRole string `toml:"default_role" env:"OIDC_DEFAULT_ROLE"`
 }
 
-// Enabled reports whether OIDC sign-in is configured. IssuerURL, ClientID
-// and RedirectURL must all be set together; validate() rejects a partial
-// configuration.
-func (c OIDCConfig) Enabled() bool {
+// Configured reports whether the provider settings are complete: IssuerURL,
+// ClientID and RedirectURL are all set (validate() rejects a partial
+// configuration). OIDC sign-in is on when AuthConfig.Methods also lists oidc.
+func (c OIDCConfig) Configured() bool {
 	return c.IssuerURL != "" && c.ClientID != "" && c.RedirectURL != ""
 }
 
@@ -132,6 +157,18 @@ func (c *OIDCConfig) normalize() {
 	c.AllowedEmailDomains = normalizeStringList(c.AllowedEmailDomains, true)
 }
 
+// normalize lowercases and deduplicates Methods, and fills in the default
+// when it is unset: basic and jwt, plus oidc when oidc is configured.
+func (c *AuthConfig) normalize(oidc OIDCConfig) {
+	c.Methods = normalizeStringList(c.Methods, true)
+	if len(c.Methods) == 0 {
+		c.Methods = []string{string(AuthBasic), string(AuthJWT)}
+		if oidc.Configured() {
+			c.Methods = append(c.Methods, string(AuthOIDC))
+		}
+	}
+}
+
 // normalizeStringList trims whitespace, drops empty entries and deduplicates
 // while preserving order. When lower is true, entries are lowercased first.
 func normalizeStringList(values []string, lower bool) []string {
@@ -160,6 +197,20 @@ type DatabaseConfig struct {
 	// SQLiteJournalMode is the SQLite journal mode: WAL, DELETE or TRUNCATE.
 	// Ignored on PostgreSQL.
 	SQLiteJournalMode string `toml:"sqlite_journal_mode" env:"DATABASE_SQLITE_JOURNAL_MODE"`
+	// AutoMigrate applies pending migrations at startup. Unset, it follows
+	// the engine; see AutoMigrateEnabled.
+	AutoMigrate *bool `toml:"auto_migrate" env:"DATABASE_AUTO_MIGRATE"`
+}
+
+// AutoMigrateEnabled reports whether pending migrations are applied at
+// startup. When AutoMigrate is unset it defaults to true for SQLite, so a
+// single binary works with zero setup, and to false for PostgreSQL, whose
+// operators usually run migrations as a separate deploy step.
+func (c DatabaseConfig) AutoMigrateEnabled() bool {
+	if c.AutoMigrate != nil {
+		return *c.AutoMigrate
+	}
+	return c.Driver() == DriverSQLite
 }
 
 // Driver identifies a supported database engine.
@@ -246,6 +297,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg.OIDC.normalize()
+	cfg.Auth.normalize(cfg.OIDC)
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -259,7 +311,6 @@ func defaults() *Config {
 	cfg.Server.Env = "development"
 	cfg.Logger.Level = "info"
 	cfg.Auth.TokenTTLMinutes = 60
-	cfg.Auth.PasswordLoginEnabled = true
 	cfg.Database.SQLiteBusyTimeoutMS = 5000
 	cfg.Database.SQLiteJournalMode = "WAL"
 	cfg.OIDC.ProviderName = "SSO"
@@ -315,6 +366,16 @@ func applyEnv(v reflect.Value) error {
 				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
 			}
 			fv.SetBool(b)
+		case reflect.Pointer:
+			// *bool distinguishes "unset" from false, for defaults that depend on other settings.
+			if fv.Type().Elem().Kind() != reflect.Bool {
+				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
+			}
+			b, err := strconv.ParseBool(strings.TrimSpace(raw))
+			if err != nil {
+				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
+			}
+			fv.Set(reflect.ValueOf(&b))
 		case reflect.Slice:
 			if fv.Type().Elem().Kind() != reflect.String {
 				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
@@ -376,6 +437,14 @@ func (c *Config) validate() error {
 	if (c.Auth.AdminUsername == "") != (c.Auth.AdminPassword == "") {
 		return fmt.Errorf("auth: admin_username and admin_password must be set together")
 	}
+	for _, m := range c.Auth.Methods {
+		if !slices.Contains(authMethods, AuthMethod(m)) {
+			return fmt.Errorf("auth.methods: unsupported value %q, expected any of: basic, jwt, oidc", m)
+		}
+	}
+	if c.Auth.Uses(AuthOIDC) && !c.OIDC.Configured() {
+		return fmt.Errorf("auth.methods: oidc requires oidc.issuer_url, oidc.client_id and oidc.redirect_url (OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_REDIRECT_URL)")
+	}
 	if err := c.OIDC.validate(); err != nil {
 		return err
 	}
@@ -388,7 +457,7 @@ func (c OIDCConfig) validate() error {
 	if n := c.configuredFields(); n != 0 && n != 3 {
 		return fmt.Errorf("oidc: issuer_url, client_id and redirect_url must be set together")
 	}
-	if !c.Enabled() {
+	if !c.Configured() {
 		return nil
 	}
 	if err := validateAbsoluteURL(c.IssuerURL); err != nil {

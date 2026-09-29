@@ -103,6 +103,8 @@ type appController struct {
 	files       files.Repository
 	submissions submissions.Repository
 	auth        *auth.Service
+	// oidc is nil unless sign-in through an OIDC provider is configured.
+	oidc *appOIDC
 	// mounted are the routes registered by mount.
 	mounted []appRoute
 }

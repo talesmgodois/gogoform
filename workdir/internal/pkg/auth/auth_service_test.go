@@ -15,7 +15,15 @@ var testSecret = []byte(strings.Repeat("k", MinSecretLen))
 
 // memUsers is an in-memory Repository.
 type memUsers struct {
-	users []StoredUser
+	users      []StoredUser
+	identities []memIdentity
+}
+
+// memIdentity is an external identity linked to a memUsers user.
+type memIdentity struct {
+	issuer, subject, email string
+	userID                 int32
+	logins                 int
 }
 
 func (m *memUsers) Create(_ context.Context, in CreateUserInput) (User, error) {
@@ -72,11 +80,69 @@ func (m *memUsers) UpdateRole(_ context.Context, id int32, role Role) (User, err
 	return User{}, apperrors.NewNotFound(msgUserNotFound)
 }
 
+func (m *memUsers) GetByIdentity(_ context.Context, issuer, subject string) (User, error) {
+	for _, id := range m.identities {
+		if id.issuer == issuer && id.subject == subject {
+			for _, u := range m.users {
+				if u.ID == id.userID {
+					return u.User, nil
+				}
+			}
+		}
+	}
+	return User{}, apperrors.NewNotFound(msgUserNotFound)
+}
+
+func (m *memUsers) CreateWithIdentity(_ context.Context, in CreateExternalUserInput) (User, error) {
+	for _, u := range m.users {
+		if u.Username == in.Username {
+			return User{}, apperrors.NewConflict(msgUsernameTaken)
+		}
+	}
+	for _, id := range m.identities {
+		if id.issuer == in.Issuer && id.subject == in.Subject {
+			return User{}, apperrors.NewConflict(msgUsernameTaken)
+		}
+	}
+	u := StoredUser{User: User{ID: int32(len(m.users) + 1), Username: in.Username, Role: in.Role, IsActive: true}}
+	m.users = append(m.users, u)
+	m.identities = append(m.identities, memIdentity{issuer: in.Issuer, subject: in.Subject, email: in.Email, userID: u.ID, logins: 1})
+	return u.User, nil
+}
+
+func (m *memUsers) TouchIdentity(_ context.Context, issuer, subject, email string) error {
+	for i := range m.identities {
+		if m.identities[i].issuer == issuer && m.identities[i].subject == subject {
+			m.identities[i].email = email
+			m.identities[i].logins++
+		}
+	}
+	return nil
+}
+
+func (m *memUsers) CountIdentities(_ context.Context, userID int32) (int, error) {
+	n := 0
+	for _, id := range m.identities {
+		if id.userID == userID {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // newTestService returns a Service over an empty memUsers whose clock is *now.
 func newTestService(t *testing.T, now *time.Time) (*Service, *memUsers) {
 	t.Helper()
+	return newTestServiceWith(t, now, Options{})
+}
+
+// newTestServiceWith is newTestService with extra options; the secret,
+// token TTL, bcrypt cost and clock are always set.
+func newTestServiceWith(t *testing.T, now *time.Time, opts Options) (*Service, *memUsers) {
+	t.Helper()
 	users := &memUsers{}
-	svc, err := NewService(users, Options{Secret: testSecret, TokenTTL: time.Hour, PasswordCost: bcrypt.MinCost, Now: func() time.Time { return *now }})
+	opts.Secret, opts.TokenTTL, opts.PasswordCost, opts.Now = testSecret, time.Hour, bcrypt.MinCost, func() time.Time { return *now }
+	svc, err := NewService(users, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

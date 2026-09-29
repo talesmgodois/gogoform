@@ -63,6 +63,7 @@ type authController struct {
 //	@Param			body	body		SignUpRequest				true	"Credentials of the new account"
 //	@Success		201		{object}	UserResponse				"Account created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid username or password"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Password accounts are disabled: AUTH_METHODS has neither basic nor jwt"
 //	@Failure		409		{object}	errors.HTTPErrorResponse	"Username already taken"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/auth/signup [post]
@@ -89,6 +90,7 @@ func (c *authController) SignUp(w http.ResponseWriter, r *http.Request) {
 //	@Security		BasicAuth
 //	@Success		200	{object}	TokenResponse				"Signed in"
 //	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid credentials"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Password sign-in is disabled: AUTH_METHODS has no jwt"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/auth/signin [post]
 func (c *authController) SignIn(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +201,8 @@ func (c *authController) SetRole(w http.ResponseWriter, r *http.Request) {
 
 // Guard wraps next so it only runs for requests p allows. The user is
 // authenticated by an "Authorization: Bearer <jwt>" or "Authorization: Basic"
-// header and is then available through userFrom. Invalid credentials are
+// header, each accepted only when its method (jwt, basic) is enabled, and is
+// then available through userFrom. Invalid credentials are
 // rejected even on public routes, rather than silently treated as anonymous.
 func (c *authController) Guard(p auth.Policy, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +233,9 @@ func (c *authController) authenticate(r *http.Request) (*auth.User, error) {
 	var u auth.User
 	var err error
 	if scheme, token, _ := strings.Cut(h, " "); strings.EqualFold(scheme, "Bearer") {
+		if !c.auth.Allows(auth.MethodJWT) {
+			return nil, apperrors.NewUnauthorized("bearer tokens are disabled")
+		}
 		u, err = c.auth.CheckToken(r.Context(), strings.TrimSpace(token))
 	} else if username, password, ok := r.BasicAuth(); ok {
 		u, err = c.auth.CheckPassword(r.Context(), username, password)

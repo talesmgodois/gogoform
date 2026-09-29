@@ -10,15 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"app/internal/config"
 	"app/internal/db"
 )
 
@@ -69,6 +68,7 @@ func runQuerierContract(t *testing.T, newQuerier querierFactory) {
 	t.Run("ListAndCountFormsByTenantFilters", func(t *testing.T) { testListAndCountFormsByTenantFilters(t, newQuerier(t)) })
 	t.Run("UpdateFormDraftLock", func(t *testing.T) { testUpdateFormDraftLock(t, newQuerier(t)) })
 	t.Run("CreateUserIfNotExistsIdempotency", func(t *testing.T) { testCreateUserIfNotExistsIdempotency(t, newQuerier(t)) })
+	t.Run("UserIdentities", func(t *testing.T) { testUserIdentities(t, newQuerier(t)) })
 	t.Run("Violations", func(t *testing.T) { testViolations(t, newQuerier(t)) })
 }
 
@@ -91,65 +91,29 @@ func newSQLiteTestQuerier(t *testing.T) db.Querier {
 	return newSQLiteQuerier(sqlDB)
 }
 
-// applySQLiteMigrations runs the "-- migrate:up" block of every migration in
-// db/sqlite/migrations, in filename order, against sqlDB.
+// applySQLiteMigrations applies db/sqlite/migrations to sqlDB with Migrate,
+// so the suite runs against the schema the app itself would create.
 func applySQLiteMigrations(t *testing.T, sqlDB *sql.DB) {
 	t.Helper()
-
-	dir := filepath.Join("..", "..", "db", "sqlite", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
+	if _, err := Migrate(context.Background(), &DB{Driver: config.DriverSQLite, sqlDB: sqlDB}); err != nil {
+		t.Fatalf("migrate sqlite: %v", err)
 	}
-
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no migrations found in %s", dir)
-	}
-
-	for _, name := range names {
-		up := readMigrationUp(t, filepath.Join(dir, name))
-		if _, err := sqlDB.Exec(up); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
-	}
-}
-
-// readMigrationUp extracts the dbmate "-- migrate:up" block from path,
-// stopping before "-- migrate:down" if present.
-func readMigrationUp(t *testing.T, path string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read migration %s: %v", path, err)
-	}
-
-	const upMarker = "-- migrate:up"
-	const downMarker = "-- migrate:down"
-
-	content := string(data)
-	upStart := strings.Index(content, upMarker)
-	if upStart < 0 {
-		t.Fatalf("migration %s missing %q marker", path, upMarker)
-	}
-	content = content[upStart+len(upMarker):]
-	if downStart := strings.Index(content, downMarker); downStart >= 0 {
-		content = content[:downStart]
-	}
-	return content
 }
 
 // newPostgresTestQuerier connects to TEST_DATABASE_URL, creates a private
 // schema, applies db/postgres/migrations into it, and wraps the resulting
 // pool as a db.Querier. The schema is dropped when the test finishes.
 func newPostgresTestQuerier(t *testing.T) db.Querier {
+	t.Helper()
+	pool := newPostgresTestPool(t)
+	applyPostgresMigrations(t, context.Background(), pool)
+	return db.New(pool)
+}
+
+// newPostgresTestPool connects to TEST_DATABASE_URL and returns a pool
+// whose search_path is a fresh, empty, private schema. The schema is
+// dropped when the test finishes.
+func newPostgresTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
 	dbURL := os.Getenv(testDatabaseURLEnv)
@@ -190,39 +154,15 @@ func newPostgresTestQuerier(t *testing.T) db.Querier {
 		t.Fatalf("open postgres pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-
-	applyPostgresMigrations(t, ctx, pool)
-
-	return db.New(pool)
+	return pool
 }
 
-// applyPostgresMigrations runs the "-- migrate:up" block of every migration
-// in db/postgres/migrations, in filename order, against pool.
+// applyPostgresMigrations applies db/postgres/migrations to pool with
+// Migrate, so the suite runs against the schema the app itself would create.
 func applyPostgresMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-
-	dir := filepath.Join("..", "..", "db", "postgres", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations dir %s: %v", dir, err)
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		t.Fatalf("no migrations found in %s", dir)
-	}
-
-	for _, name := range names {
-		up := readMigrationUp(t, filepath.Join(dir, name))
-		if _, err := pool.Exec(ctx, up); err != nil {
-			t.Fatalf("apply migration %s: %v", name, err)
-		}
+	if _, err := Migrate(ctx, &DB{Driver: config.DriverPostgres, pool: pool}); err != nil {
+		t.Fatalf("migrate postgres: %v", err)
 	}
 }
 
@@ -284,7 +224,7 @@ func testUserCRUD(t *testing.T, q db.Querier) {
 
 	created, err := q.CreateUser(ctx, db.CreateUserParams{
 		Username:     "alice",
-		PasswordHash: "hash-1",
+		PasswordHash: stringPtr("hash-1"),
 		Role:         db.UserRoleBASIC,
 	})
 	if err != nil {
@@ -328,7 +268,7 @@ func testUserCRUD(t *testing.T, q db.Querier) {
 	for i := 0; i < 3; i++ {
 		u, err := q.CreateUser(ctx, db.CreateUserParams{
 			Username:     "user" + string(rune('a'+i)),
-			PasswordHash: "hash",
+			PasswordHash: stringPtr("hash"),
 			Role:         db.UserRoleBASIC,
 		})
 		if err != nil {
@@ -967,7 +907,7 @@ func testCreateUserIfNotExistsIdempotency(t *testing.T, q db.Querier) {
 
 	n, err := q.CreateUserIfNotExists(ctx, db.CreateUserIfNotExistsParams{
 		Username:     "bootstrap",
-		PasswordHash: "hash-first",
+		PasswordHash: stringPtr("hash-first"),
 		Role:         db.UserRoleADMIN,
 	})
 	if err != nil {
@@ -979,7 +919,7 @@ func testCreateUserIfNotExistsIdempotency(t *testing.T, q db.Querier) {
 
 	n, err = q.CreateUserIfNotExists(ctx, db.CreateUserIfNotExistsParams{
 		Username:     "bootstrap",
-		PasswordHash: "hash-second",
+		PasswordHash: stringPtr("hash-second"),
 		Role:         db.UserRoleBASIC,
 	})
 	if err != nil {
@@ -993,8 +933,76 @@ func testCreateUserIfNotExistsIdempotency(t *testing.T, q db.Querier) {
 	if err != nil {
 		t.Fatalf("GetUserByUsername: %v", err)
 	}
-	if got.PasswordHash != "hash-first" || got.Role != db.UserRoleADMIN {
+	if got.PasswordHash == nil || *got.PasswordHash != "hash-first" || got.Role != db.UserRoleADMIN {
 		t.Fatalf("CreateUserIfNotExists (second) overwrote the existing row: got %+v", got)
+	}
+}
+
+// testUserIdentities covers the OIDC queries: a user created with its
+// identity has no password, is found through the identity whether active or
+// not, and a taken identity rolls the whole creation back.
+func testUserIdentities(t *testing.T, q db.Querier) {
+	ctx := context.Background()
+	const issuer = "https://idp.example.com"
+
+	created, err := q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: "oidc-alice",
+		Role:     db.UserRoleFORMCREATOR,
+		Issuer:   issuer,
+		Subject:  "sub-1",
+		Email:    stringPtr("alice@example.com"),
+	})
+	if err != nil {
+		t.Fatalf("CreateUserWithIdentity: %v", err)
+	}
+	if created.PasswordHash != nil || created.Role != db.UserRoleFORMCREATOR || !created.IsActive {
+		t.Fatalf("CreateUserWithIdentity: got %+v, want an active FORM_CREATOR without password", created)
+	}
+
+	found, err := q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: issuer, Subject: "sub-1"})
+	if err != nil || found.ID != created.ID {
+		t.Fatalf("GetUserByIdentity: got %+v, %v; want user %d", found, err, created.ID)
+	}
+	if _, err := q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: issuer, Subject: "other"}); !IsNoRows(err) {
+		t.Fatalf("GetUserByIdentity: expected IsNoRows for an unknown subject, got %v", err)
+	}
+	if _, err := q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: "https://other.example.com", Subject: "sub-1"}); !IsNoRows(err) {
+		t.Fatalf("GetUserByIdentity: expected IsNoRows for another issuer, got %v", err)
+	}
+
+	if err := q.TouchUserIdentity(ctx, db.TouchUserIdentityParams{Issuer: issuer, Subject: "sub-1", Email: nil}); err != nil {
+		t.Fatalf("TouchUserIdentity: %v", err)
+	}
+	if n, err := q.CountUserIdentities(ctx, created.ID); err != nil || n != 1 {
+		t.Fatalf("CountUserIdentities: got %d, %v; want 1", n, err)
+	}
+
+	// The same identity again: the user insert must be rolled back too.
+	_, err = q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: "oidc-alice2",
+		Role:     db.UserRoleBASIC,
+		Issuer:   issuer,
+		Subject:  "sub-1",
+	})
+	if !IsUniqueViolation(err) {
+		t.Fatalf("CreateUserWithIdentity (taken identity): expected a unique violation, got %v", err)
+	}
+	if _, err := q.GetUserByUsername(ctx, "oidc-alice2"); !IsNoRows(err) {
+		t.Fatalf("CreateUserWithIdentity (taken identity) left its user behind: %v", err)
+	}
+
+	// A taken username fails the same way.
+	_, err = q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: "oidc-alice",
+		Role:     db.UserRoleBASIC,
+		Issuer:   issuer,
+		Subject:  "sub-2",
+	})
+	if !IsUniqueViolation(err) {
+		t.Fatalf("CreateUserWithIdentity (taken username): expected a unique violation, got %v", err)
+	}
+	if n, err := q.CountUserIdentities(ctx, created.ID); err != nil || n != 1 {
+		t.Fatalf("CountUserIdentities after failed creations: got %d, %v; want 1", n, err)
 	}
 }
 
@@ -1066,7 +1074,7 @@ func testViolations(t *testing.T, q db.Querier) {
 	t.Run("CheckUsernameMustBeLowercase", func(t *testing.T) {
 		_, err := q.CreateUser(ctx, db.CreateUserParams{
 			Username:     "Uppercase",
-			PasswordHash: "hash",
+			PasswordHash: stringPtr("hash"),
 			Role:         db.UserRoleBASIC,
 		})
 		if err == nil {

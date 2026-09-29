@@ -29,9 +29,10 @@ type appRoute struct {
 	Nav *navTab
 }
 
-// routes lists every /app route.
+// routes lists every /app route. The OIDC ones only exist when OIDC is
+// configured.
 func (c *appController) routes() []appRoute {
-	return []appRoute{
+	routes := []appRoute{
 		// The dashboard and the builder are not tied to user accounts yet:
 		// they keep using the operator credentials only.
 		{Pattern: "GET /app", Handler: c.Index, Access: auth.Public, Operator: true, Nav: &navTab{Key: "dashboard", Label: "Dashboard"}},
@@ -46,6 +47,13 @@ func (c *appController) routes() []appRoute {
 		{Pattern: "GET /app/account", Handler: c.Account, Access: auth.SignedIn(), Nav: &navTab{Key: "account", Label: "Account"}},
 		{Pattern: "GET /app/users", Handler: c.Users, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "users", Label: "Users"}},
 	}
+	if c.oidc != nil {
+		routes = append(routes,
+			appRoute{Pattern: "GET /app/oidc/login", Handler: c.OIDCLogin, Access: auth.Public},
+			appRoute{Pattern: "GET /app/oidc/callback", Handler: c.OIDCCallback, Access: auth.Public},
+		)
+	}
+	return routes
 }
 
 // mount registers the routes on mux; the operator routes only when cfg holds

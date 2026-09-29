@@ -9,6 +9,15 @@
 
   <main class="mx-auto max-w-sm px-6 py-16">
     <div id="signin" data-next="{{.Next}}" class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl">
+      {{if .OIDCProvider}}
+      <a id="oidc-signin" href="{{.OIDCLoginURL}}" class="flex w-full items-center justify-center rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-indigo-500 hover:bg-slate-900">Sign in with {{.OIDCProvider}}</a>
+      {{if .PasswordLogin}}
+      <div class="my-6 flex items-center gap-3 text-[11px] uppercase tracking-wider text-slate-500" aria-hidden="true">
+        <span class="h-px flex-1 bg-slate-800"></span>or<span class="h-px flex-1 bg-slate-800"></span>
+      </div>
+      {{end}}
+      {{end}}
+      {{if .PasswordLogin}}
       <div role="tablist" aria-label="Account" class="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950 p-1 text-xs font-semibold">
         <button type="button" role="tab" data-mode="signin" class="rounded-lg px-4 py-1.5">Sign in</button>
         <button type="button" role="tab" data-mode="signup" class="rounded-lg px-4 py-1.5">Create account</button>
@@ -29,9 +38,13 @@
         <button id="signin-submit" type="submit" class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50">Sign in</button>
       </form>
       <p class="mt-6 text-[11px] leading-snug text-slate-500">New accounts get the BASIC role; an admin can grant FORM_CREATOR or ADMIN through <span class="font-mono">PUT /users/{id}/role</span>.</p>
+      {{else if not .OIDCProvider}}
+      <p class="text-sm text-slate-400">Password sign-in is disabled and no identity provider is configured.</p>
+      {{end}}
     </div>
   </main>
 
+  {{if .PasswordLogin}}
   <script nonce="{{.Nonce}}">
     (() => {
       const $ = (id) => document.getElementById(id);
@@ -86,5 +99,6 @@
       setMode("signin");
     })();
   </script>
+  {{end}}
 </body>
 </html>

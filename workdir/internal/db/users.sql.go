@@ -7,7 +7,20 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const countUserIdentities = `-- name: CountUserIdentities :one
+SELECT COUNT(*) FROM user_identities
+WHERE user_id = $1
+`
+
+func (q *Queries) CountUserIdentities(ctx context.Context, userID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserIdentities, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, password_hash, role)
@@ -17,7 +30,7 @@ RETURNING id, username, password_hash, role, is_active, created_at, updated_at
 
 type CreateUserParams struct {
 	Username     string   `db:"username" json:"username"`
-	PasswordHash string   `db:"password_hash" json:"password_hash"`
+	PasswordHash *string  `db:"password_hash" json:"password_hash"`
 	Role         UserRole `db:"role" json:"role"`
 }
 
@@ -44,7 +57,7 @@ ON CONFLICT (username) DO NOTHING
 
 type CreateUserIfNotExistsParams struct {
 	Username     string   `db:"username" json:"username"`
-	PasswordHash string   `db:"password_hash" json:"password_hash"`
+	PasswordHash *string  `db:"password_hash" json:"password_hash"`
 	Role         UserRole `db:"role" json:"role"`
 }
 
@@ -57,6 +70,59 @@ func (q *Queries) CreateUserIfNotExists(ctx context.Context, arg CreateUserIfNot
 	return result.RowsAffected(), nil
 }
 
+const createUserWithIdentity = `-- name: CreateUserWithIdentity :one
+WITH new_user AS (
+  INSERT INTO users (username, role)
+  VALUES ($1, $2)
+  RETURNING id, username, password_hash, role, is_active, created_at, updated_at
+), new_identity AS (
+  INSERT INTO user_identities (user_id, issuer, subject, email)
+  SELECT id, $3, $4, $5 FROM new_user
+)
+SELECT id, username, password_hash, role, is_active, created_at, updated_at FROM new_user
+`
+
+type CreateUserWithIdentityParams struct {
+	Username string   `db:"username" json:"username"`
+	Role     UserRole `db:"role" json:"role"`
+	Issuer   string   `db:"issuer" json:"issuer"`
+	Subject  string   `db:"subject" json:"subject"`
+	Email    *string  `db:"email" json:"email"`
+}
+
+type CreateUserWithIdentityRow struct {
+	ID           int32     `db:"id" json:"id"`
+	Username     string    `db:"username" json:"username"`
+	PasswordHash *string   `db:"password_hash" json:"password_hash"`
+	Role         UserRole  `db:"role" json:"role"`
+	IsActive     bool      `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// Creates a user without a password and links the identity to it, in one
+// statement so neither can exist without the other.
+func (q *Queries) CreateUserWithIdentity(ctx context.Context, arg CreateUserWithIdentityParams) (CreateUserWithIdentityRow, error) {
+	row := q.db.QueryRow(ctx, createUserWithIdentity,
+		arg.Username,
+		arg.Role,
+		arg.Issuer,
+		arg.Subject,
+		arg.Email,
+	)
+	var i CreateUserWithIdentityRow
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, username, password_hash, role, is_active, created_at, updated_at FROM users
 WHERE id = $1 AND is_active
@@ -64,6 +130,34 @@ WHERE id = $1 AND is_active
 
 func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByIdentity = `-- name: GetUserByIdentity :one
+SELECT users.id, users.username, users.password_hash, users.role, users.is_active, users.created_at, users.updated_at FROM users
+JOIN user_identities ON user_identities.user_id = users.id
+WHERE user_identities.issuer = $1 AND user_identities.subject = $2
+`
+
+type GetUserByIdentityParams struct {
+	Issuer  string `db:"issuer" json:"issuer"`
+	Subject string `db:"subject" json:"subject"`
+}
+
+// The user linked to an external OIDC identity, active or not: the caller
+// refuses inactive users rather than mistaking them for unknown identities.
+func (q *Queries) GetUserByIdentity(ctx context.Context, arg GetUserByIdentityParams) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByIdentity, arg.Issuer, arg.Subject)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -134,6 +228,25 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const touchUserIdentity = `-- name: TouchUserIdentity :exec
+UPDATE user_identities
+SET last_login_at = now(),
+    email = $1
+WHERE issuer = $2 AND subject = $3
+`
+
+type TouchUserIdentityParams struct {
+	Email   *string `db:"email" json:"email"`
+	Issuer  string  `db:"issuer" json:"issuer"`
+	Subject string  `db:"subject" json:"subject"`
+}
+
+// Records a sign-in through an identity and refreshes its email.
+func (q *Queries) TouchUserIdentity(ctx context.Context, arg TouchUserIdentityParams) error {
+	_, err := q.db.Exec(ctx, touchUserIdentity, arg.Email, arg.Issuer, arg.Subject)
+	return err
 }
 
 const updateUserRole = `-- name: UpdateUserRole :one

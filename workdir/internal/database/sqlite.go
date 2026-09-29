@@ -80,6 +80,7 @@ func openSQLite(ctx context.Context, path string, opts sqliteOptions) (*DB, erro
 		Driver:   config.DriverSQLite,
 		close:    func() { sqlDB.Close() },
 		logAttrs: []any{"path", path},
+		sqlDB:    sqlDB,
 	}, nil
 }
 

@@ -22,3 +22,14 @@ Goal: a zero-setup experience. Someone can run the single binary (or one contain
 6. **Tests**: the migrator on SQLite `:memory:` (applies everything on an empty DB, is a no-op the second time, applies only new versions when some are already recorded, fails and rolls back on a broken migration and leaves `schema_migrations` untouched), and on PostgreSQL when `TEST_DATABASE_URL` is set (including two concurrent `Migrate` calls applying each migration once). Make the contract suite from task 000023 use `Migrate` instead of its own migration loader.
 
 7. Checks: `go vet ./...`, `go test ./...`, `CGO_ENABLED=0 go build ./...` in `workdir/`; `docker compose --profile sqlite config` is valid; if Docker is available, `make up-sqlite` then `curl localhost:8080/healthz` works on a fresh volume.
+
+<!-- RUNNER:PLAN -->
+## Plan
+
+1. [x] Embed `db/postgres/migrations` and `db/sqlite/migrations` with `embed.FS` in a small `app/db` package (`workdir/db/embed.go`) exposing `Migrations(engine)`.
+2. [x] Add `internal/database/migrate.go`: `Migrate(ctx, d)` parses dbmate `-- migrate:up` blocks (honoring `transaction:false`), records versions in dbmate's `schema_migrations(version varchar(128) PRIMARY KEY)`, applies each pending migration plus its version in one transaction in version order, holds a `pg_advisory_lock` on PostgreSQL and relies on `_txlock=immediate` (with an in-transaction re-check) on SQLite; keep the pool / `*sql.DB` on `DB` for it.
+3. [x] Add `DATABASE_AUTO_MIGRATE` / `[database] auto_migrate` as a `*bool` (env loader gains `*bool` support) with `AutoMigrateEnabled()` defaulting to true on SQLite and false on PostgreSQL; run `Migrate` in `main.go` right after `Open` and log each applied version.
+4. [x] Add the `sqlite` compose profile with the `api-sqlite` service (local build, SQLite URL, auto-migrate, named volume on `/app/data`, port 8080) and `make up-sqlite`.
+5. [x] Document "Quick start with SQLite" and `DATABASE_AUTO_MIGRATE` in the README's "Choosing a database" section, `config.toml` and `.env.example`.
+6. [x] Tests: parser and loader, SQLite `:memory:` migrator (all/no-op/only new/rollback of a broken migration/transaction:false), PostgreSQL migrator incl. two concurrent calls when `TEST_DATABASE_URL` is set, config defaults/overrides; switch the contract and parity suites to `Migrate`.
+7. [x] Checks: `go vet ./...`, `go test ./...` (with a local PostgreSQL), `CGO_ENABLED=0 go build ./...`, `docker compose --profile sqlite config`, and the `api-sqlite` container answering `/healthz` on a fresh volume.
