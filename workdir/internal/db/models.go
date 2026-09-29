@@ -120,9 +120,19 @@ type Tenant struct {
 type User struct {
 	ID           int32     `db:"id" json:"id"`
 	Username     string    `db:"username" json:"username"`
-	PasswordHash string    `db:"password_hash" json:"password_hash"`
+	PasswordHash *string   `db:"password_hash" json:"password_hash"`
 	Role         UserRole  `db:"role" json:"role"`
 	IsActive     bool      `db:"is_active" json:"is_active"`
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type UserIdentity struct {
+	ID          int32     `db:"id" json:"id"`
+	UserID      int32     `db:"user_id" json:"user_id"`
+	Issuer      string    `db:"issuer" json:"issuer"`
+	Subject     string    `db:"subject" json:"subject"`
+	Email       *string   `db:"email" json:"email"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	LastLoginAt time.Time `db:"last_login_at" json:"last_login_at"`
 }

@@ -16,6 +16,11 @@ uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
 # Journal mode: WAL (default, concurrent readers), DELETE or TRUNCATE.
 # sqlite_journal_mode = "WAL"
 
+# Apply pending migrations at startup (recorded in dbmate's schema_migrations,
+# so `make migrate-*` keeps working). Defaults to true on SQLite and false on
+# PostgreSQL, where migrations usually run as a separate deploy step.
+# auto_migrate = true
+
 # HTTP Basic credentials of the read-only /app dashboard, which lists every
 # tenant's forms and files. The dashboard is disabled while they are unset.
 # Prefer APP_USERNAME / APP_PASSWORD over committing them here.
@@ -32,3 +37,22 @@ token_ttl_minutes = 60
 # Bootstrap ADMIN account, created at startup when the username is free.
 # admin_username = "admin"
 # admin_password = "change-me-now"
+# How users authenticate: any of "basic" (HTTP Basic on every API request),
+# "jwt" (username and password exchanged for a Bearer token, and the /app
+# sign-in form) and "oidc" (sign-in through the [oidc] provider below).
+# Default: basic and jwt, plus oidc when [oidc] is complete. AUTH_METHODS
+# (comma-separated) overrides it.
+# methods = ["basic", "jwt"]
+
+# OpenID Connect provider used by the oidc method (see docs/oidc.md).
+# Prefer OIDC_CLIENT_SECRET over committing the secret here.
+# [oidc]
+# issuer_url = "http://localhost:8081/realms/gogoform"
+# client_id = "gogoform"
+# client_secret = ""
+# redirect_url = "http://localhost:8080/app/oidc/callback"
+# provider_name = "Keycloak"
+# scopes = ["openid", "email", "profile"]
+# allowed_email_domains = ["example.com"]
+# auto_create_users = true
+# default_role = "BASIC"

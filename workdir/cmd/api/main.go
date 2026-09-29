@@ -40,6 +40,7 @@ import (
 	"app/internal/db"
 	"app/internal/logger"
 	"app/internal/pkg/auth"
+	"app/internal/pkg/auth/oidc"
 )
 
 func main() {
@@ -78,10 +79,43 @@ func run() error {
 	defer dbConn.Close()
 	log.Info("database connected", append([]any{"driver", dbConn.Driver}, dbConn.LogAttrs()...)...)
 
+	if cfg.Database.AutoMigrateEnabled() {
+		applied, err := database.Migrate(ctx, dbConn)
+		for _, version := range applied {
+			log.Info("database migration applied", "version", version)
+		}
+		if err != nil {
+			return err
+		}
+		log.Info("database migrations up to date", "applied", len(applied))
+	}
+
 	queries := dbConn.Querier
-	authSvc, err := newAuthService(ctx, log, queries, cfg.Auth)
+	secret := jwtSecret(log, cfg.Auth)
+	authSvc, err := newAuthService(ctx, log, queries, secret, cfg.Auth, cfg.OIDC)
 	if err != nil {
 		return err
+	}
+	services := handlers.NewServices(queries, authSvc)
+	if cfg.Auth.Uses(config.AuthOIDC) {
+		client, err := oidc.New(ctx, oidc.Config{
+			IssuerURL:           cfg.OIDC.IssuerURL,
+			ClientID:            cfg.OIDC.ClientID,
+			ClientSecret:        cfg.OIDC.ClientSecret,
+			RedirectURL:         cfg.OIDC.RedirectURL,
+			Scopes:              cfg.OIDC.Scopes,
+			AllowedEmailDomains: cfg.OIDC.AllowedEmailDomains,
+		})
+		if err != nil {
+			return err
+		}
+		services = services.WithOIDC(handlers.OIDCOptions{Client: client, ProviderName: cfg.OIDC.ProviderName, FlowKey: secret})
+		log.Info("oidc: sign-in enabled", "issuer", cfg.OIDC.IssuerURL, "provider", cfg.OIDC.ProviderName,
+			"auto_create_users", cfg.OIDC.AutoCreateUsers, "default_role", cfg.OIDC.DefaultRole)
+	}
+	log.Info("auth: methods enabled", "methods", cfg.Auth.Methods)
+	if cfg.OIDC.Configured() && !cfg.Auth.Uses(config.AuthOIDC) {
+		log.Warn("oidc: settings are present but oidc is not in AUTH_METHODS, so OIDC sign-in is off")
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
@@ -89,7 +123,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc), cfg.App),
+		Handler:           handlers.Routes(services, cfg.App),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -121,19 +155,32 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// newAuthService builds the user authentication service and creates the
-// bootstrap admin of cfg, if any. Without a configured secret, tokens are
-// signed with a random one and do not survive a restart.
-func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, cfg config.AuthConfig) (*auth.Service, error) {
+// jwtSecret returns the secret signing the app's tokens (and the OIDC flow
+// cookie). Without a configured one, a random secret is generated, so
+// tokens do not survive a restart.
+func jwtSecret(log *slog.Logger, cfg config.AuthConfig) []byte {
 	secret := []byte(cfg.JWTSecret)
-	if len(secret) == 0 {
-		log.Warn("auth: AUTH_JWT_SECRET is not set; using a random secret, so tokens are invalidated on restart")
-		secret = make([]byte, auth.MinSecretLen)
-		if _, err := rand.Read(secret); err != nil {
-			return nil, fmt.Errorf("auth: generate secret: %w", err)
-		}
+	if len(secret) > 0 {
+		return secret
 	}
-	svc, err := auth.NewService(auth.NewUserStore(q), auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL()})
+	log.Warn("auth: AUTH_JWT_SECRET is not set; using a random secret, so tokens are invalidated on restart")
+	secret = make([]byte, auth.MinSecretLen)
+	// crypto/rand.Read never returns an error.
+	_, _ = rand.Read(secret)
+	return secret
+}
+
+// newAuthService builds the user authentication service and creates the
+// bootstrap admin of cfg, if any.
+func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, secret []byte, cfg config.AuthConfig, oidcCfg config.OIDCConfig) (*auth.Service, error) {
+	opts := auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL(), Methods: []auth.Method{}}
+	for _, m := range cfg.Methods {
+		opts.Methods = append(opts.Methods, auth.Method(m))
+	}
+	if cfg.Uses(config.AuthOIDC) {
+		opts.External = auth.ExternalOptions{AutoCreateUsers: oidcCfg.AutoCreateUsers, DefaultRole: auth.Role(oidcCfg.DefaultRole)}
+	}
+	svc, err := auth.NewService(auth.NewUserStore(q), opts)
 	if err != nil {
 		return nil, err
 	}

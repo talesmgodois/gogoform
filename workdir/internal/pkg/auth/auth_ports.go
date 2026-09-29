@@ -22,4 +22,18 @@ type Repository interface {
 	List(ctx context.Context, page Page) ([]User, error)
 	// UpdateRole changes the role of a user and returns it.
 	UpdateRole(ctx context.Context, id int32, role Role) (User, error)
+
+	// GetByIdentity returns the user linked to the external identity
+	// (issuer, subject), active or not: callers must check IsActive.
+	GetByIdentity(ctx context.Context, issuer, subject string) (User, error)
+	// CreateWithIdentity atomically stores a new, active user without a
+	// password and links the external identity to it. CodeConflict means
+	// the username or the identity is taken.
+	CreateWithIdentity(ctx context.Context, in CreateExternalUserInput) (User, error)
+	// TouchIdentity records a sign-in through the identity and refreshes
+	// its email (empty for none).
+	TouchIdentity(ctx context.Context, issuer, subject, email string) error
+	// CountIdentities returns how many external identities are linked to
+	// the user.
+	CountIdentities(ctx context.Context, userID int32) (int, error)
 }

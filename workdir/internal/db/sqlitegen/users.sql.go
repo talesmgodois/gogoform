@@ -9,6 +9,18 @@ import (
 	"context"
 )
 
+const countUserIdentities = `-- name: CountUserIdentities :one
+SELECT COUNT(*) FROM user_identities
+WHERE user_id = ?
+`
+
+func (q *Queries) CountUserIdentities(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUserIdentities, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, password_hash, role)
 VALUES (?, ?, ?)
@@ -16,9 +28,9 @@ RETURNING id, username, password_hash, role, is_active, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	Username     string `db:"username" json:"username"`
-	PasswordHash string `db:"password_hash" json:"password_hash"`
-	Role         string `db:"role" json:"role"`
+	Username     string  `db:"username" json:"username"`
+	PasswordHash *string `db:"password_hash" json:"password_hash"`
+	Role         string  `db:"role" json:"role"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -36,6 +48,28 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const createUserIdentity = `-- name: CreateUserIdentity :exec
+INSERT INTO user_identities (user_id, issuer, subject, email)
+VALUES (?, ?, ?, ?)
+`
+
+type CreateUserIdentityParams struct {
+	UserID  int64   `db:"user_id" json:"user_id"`
+	Issuer  string  `db:"issuer" json:"issuer"`
+	Subject string  `db:"subject" json:"subject"`
+	Email   *string `db:"email" json:"email"`
+}
+
+func (q *Queries) CreateUserIdentity(ctx context.Context, arg CreateUserIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, createUserIdentity,
+		arg.UserID,
+		arg.Issuer,
+		arg.Subject,
+		arg.Email,
+	)
+	return err
+}
+
 const createUserIfNotExists = `-- name: CreateUserIfNotExists :execrows
 INSERT INTO users (username, password_hash, role)
 VALUES (?, ?, ?)
@@ -43,9 +77,9 @@ ON CONFLICT (username) DO NOTHING
 `
 
 type CreateUserIfNotExistsParams struct {
-	Username     string `db:"username" json:"username"`
-	PasswordHash string `db:"password_hash" json:"password_hash"`
-	Role         string `db:"role" json:"role"`
+	Username     string  `db:"username" json:"username"`
+	PasswordHash *string `db:"password_hash" json:"password_hash"`
+	Role         string  `db:"role" json:"role"`
 }
 
 // For bootstrapping accounts: an existing user is left untouched.
@@ -57,6 +91,34 @@ func (q *Queries) CreateUserIfNotExists(ctx context.Context, arg CreateUserIfNot
 	return result.RowsAffected()
 }
 
+const createUserWithoutPassword = `-- name: CreateUserWithoutPassword :one
+INSERT INTO users (username, role)
+VALUES (?, ?)
+RETURNING id, username, password_hash, role, is_active, created_at, updated_at
+`
+
+type CreateUserWithoutPasswordParams struct {
+	Username string `db:"username" json:"username"`
+	Role     string `db:"role" json:"role"`
+}
+
+// First half of creating an OIDC user: SQLite has no data-modifying CTEs,
+// so the adapter runs this and CreateUserIdentity in one transaction.
+func (q *Queries) CreateUserWithoutPassword(ctx context.Context, arg CreateUserWithoutPasswordParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, createUserWithoutPassword, arg.Username, arg.Role)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, username, password_hash, role, is_active, created_at, updated_at FROM users
 WHERE id = ? AND is_active
@@ -64,6 +126,34 @@ WHERE id = ? AND is_active
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByIdentity = `-- name: GetUserByIdentity :one
+SELECT users.id, users.username, users.password_hash, users.role, users.is_active, users.created_at, users.updated_at FROM users
+JOIN user_identities ON user_identities.user_id = users.id
+WHERE user_identities.issuer = ? AND user_identities.subject = ?
+`
+
+type GetUserByIdentityParams struct {
+	Issuer  string `db:"issuer" json:"issuer"`
+	Subject string `db:"subject" json:"subject"`
+}
+
+// The user linked to an external OIDC identity, active or not: the caller
+// refuses inactive users rather than mistaking them for unknown identities.
+func (q *Queries) GetUserByIdentity(ctx context.Context, arg GetUserByIdentityParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByIdentity, arg.Issuer, arg.Subject)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -137,6 +227,25 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const touchUserIdentity = `-- name: TouchUserIdentity :exec
+UPDATE user_identities
+SET last_login_at = CURRENT_TIMESTAMP,
+    email = ?1
+WHERE issuer = ?2 AND subject = ?3
+`
+
+type TouchUserIdentityParams struct {
+	Email   *string `db:"email" json:"email"`
+	Issuer  string  `db:"issuer" json:"issuer"`
+	Subject string  `db:"subject" json:"subject"`
+}
+
+// Records a sign-in through an identity and refreshes its email.
+func (q *Queries) TouchUserIdentity(ctx context.Context, arg TouchUserIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, touchUserIdentity, arg.Email, arg.Issuer, arg.Subject)
+	return err
 }
 
 const updateUserRole = `-- name: UpdateUserRole :one

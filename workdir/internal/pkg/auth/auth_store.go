@@ -31,7 +31,7 @@ func NewUserStore(q db.Querier) *UserStore {
 func (s *UserStore) Create(ctx context.Context, in CreateUserInput) (User, error) {
 	row, err := s.q.CreateUser(ctx, db.CreateUserParams{
 		Username:     in.Username,
-		PasswordHash: in.PasswordHash,
+		PasswordHash: &in.PasswordHash,
 		Role:         db.UserRole(in.Role),
 	})
 	switch {
@@ -47,7 +47,7 @@ func (s *UserStore) Create(ctx context.Context, in CreateUserInput) (User, error
 func (s *UserStore) CreateIfNotExists(ctx context.Context, in CreateUserInput) (bool, error) {
 	n, err := s.q.CreateUserIfNotExists(ctx, db.CreateUserIfNotExistsParams{
 		Username:     in.Username,
-		PasswordHash: in.PasswordHash,
+		PasswordHash: &in.PasswordHash,
 		Role:         db.UserRole(in.Role),
 	})
 	if err != nil {
@@ -63,7 +63,11 @@ func (s *UserStore) GetByUsername(ctx context.Context, username string) (StoredU
 	if err != nil {
 		return StoredUser{}, mapGetError(err)
 	}
-	return StoredUser{User: toUser(row), PasswordHash: row.PasswordHash}, nil
+	su := StoredUser{User: toUser(row)}
+	if row.PasswordHash != nil {
+		su.PasswordHash = *row.PasswordHash
+	}
+	return su, nil
 }
 
 // GetByID returns the active user with the given ID.
@@ -98,6 +102,62 @@ func (s *UserStore) UpdateRole(ctx context.Context, id int32, role Role) (User, 
 		return User{}, mapGetError(err)
 	}
 	return toUser(row), nil
+}
+
+// GetByIdentity returns the user linked to the external identity, active or
+// not.
+func (s *UserStore) GetByIdentity(ctx context.Context, issuer, subject string) (User, error) {
+	row, err := s.q.GetUserByIdentity(ctx, db.GetUserByIdentityParams{Issuer: issuer, Subject: subject})
+	if err != nil {
+		return User{}, mapGetError(err)
+	}
+	return toUser(row), nil
+}
+
+// CreateWithIdentity atomically stores a user without a password and links
+// the external identity to it.
+func (s *UserStore) CreateWithIdentity(ctx context.Context, in CreateExternalUserInput) (User, error) {
+	row, err := s.q.CreateUserWithIdentity(ctx, db.CreateUserWithIdentityParams{
+		Username: in.Username,
+		Role:     db.UserRole(in.Role),
+		Issuer:   in.Issuer,
+		Subject:  in.Subject,
+		Email:    optionalString(in.Email),
+	})
+	switch {
+	case database.IsUniqueViolation(err):
+		return User{}, apperrors.NewConflict(msgUsernameTaken)
+	case err != nil:
+		return User{}, apperrors.NewInternal(err)
+	}
+	return toUser(db.User(row)), nil
+}
+
+// TouchIdentity records a sign-in through the identity.
+func (s *UserStore) TouchIdentity(ctx context.Context, issuer, subject, email string) error {
+	err := s.q.TouchUserIdentity(ctx, db.TouchUserIdentityParams{Issuer: issuer, Subject: subject, Email: optionalString(email)})
+	if err != nil {
+		return apperrors.NewInternal(err)
+	}
+	return nil
+}
+
+// CountIdentities returns how many external identities are linked to the
+// user.
+func (s *UserStore) CountIdentities(ctx context.Context, userID int32) (int, error) {
+	n, err := s.q.CountUserIdentities(ctx, userID)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return int(n), nil
+}
+
+// optionalString maps "" to NULL.
+func optionalString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 // mapGetError translates the error of a single-row user query.

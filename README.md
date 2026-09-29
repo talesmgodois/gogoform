@@ -69,6 +69,56 @@ database server (`db-up`, `db-logs`, `adminer`, `generate-schema`,
 `make dev` starts the PostgreSQL container only when `DATABASE_URL` points at
 it; with a `sqlite:` URL it just runs the API.
 
+### Switching engines with one command
+
+To run the app locally on either engine, use the matching target. It
+overrides `DATABASE_URL` from `.env` and applies pending migrations at
+startup:
+
+```sh
+cd workdir
+make dev-postgres   # starts the PostgreSQL container, then the API
+make dev-sqlite     # API only, database file in ./data/gogoform.db
+make watch-postgres # the same, with hot reload (air)
+make watch-sqlite
+```
+
+The URLs can be overridden with `POSTGRES_URL=...` or `SQLITE_URL=...`, e.g.
+`make dev-sqlite SQLITE_URL=sqlite:/tmp/other.db`.
+
+### Quick start with SQLite
+
+No database server, migration tool or setup step: the schema is created when
+the API starts.
+
+```sh
+# Single binary
+cd workdir && make build
+DATABASE_URL=sqlite:./data/gogoform.db ./bin/api
+
+# Or one container (compose profile "sqlite"), data kept in a named volume
+cd workdir && make up-sqlite
+curl localhost:8080/healthz
+```
+
+### Applying migrations at startup (`DATABASE_AUTO_MIGRATE`)
+
+The migrations are embedded in the binary. With `DATABASE_AUTO_MIGRATE=true`
+(TOML: `[database] auto_migrate = true`) the API applies the pending ones at
+startup and logs each applied version. It records them in dbmate's own
+`schema_migrations` table, so `make migrate-*` and the API can be used on the
+same database. Only the up direction is applied; roll back with
+`make migrate-down`.
+
+| Engine     | Default | Why |
+|------------|---------|-----|
+| SQLite     | `true`  | zero-setup single binary / container |
+| PostgreSQL | `false` | migrations usually run as a separate deploy step (`make migrate-up`) |
+
+Setting it explicitly overrides the default either way. On PostgreSQL an
+advisory lock makes several replicas starting at once apply each migration
+only once.
+
 Known limits of SQLite, worth knowing before choosing it:
 
 - **Single writer.** Fine for self-hosting and small teams, not for high
@@ -80,6 +130,51 @@ Known limits of SQLite, worth knowing before choosing it:
 - **ASCII-only case-insensitive search.** Title search ignores case for
   ASCII letters only; accented characters are compared case-sensitively.
 - No data migration tool between engines.
+
+## Choosing how users authenticate
+
+One setting, `AUTH_METHODS` (TOML: `[auth] methods`), lists the methods that
+are on:
+
+| Method  | What it does |
+|---------|--------------|
+| `basic` | HTTP Basic (username and password) on every API request |
+| `jwt`   | username and password exchanged once for a JWT (`POST /auth/signin`, the `/app` sign-in form), then sent as `Authorization: Bearer` |
+| `oidc`  | sign-in through an OpenID Connect provider such as Keycloak (see below) |
+
+The default is `basic,jwt`, plus `oidc` when the `OIDC_*` settings are
+complete. Examples: `AUTH_METHODS=jwt`, `AUTH_METHODS=oidc` (SSO only),
+`AUTH_METHODS=jwt,oidc`.
+
+For local runs, `make` takes an `AUTH=` shortcut on every target that starts
+the app. `keycloak` also starts a ready-made local Keycloak (realm `gogoform`,
+users `alice`/`alice` and `bob`/`bob`, admin console on
+http://localhost:8081 with `admin`/`admin`) and points the app at it:
+
+```sh
+cd workdir
+make dev-sqlite AUTH=keycloak       # SSO only, through the local Keycloak
+make dev-sqlite AUTH=jwt            # username/password -> Bearer token
+make dev-postgres AUTH=basic        # HTTP Basic only
+make dev-postgres AUTH=jwt,keycloak # both
+```
+
+`AUTH` accepts `basic`, `jwt`, `password` (basic and jwt), `oidc` (your
+provider from `.env`) and `keycloak`. `make keycloak-down` stops Keycloak.
+
+## Signing in with an OpenID Connect provider
+
+The `/app` pages can sign people in through any standards-compliant OpenID
+Connect provider (Keycloak, Authentik, Auth0, Okta, Google, Microsoft Entra,
+GitLab, ...). It is on when `AUTH_METHODS` includes `oidc` and `OIDC_ISSUER_URL`,
+`OIDC_CLIENT_ID` and `OIDC_REDIRECT_URL` are set. It adds a "Sign in with
+<provider>" button to the sign-in page. The provider only proves who the person is: the app then
+finds or creates the local user and issues its own token, so roles, the API
+and the session cookie work as with a password. Use
+`AUTH_METHODS=oidc` to run SSO-only.
+
+See [docs/oidc.md](docs/oidc.md) for the settings and how to register the app
+at Keycloak or Google.
 
 ## Testing
 
