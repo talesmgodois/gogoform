@@ -329,6 +329,24 @@ func toFormWebhook(w sqlitegen.FormWebhook) (db.FormWebhook, error) {
 	}, nil
 }
 
+func toCustomComponent(c sqlitegen.CustomComponent) (db.CustomComponent, error) {
+	id, err := toInt32(c.ID)
+	if err != nil {
+		return db.CustomComponent{}, err
+	}
+	userID, err := toInt32(c.UserID)
+	if err != nil {
+		return db.CustomComponent{}, err
+	}
+	return db.CustomComponent{
+		ID:        id,
+		UserID:    userID,
+		Name:      c.Name,
+		FieldJson: c.FieldJson,
+		CreatedAt: c.CreatedAt,
+	}, nil
+}
+
 func toSubmissionMetadatum(m sqlitegen.SubmissionMetadatum) (db.SubmissionMetadatum, error) {
 	id, err := toInt32(m.ID)
 	if err != nil {
@@ -761,6 +779,16 @@ func (s *sqliteQuerier) UpdateForm(ctx context.Context, arg db.UpdateFormParams)
 
 // Submissions.
 
+func (s *sqliteQuerier) CountAllSubmissions(ctx context.Context) (int64, error) {
+	n, err := s.q.CountAllSubmissions(ctx)
+	return n, mapSQLiteErr(err)
+}
+
+func (s *sqliteQuerier) CountSubmissionsToday(ctx context.Context) (int64, error) {
+	n, err := s.q.CountSubmissionsToday(ctx)
+	return n, mapSQLiteErr(err)
+}
+
 func (s *sqliteQuerier) CreateFormSubmission(ctx context.Context, arg db.CreateFormSubmissionParams) (db.FormSubmission, error) {
 	fs, err := s.q.CreateFormSubmission(ctx, sqlitegen.CreateFormSubmissionParams{
 		FormID:  int64(arg.FormID),
@@ -858,6 +886,44 @@ func (s *sqliteQuerier) ListActiveWebhooksByForm(ctx context.Context, formID int
 			return nil, err
 		}
 		items = append(items, w)
+	}
+	return items, nil
+}
+
+// Custom components.
+
+func (s *sqliteQuerier) CreateCustomComponent(ctx context.Context, arg db.CreateCustomComponentParams) (db.CustomComponent, error) {
+	c, err := s.q.CreateCustomComponent(ctx, sqlitegen.CreateCustomComponentParams{
+		UserID:    int64(arg.UserID),
+		Name:      arg.Name,
+		FieldJson: arg.FieldJson,
+	})
+	if err != nil {
+		return db.CustomComponent{}, mapSQLiteErr(err)
+	}
+	return toCustomComponent(c)
+}
+
+func (s *sqliteQuerier) GetCustomComponentByID(ctx context.Context, id int32) (db.CustomComponent, error) {
+	c, err := s.q.GetCustomComponentByID(ctx, int64(id))
+	if err != nil {
+		return db.CustomComponent{}, mapSQLiteErr(err)
+	}
+	return toCustomComponent(c)
+}
+
+func (s *sqliteQuerier) ListCustomComponents(ctx context.Context) ([]db.CustomComponent, error) {
+	rows, err := s.q.ListCustomComponents(ctx)
+	if err != nil {
+		return nil, mapSQLiteErr(err)
+	}
+	items := make([]db.CustomComponent, 0, len(rows))
+	for _, r := range rows {
+		c, err := toCustomComponent(r)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, c)
 	}
 	return items, nil
 }

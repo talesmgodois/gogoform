@@ -49,3 +49,5 @@ sql:
             go_type: "encoding/json.RawMessage"
           - column: "form_submissions.payload"
             go_type: "encoding/json.RawMessage"
+          - column: "custom_components.field_json"
+            go_type: "encoding/json.RawMessage"
