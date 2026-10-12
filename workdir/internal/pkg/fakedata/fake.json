@@ -1,0 +1,250 @@
+{
+  "cars": [
+    { "id": 1, "name": "Corolla", "branch": "Toyota" },
+    { "id": 2, "name": "Civic", "branch": "Honda" },
+    { "id": 3, "name": "Mustang", "branch": "Ford" },
+    { "id": 4, "name": "Golf", "branch": "Volkswagen" },
+    { "id": 5, "name": "Model 3", "branch": "Tesla" },
+    { "id": 6, "name": "911 Carrera", "branch": "Porsche" },
+    { "id": 7, "name": "Camaro", "branch": "Chevrolet" },
+    { "id": 8, "name": "Altima", "branch": "Nissan" },
+    { "id": 9, "name": "Elantra", "branch": "Hyundai" },
+    { "id": 10, "name": "S60", "branch": "Volvo" },
+    { "id": 11, "name": "A4", "branch": "Audi" },
+    { "id": 12, "name": "3 Series", "branch": "BMW" },
+    { "id": 13, "name": "C-Class", "branch": "Mercedes-Benz" },
+    { "id": 14, "name": "Outback", "branch": "Subaru" },
+    { "id": 15, "name": "CX-5", "branch": "Mazda" },
+    { "id": 16, "name": "Soul", "branch": "Kia" },
+    { "id": 17, "name": "F-150", "branch": "Ford" },
+    { "id": 18, "name": "RAV4", "branch": "Toyota" },
+    { "id": 19, "name": "Accord", "branch": "Honda" },
+    { "id": 20, "name": "Charger", "branch": "Dodge" }
+  ],
+  "people": [
+    {
+      "email": "ana.silva@example.com",
+      "cpf": "123.456.789-01",
+      "name": "Ana Silva"
+    },
+    {
+      "email": "bruno.santos@example.com",
+      "cpf": "234.567.890-12",
+      "name": "Bruno Santos"
+    },
+    {
+      "email": "carla.souza@example.com",
+      "cpf": "345.678.901-23",
+      "name": "Carla Souza"
+    },
+    {
+      "email": "daniel.lima@example.com",
+      "cpf": "456.789.012-34",
+      "name": "Daniel Lima"
+    },
+    {
+      "email": "elena.costa@example.com",
+      "cpf": "567.890.123-45",
+      "name": "Elena Costa"
+    },
+    {
+      "email": "fabio.pereira@example.com",
+      "cpf": "678.901.234-56",
+      "name": "Fábio Pereira"
+    },
+    {
+      "email": "gabriela.alves@example.com",
+      "cpf": "789.012.345-67",
+      "name": "Gabriela Alves"
+    },
+    {
+      "email": "igor.ribeiro@example.com",
+      "cpf": "890.123.456-78",
+      "name": "Igor Ribeiro"
+    },
+    {
+      "email": "julia.martins@example.com",
+      "cpf": "901.234.567-89",
+      "name": "Julia Martins"
+    },
+    {
+      "email": "lucas.rocha@example.com",
+      "cpf": "012.345.678-90",
+      "name": "Lucas Rocha"
+    },
+    {
+      "email": "mariana.gomes@example.com",
+      "cpf": "112.233.445-56",
+      "name": "Mariana Gomes"
+    },
+    {
+      "email": "nicolas.ferreira@example.com",
+      "cpf": "223.344.556-67",
+      "name": "Nicolas Ferreira"
+    },
+    {
+      "email": "beatriz.barbosa@example.com",
+      "cpf": "334.455.667-78",
+      "name": "Beatriz Barbosa"
+    },
+    {
+      "email": "rafael.melo@example.com",
+      "cpf": "445.566.778-89",
+      "name": "Rafael Melo"
+    },
+    {
+      "email": "camila.carvalho@example.com",
+      "cpf": "556.677.889-90",
+      "name": "Camila Carvalho"
+    },
+    {
+      "email": "thiago.souza@example.com",
+      "cpf": "667.788.990-01",
+      "name": "Thiago Souza"
+    },
+    {
+      "email": "vanessa.lima@example.com",
+      "cpf": "778.899.001-12",
+      "name": "Vanessa Lima"
+    },
+    {
+      "email": "marcos.viana@example.com",
+      "cpf": "889.900.112-23",
+      "name": "Marcos Viana"
+    },
+    {
+      "email": "juliana.cardoso@example.com",
+      "cpf": "990.011.223-34",
+      "name": "Juliana Cardoso"
+    },
+    {
+      "email": "pedro.henrique@example.com",
+      "cpf": "001.122.334-45",
+      "name": "Pedro Henrique"
+    }
+  ],
+  "animes": [
+    {
+      "id": 1,
+      "name": "Attack on Titan",
+      "description": "Humanity fights for survival against giant humanoid creatures known as Titans."
+    },
+    {
+      "id": 2,
+      "name": "Naruto",
+      "description": "A young ninja seeks recognition and dreams of becoming the Hokage."
+    },
+    {
+      "id": 3,
+      "name": "One Piece",
+      "description": "A young pirate and his crew explore the Grand Line in search of the ultimate treasure."
+    },
+    {
+      "id": 4,
+      "name": "Death Note",
+      "description": "A high school student discovers a supernatural notebook that kills anyone whose name is written in it."
+    },
+    {
+      "id": 5,
+      "name": "Fullmetal Alchemist: Brotherhood",
+      "description": "Two brothers search for a Philosopher's Stone to restore their bodies after a disastrous failed alchemy experiment."
+    },
+    {
+      "id": 6,
+      "name": "Demon Slayer",
+      "description": "A young boy becomes a demon slayer to cure his sister and avenge his family."
+    },
+    {
+      "id": 7,
+      "name": "Jujutsu Kaisen",
+      "description": "A high schooler swallows a cursed talisman and becomes host to a powerful curse."
+    },
+    {
+      "id": 8,
+      "name": "My Hero Academia",
+      "description": "A boy born without superpowers in a superhero world inherits abilities from the world's greatest hero."
+    },
+    {
+      "id": 9,
+      "name": "Dragon Ball Z",
+      "description": "Goku and his friends defend Earth against powerful extraterrestrials and androids."
+    },
+    {
+      "id": 10,
+      "name": "One Punch Man",
+      "description": "A superhero who can defeat any opponent with a single punch grows bored from a lack of challenge."
+    },
+    {
+      "id": 11,
+      "name": "Steins;Gate",
+      "description": "A group of friends accidentally invent a device that can send text messages into the past."
+    },
+    {
+      "id": 12,
+      "name": "Hunter x Hunter",
+      "description": "A young boy sets out on a journey to find his father and become a licensed Hunter."
+    },
+    {
+      "id": 13,
+      "name": "Bleach",
+      "description": "A teenager gains the powers of a Soul Reaper and must protect the living world from evil spirits."
+    },
+    {
+      "id": 14,
+      "name": "Tokyo Ghoul",
+      "description": "A college student survives an attack by a ghoul, transforming into a half-ghoul hybrid."
+    },
+    {
+      "id": 15,
+      "name": "Cowboy Bebop",
+      "description": "The misadventures of a diverse crew of bounty hunters traveling across space in the year 2071."
+    },
+    {
+      "id": 16,
+      "name": "Mob Psycho 100",
+      "description": "An ordinary middle school boy possesses powerful psychic abilities that he tries to keep under control."
+    },
+    {
+      "id": 17,
+      "name": "Haikyuu!!",
+      "description": "A determined high schooler strives to lead his school's volleyball team to national glory."
+    },
+    {
+      "id": 18,
+      "name": "Chainsaw Man",
+      "description": "A young man merges with his chainsaw pet demon to become a devil hunter."
+    },
+    {
+      "id": 19,
+      "name": "Vinland Saga",
+      "description": "A young Viking warrior seeks vengeance against his father's killer in an epic historical drama."
+    },
+    {
+      "id": 20,
+      "name": "Spy x Family",
+      "description": "A spy builds a fake family to execute a mission, unaware his wife is an assassin and his daughter is a telepath."
+    }
+  ],
+  "cities": [
+    { "id": 1, "name": "Goiânia", "country_code": "BR" },
+    { "id": 2, "name": "Tokyo", "country_code": "JP" },
+    { "id": 3, "name": "New York", "country_code": "US" },
+    { "id": 4, "name": "London", "country_code": "GB" },
+    { "id": 5, "name": "Paris", "country_code": "FR" },
+    { "id": 6, "name": "Berlin", "country_code": "DE" },
+    { "id": 7, "name": "Toronto", "country_code": "CA" },
+    { "id": 8, "name": "Sydney", "country_code": "AU" },
+    { "id": 9, "name": "São Paulo", "country_code": "BR" },
+    { "id": 10, "name": "Buenos Aires", "country_code": "AR" },
+    { "id": 11, "name": "Mexico City", "country_code": "MX" },
+    { "id": 12, "name": "Rome", "country_code": "IT" },
+    { "id": 13, "name": "Madrid", "country_code": "ES" },
+    { "id": 14, "name": "Seoul", "country_code": "KR" },
+    { "id": 15, "name": "Beijing", "country_code": "CN" },
+    { "id": 16, "name": "Cairo", "country_code": "EG" },
+    { "id": 17, "name": "Cape Town", "country_code": "ZA" },
+    { "id": 18, "name": "Mumbai", "country_code": "IN" },
+    { "id": 19, "name": "Bangkok", "country_code": "TH" },
+    { "id": 20, "name": "Bogotá", "country_code": "CO" }
+  ]
+}

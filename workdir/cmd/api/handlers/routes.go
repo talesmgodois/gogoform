@@ -104,6 +104,12 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("GET /public/forms/{slug}", guard(authpkg.Public, formsCtl.GetPublic))
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", guard(authpkg.Public, submissionsCtl.Create))
 
+	// Sample data sources for select/autocomplete fields; open to everyone.
+	mux.HandleFunc("GET /fake/animes", guard(authpkg.Public, FakeAnimes))
+	mux.HandleFunc("GET /fake/cars", guard(authpkg.Public, FakeCars))
+	mux.HandleFunc("GET /fake/people", guard(authpkg.Public, FakePeople))
+	mux.HandleFunc("GET /fake/cities", guard(authpkg.Public, FakeCities))
+
 	appCtl := &appController{forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
 	if svc.oidc != nil {
 		appCtl.oidc = newAppOIDC(*svc.oidc)
