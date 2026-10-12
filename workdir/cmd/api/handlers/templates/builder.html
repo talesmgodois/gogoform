@@ -91,6 +91,7 @@
         </div>
         <button type="button" data-close data-icon="close" title="Close" aria-label="Close" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
       </div>
+      <div id="preview-themes" role="group" aria-label="Theme" class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-800 bg-slate-950 px-5 py-2"></div>
       <form id="preview-form" class="flex-1 space-y-5 overflow-y-auto p-6"></form>
     </div>
   </dialog>
@@ -116,9 +117,60 @@
       const INPUT = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none";
       const PREVIEW = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300 placeholder:text-slate-600";
 
+      // THEMES style the form as respondents see it (the preview). Each key of
+      // a theme is a set of classes for one part of the form. The form's theme
+      // is saved as content.theme, so respondents' clients can read it too.
+      const THEMES = {
+        default: {
+          label: "Default", hint: "The builder's compact dark look.",
+          thumb: "bg-slate-950 ring-slate-700", thumbBar: "bg-slate-600",
+          form: "flex-1 space-y-5 overflow-y-auto p-6",
+          title: "text-xl font-bold text-white break-words",
+          description: "mt-1 whitespace-pre-line text-sm text-slate-400 break-words",
+          question: "block text-sm font-semibold text-white break-words",
+          index: null, mark: "text-rose-400",
+          help: "text-xs text-slate-400 break-words",
+          control: PREVIEW,
+          note: "font-mono text-[11px] text-slate-500 truncate",
+          limits: "mt-2 text-[11px] text-slate-500",
+          drop: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-4",
+          file: "block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-200 hover:file:bg-slate-700",
+          toggle: "bg-slate-700 peer-checked:bg-indigo-600 peer-focus-visible:ring-indigo-400",
+          toggleText: "text-sm text-slate-400",
+          rule: "border-t border-slate-800",
+          empty: "rounded-xl border-2 border-dashed border-slate-800 px-6 py-10 text-center text-sm text-slate-500",
+          submit: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500",
+          reset: "rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-100",
+          ok: "rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300",
+        },
+        stack: {
+          label: "Stack", hint: "Typeform-like: one question at a time, big type, underlined answers.",
+          thumb: "bg-[#1d2236] ring-white/10", thumbBar: "bg-white/70",
+          form: "flex-1 space-y-10 overflow-y-auto bg-[#1d2236] px-10 py-10 font-sans text-white",
+          title: "text-3xl font-bold tracking-tight text-white break-words",
+          description: "mt-3 whitespace-pre-line text-base text-white/70 break-words",
+          question: "block text-xl font-semibold text-white break-words",
+          index: "mr-2 font-semibold text-[#4262ff]", mark: "text-[#ff7a59]",
+          help: "mt-1 text-sm text-white/60 break-words",
+          control: "w-full border-0 border-b-2 border-white/30 bg-[#1d2236] px-0 py-2 text-xl text-white placeholder:text-white/40 focus:border-[#4262ff] focus:outline-none",
+          note: "font-mono text-xs text-white/50 truncate",
+          limits: "mt-2 text-xs text-white/50",
+          drop: "rounded-xl border-2 border-dashed border-white/30 px-5 py-5",
+          file: "block w-full text-base text-white/70 file:mr-3 file:rounded-md file:border-0 file:bg-[#4262ff] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-[#3350e0]",
+          toggle: "bg-white/30 peer-checked:bg-[#4262ff] peer-focus-visible:ring-[#4262ff]",
+          toggleText: "text-base text-white/70",
+          rule: "border-t border-white/10",
+          empty: "text-center text-base text-white/60",
+          submit: "rounded-md bg-[#4262ff] px-6 py-3 text-base font-semibold text-white hover:bg-[#3350e0]",
+          reset: "rounded-md px-3 py-3 text-sm text-white/60 hover:text-white",
+          ok: "text-base text-emerald-300",
+        },
+      };
+      const themeKey = (key) => (Object.hasOwn(THEMES, key) ? key : "default");
+
       // publicAvailable forms can be filled in without signing in, so they
       // always accept anonymous submissions (the API rejects anything else).
-      const state = { title: "", slug: "", slugEdited: false, description: "", publicAvailable: true, acceptAnonymous: true, fields: [], selected: null };
+      const state = { title: "", slug: "", slugEdited: false, description: "", publicAvailable: true, acceptAnonymous: true, theme: "default", fields: [], selected: null };
       let dirty = false;
       let nextID = 1;
 
@@ -228,7 +280,7 @@
         description: state.description.trim() || null,
         public_available: state.publicAvailable,
         accept_anonymous: state.publicAvailable || state.acceptAnonymous,
-        content: { version: 1, fields: state.fields.map(fieldJSON) },
+        content: { version: 1, theme: state.theme, fields: state.fields.map(fieldJSON) },
       });
 
       // toYAML renders a JSON value as block-style YAML. Strings that YAML
@@ -317,35 +369,37 @@
       // ---- Canvas (the form as respondents see it) ------------------------
 
       // preview renders the control of a field. On the canvas it is a static
-      // picture; live (in the preview dialog) it is a working form control.
-      const preview = (f, live) => {
+      // picture; live (in the preview dialog) it is a working form control,
+      // styled by the theme s.
+      const preview = (f, live, s) => {
+        s = s || THEMES.default;
         const ph = f.placeholder || null;
         const attrs = live ? { id: "preview-" + f.uid, name: f.name, required: f.required } : { tabIndex: -1 };
         const control = (tag, props, ...children) => h(tag, Object.assign({}, attrs, props), ...children);
-        const source = (text) => h("p", { class: "font-mono text-[11px] text-slate-500 truncate" }, text);
+        const source = (text) => h("p", { class: s.note }, text);
         switch (f.type) {
           case "textfield":
-            return control("input", { type: f.inputType, placeholder: ph, class: PREVIEW });
+            return control("input", { type: f.inputType, placeholder: ph, class: s.control });
           case "textarea":
-            return control("textarea", { rows: f.rows, placeholder: ph, class: PREVIEW + " resize-none" });
+            return control("textarea", { rows: f.rows, placeholder: ph, class: s.control + " resize-none" });
           case "select":
-            return control("select", { class: PREVIEW },
+            return control("select", { class: s.control },
               h("option", { value: "" }, ph || "Select an option…"),
               f.options.map((opt) => h("option", { value: opt.value }, opt.label)));
           case "select-data":
             return h("div", { class: "space-y-1.5" },
-              control("select", { class: PREVIEW }, h("option", { value: "" }, ph || "Select an option…")),
+              control("select", { class: s.control }, h("option", { value: "" }, ph || "Select an option…")),
               source("options ← " + (f.source.url || "(no URL yet)")));
           case "autocomplete-data":
             return h("div", { class: "space-y-1.5" },
-              control("input", { type: "search", placeholder: ph || "Start typing to search…", class: PREVIEW }),
+              control("input", { type: "search", placeholder: ph || "Start typing to search…", class: s.control }),
               source("suggestions ← " + (f.source.url || "(no URL yet)") + "?" + f.source.searchParam + "=… after " + f.minChars + " characters"));
           case "file": {
             const limits = (f.accept || "Any file type") + " · up to " + f.maxSizeMb + " MB" + (f.multiple ? " each" : "");
             if (live) {
-              return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-4" },
-                control("input", { type: "file", accept: f.accept || null, multiple: f.multiple, class: "block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-200 hover:file:bg-slate-700" }),
-                h("p", { class: "mt-2 text-[11px] text-slate-500" }, limits));
+              return h("div", { class: s.drop },
+                control("input", { type: "file", accept: f.accept || null, multiple: f.multiple, class: s.file }),
+                h("p", { class: s.limits }, limits));
             }
             return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-6 text-center" },
               h("p", { class: "text-sm text-slate-300" }, f.multiple ? "Drop files here or browse" : "Drop a file here or browse"),
@@ -355,8 +409,8 @@
             if (live) {
               return h("label", { class: "inline-flex cursor-pointer items-center gap-3" },
                 control("input", { type: "checkbox", checked: f.defaultValue, class: "peer sr-only" }),
-                h("span", { class: "relative h-6 w-11 shrink-0 rounded-full bg-slate-700 transition peer-checked:bg-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-400 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-all peer-checked:after:translate-x-5" }),
-                h("span", { class: "text-sm text-slate-400" }, "Yes"));
+                h("span", { class: "relative h-6 w-11 shrink-0 rounded-full transition peer-focus-visible:ring-2 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-all peer-checked:after:translate-x-5 " + s.toggle }),
+                h("span", { class: s.toggleText }, "Yes"));
             }
             return h("div", { class: "flex items-center gap-3" },
               h("span", { class: "relative inline-flex h-6 w-11 shrink-0 rounded-full transition " + (f.defaultValue ? "bg-indigo-600" : "bg-slate-700") },
@@ -520,6 +574,28 @@
         ];
       };
 
+      // setTheme picks the form's theme and refreshes what shows it.
+      const setTheme = (key) => {
+        state.theme = key;
+        changed(true);
+        if (previewDialog.open) renderPreview();
+      };
+      const themePicker = () =>
+        h("div", { class: "grid grid-cols-2 gap-2", role: "radiogroup", "aria-label": "Theme" },
+          Object.entries(THEMES).map(([key, t]) => {
+            const active = key === state.theme;
+            return h("button", {
+              type: "button", role: "radio", "aria-checked": String(active),
+              class: "space-y-2 rounded-xl border p-2 text-left transition " + (active ? "border-indigo-500 ring-1 ring-indigo-500/40" : "border-slate-800 hover:border-slate-700"),
+              onclick: () => setTheme(key),
+            },
+              h("span", { class: "block h-16 space-y-1.5 rounded-lg p-2 ring-1 " + t.thumb },
+                h("span", { class: "block h-1.5 w-2/3 rounded-full " + t.thumbBar }),
+                h("span", { class: "block h-1 w-1/2 rounded-full opacity-50 " + t.thumbBar })),
+              h("span", { class: "block text-xs font-semibold text-white" }, t.label),
+              h("span", { class: "block text-[11px] leading-snug text-slate-500" }, t.hint));
+          }));
+
       const create = { key: "", busy: false, result: null };
       const canCreate = (problems) => !create.busy && create.key !== "" && !problems.length;
 
@@ -528,6 +604,9 @@
           section("Form settings",
             row("Slug", text(state.slug, (v) => { state.slug = v.trim(); state.slugEdited = true; changed(); }, { id: "form-slug", maxLength: 255, class: INPUT + " font-mono" }),
               "Public address: /public/forms/{slug}. Must be unique.")),
+          section("Theme",
+            themePicker(),
+            h("p", { class: "text-[11px] leading-snug text-slate-500" }, "Used in the preview. It is saved with the form as content.theme.")),
           section("Access",
             check(state.publicAvailable, "Public: anyone can fill it in", (v) => { state.publicAvailable = v; changed(true); }),
             h("label", { class: "flex items-center gap-2 text-xs " + (state.publicAvailable ? "cursor-not-allowed text-slate-500" : "cursor-pointer text-slate-300") },
@@ -780,26 +859,37 @@
 
       const previewDialog = $("preview-dialog");
       const renderPreview = () => {
+        const t = THEMES[state.theme];
         const result = h("div", { "aria-live": "polite" });
-        $("preview-form").replaceChildren(
+        $("preview-themes").replaceChildren(
+          h("span", { class: "mr-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500" }, "Theme"),
+          ...Object.entries(THEMES).map(([key, th]) => h("button", {
+            type: "button", "aria-pressed": String(key === state.theme),
+            class: "rounded-lg px-3 py-1.5 text-xs font-medium transition " + (key === state.theme ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:bg-slate-800 hover:text-white"),
+            onclick: () => setTheme(key),
+          }, th.label)));
+        const form = $("preview-form");
+        form.className = t.form;
+        form.replaceChildren(
           h("div", null,
-            h("h2", { class: "text-xl font-bold text-white break-words" }, state.title.trim() || "Untitled form"),
-            state.description.trim() ? h("p", { class: "mt-1 whitespace-pre-line text-sm text-slate-400 break-words" }, state.description.trim()) : null),
+            h("h2", { class: t.title }, state.title.trim() || "Untitled form"),
+            state.description.trim() ? h("p", { class: t.description }, state.description.trim()) : null),
           ...(state.fields.length
-            ? state.fields.map((f) => h("div", { class: "space-y-1.5" },
-              h(f.type === "toggle" ? "p" : "label", { class: "block text-sm font-semibold text-white break-words", htmlFor: f.type === "toggle" ? null : "preview-" + f.uid },
-                f.label || "Untitled field", f.required ? h("span", { class: "text-rose-400" }, " *") : null),
-              f.help ? h("p", { class: "text-xs text-slate-400 break-words" }, f.help) : null,
-              preview(f, true)))
-            : [h("p", { class: "rounded-xl border-2 border-dashed border-slate-800 px-6 py-10 text-center text-sm text-slate-500" }, "This form has no fields yet.")]),
-          h("div", { class: "flex items-center gap-3 border-t border-slate-800 pt-5" },
-            h("button", { type: "submit", class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500" }, "Submit"),
-            h("button", { type: "reset", class: "rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-100", onclick: () => result.replaceChildren() }, "Reset")),
+            ? state.fields.map((f, i) => h("div", { class: "space-y-1.5" },
+              h(f.type === "toggle" ? "p" : "label", { class: t.question, htmlFor: f.type === "toggle" ? null : "preview-" + f.uid },
+                t.index ? h("span", { class: t.index }, (i + 1) + " →") : null,
+                f.label || "Untitled field", f.required ? h("span", { class: t.mark }, " *") : null),
+              f.help ? h("p", { class: t.help }, f.help) : null,
+              preview(f, true, t)))
+            : [h("p", { class: t.empty }, "This form has no fields yet.")]),
+          h("div", { class: t.rule + " flex items-center gap-3 pt-5" },
+            h("button", { type: "submit", class: t.submit }, "Submit"),
+            h("button", { type: "reset", class: t.reset, onclick: () => result.replaceChildren() }, "Reset")),
           result);
       };
       $("preview-form").addEventListener("submit", (e) => {
         e.preventDefault();
-        e.currentTarget.lastChild.replaceChildren(h("p", { class: "rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300" },
+        e.currentTarget.lastChild.replaceChildren(h("p", { class: THEMES[state.theme].ok },
           "All answers are valid. This is a preview, so nothing was sent."));
       });
 
@@ -872,6 +962,7 @@
         state.description = d.description || "";
         state.publicAvailable = d.public_available !== false;
         state.acceptAnonymous = d.accept_anonymous !== false;
+        state.theme = themeKey(d.content && d.content.theme);
         const fields = d.content && Array.isArray(d.content.fields) ? d.content.fields : [];
         state.fields = fields.map(fromJSON).filter(Boolean);
         if (state.fields.length < fields.length || !(d.content && Array.isArray(d.content.fields))) {
