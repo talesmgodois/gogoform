@@ -227,6 +227,284 @@ const docTemplate = `{
                 }
             }
         },
+        "/custom-components": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Lists every field definition saved from the form builder, newest first. Requires a signed-in user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "custom-components"
+                ],
+                "summary": "List reusable components",
+                "responses": {
+                    "200": {
+                        "description": "Saved components",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CustomComponentListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Saves a field definition from the form builder so it can be reinserted into other forms. Requires a signed-in user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "custom-components"
+                ],
+                "summary": "Save a reusable component",
+                "parameters": [
+                    {
+                        "description": "Component to save",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CreateCustomComponentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Component saved",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CustomComponentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Not signed in",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/animes": {
+            "get": {
+                "description": "Returns a page of the embedded sample animes collection. Any query parameter other than offset/limit filters records whose matching field equals one of the given values; repeat a parameter to OR its values.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fake-data"
+                ],
+                "summary": "List fake animes",
+                "parameters": [
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of records to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of records to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of animes",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.FakeDataListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/cars": {
+            "get": {
+                "description": "Returns a page of the embedded sample cars collection. Any query parameter other than offset/limit filters records whose matching field equals one of the given values; repeat a parameter to OR its values.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fake-data"
+                ],
+                "summary": "List fake cars",
+                "parameters": [
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of records to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of records to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of cars",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.FakeDataListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/cities": {
+            "get": {
+                "description": "Returns a page of the embedded sample cities collection. Any query parameter other than offset/limit filters records whose matching field equals one of the given values; repeat a parameter to OR its values.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fake-data"
+                ],
+                "summary": "List fake cities",
+                "parameters": [
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of records to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of records to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of cities",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.FakeDataListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/people": {
+            "get": {
+                "description": "Returns a page of the embedded sample people collection. Any query parameter other than offset/limit filters records whose matching field equals one of the given values; repeat a parameter to OR its values.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fake-data"
+                ],
+                "summary": "List fake people",
+                "parameters": [
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of records to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of records to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of people",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.FakeDataListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/files": {
             "post": {
                 "security": [
@@ -1498,6 +1776,10 @@ const docTemplate = `{
                 }
             }
         },
+        "fakedata.Record": {
+            "type": "object",
+            "additionalProperties": {}
+        },
         "handler.HealthResponse": {
             "type": "object",
             "properties": {
@@ -1508,6 +1790,19 @@ const docTemplate = `{
                 "timestamp": {
                     "type": "string",
                     "example": "2026-01-01T00:00:00Z"
+                }
+            }
+        },
+        "handlers.CreateCustomComponentRequest": {
+            "type": "object",
+            "properties": {
+                "field_json": {
+                    "description": "FieldJSON is the field definition to save, in the same shape used\ninside a form's content.",
+                    "type": "object"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Car picker"
                 }
             }
         },
@@ -1572,6 +1867,64 @@ const docTemplate = `{
                     "description": "TargetURL must be a public http(s) URL.",
                     "type": "string",
                     "example": "https://example.com/hooks/forms"
+                }
+            }
+        },
+        "handlers.CustomComponentListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.CustomComponentResponse"
+                    }
+                }
+            }
+        },
+        "handlers.CustomComponentResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-01-01T00:00:00Z"
+                },
+                "field_json": {
+                    "type": "object"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Car picker"
+                },
+                "user_id": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "handlers.FakeDataListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/fakedata.Record"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 20
                 }
             }
         },
