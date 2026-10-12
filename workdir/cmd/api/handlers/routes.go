@@ -13,6 +13,7 @@ import (
 	"app/internal/db"
 	"app/internal/handler"
 	authpkg "app/internal/pkg/auth"
+	"app/internal/pkg/customcomponents"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -22,25 +23,27 @@ import (
 
 // Services holds the domain repositories the controllers are built on.
 type Services struct {
-	tenants     tenants.Repository
-	forms       forms.Repository
-	submissions submissions.Repository
-	webhooks    webhooks.Repository
-	files       files.Repository
-	auth        *authpkg.Service
-	oidc        *OIDCOptions
+	tenants          tenants.Repository
+	forms            forms.Repository
+	submissions      submissions.Repository
+	webhooks         webhooks.Repository
+	files            files.Repository
+	customComponents customcomponents.Repository
+	auth             *authpkg.Service
+	oidc             *OIDCOptions
 }
 
 // NewServices returns the sqlc-backed implementation of every repository,
 // along with authSvc, which authenticates users.
 func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 	return Services{
-		auth:        authSvc,
-		tenants:     tenants.NewService(q),
-		forms:       forms.NewService(q),
-		submissions: submissions.NewService(q),
-		webhooks:    webhooks.NewService(q),
-		files:       files.NewService(q),
+		auth:             authSvc,
+		tenants:          tenants.NewService(q),
+		forms:            forms.NewService(q),
+		submissions:      submissions.NewService(q),
+		webhooks:         webhooks.NewService(q),
+		files:            files.NewService(q),
+		customComponents: customcomponents.NewService(q),
 	}
 }
 
@@ -62,6 +65,7 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
 	filesCtl := &filesController{files: svc.files}
+	customComponentsCtl := &customComponentsController{customComponents: svc.customComponents}
 	authCtl := &authController{auth: svc.auth}
 	auth := tenantsCtl.Authenticate
 	guard := authCtl.Guard
@@ -99,6 +103,9 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("POST /files", auth(filesCtl.Create))
 	mux.HandleFunc("GET /files/{id}", filesCtl.Get)
 	mux.HandleFunc("DELETE /files/{id}", auth(filesCtl.Delete))
+
+	mux.HandleFunc("POST /custom-components", guard(authpkg.SignedIn(), customComponentsCtl.Create))
+	mux.HandleFunc("GET /custom-components", guard(authpkg.SignedIn(), customComponentsCtl.List))
 
 	// Credentials are optional: private forms check the user themselves.
 	mux.HandleFunc("GET /public/forms/{slug}", guard(authpkg.Public, formsCtl.GetPublic))
