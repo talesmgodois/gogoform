@@ -49,6 +49,91 @@ definitions:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
+  handlers.AnimeListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.AnimeResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 20
+        type: integer
+    type: object
+  handlers.AnimeResponse:
+    properties:
+      description:
+        example: Humanity fights for survival against giant humanoid creatures known
+          as Titans.
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Attack on Titan
+        type: string
+    type: object
+  handlers.CarListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.CarResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 20
+        type: integer
+    type: object
+  handlers.CarResponse:
+    properties:
+      branch:
+        example: Toyota
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Corolla
+        type: string
+    type: object
+  handlers.CityListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.CityResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 20
+        type: integer
+    type: object
+  handlers.CityResponse:
+    properties:
+      country_code:
+        example: BR
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Goiânia
+        type: string
+    type: object
   handlers.CreateSubmissionRequest:
     properties:
       completion_time_seconds:
@@ -333,6 +418,34 @@ definitions:
         type: string
       user_agent:
         example: Mozilla/5.0
+        type: string
+    type: object
+  handlers.PersonListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.PersonResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 20
+        type: integer
+    type: object
+  handlers.PersonResponse:
+    properties:
+      cpf:
+        example: 123.456.789-01
+        type: string
+      email:
+        example: ana.silva@example.com
+        type: string
+      name:
+        example: Ana Silva
         type: string
     type: object
   handlers.PublicFormResponse:
@@ -677,6 +790,185 @@ paths:
       summary: Sign up
       tags:
       - auth
+  /fake/animes:
+    get:
+      description: 'Returns animes from the static fake dataset. Every field can be
+        used as a filter: id matches exactly, name and description match a case-insensitive
+        substring.'
+      parameters:
+      - description: Exact anime ID
+        in: query
+        name: id
+        type: integer
+      - description: Case-insensitive substring of the anime name
+        in: query
+        name: name
+        type: string
+      - description: Case-insensitive substring of the description
+        in: query
+        name: description
+        type: string
+      - default: 0
+        description: Number of animes to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - default: 20
+        description: Maximum number of animes to return
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Page of animes
+          schema:
+            $ref: '#/definitions/handlers.AnimeListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: List fake animes
+      tags:
+      - animes
+  /fake/cars:
+    get:
+      description: 'Returns cars from the static fake dataset. Every field can be
+        used as a filter: id matches exactly, name and branch match a case-insensitive
+        substring.'
+      parameters:
+      - description: Exact car ID
+        in: query
+        name: id
+        type: integer
+      - description: Case-insensitive substring of the car name
+        in: query
+        name: name
+        type: string
+      - description: Case-insensitive substring of the car branch
+        in: query
+        name: branch
+        type: string
+      - default: 0
+        description: Number of cars to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - default: 20
+        description: Maximum number of cars to return
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Page of cars
+          schema:
+            $ref: '#/definitions/handlers.CarListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: List fake cars
+      tags:
+      - cars
+  /fake/cities:
+    get:
+      description: 'Returns cities from the static fake dataset. Every field can be
+        used as a filter: id matches exactly, name and country_code match a case-insensitive
+        substring.'
+      parameters:
+      - description: Exact city ID
+        in: query
+        name: id
+        type: integer
+      - description: Case-insensitive substring of the city name
+        in: query
+        name: name
+        type: string
+      - description: Case-insensitive substring of the country code
+        in: query
+        name: country_code
+        type: string
+      - default: 0
+        description: Number of cities to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - default: 20
+        description: Maximum number of cities to return
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Page of cities
+          schema:
+            $ref: '#/definitions/handlers.CityListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: List fake cities
+      tags:
+      - cities
+  /fake/people:
+    get:
+      description: Returns people from the static fake dataset. Every field can be
+        used as a filter, matching a case-insensitive substring.
+      parameters:
+      - description: Case-insensitive substring of the email
+        in: query
+        name: email
+        type: string
+      - description: Case-insensitive substring of the CPF
+        in: query
+        name: cpf
+        type: string
+      - description: Case-insensitive substring of the name
+        in: query
+        name: name
+        type: string
+      - default: 0
+        description: Number of people to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - default: 20
+        description: Maximum number of people to return
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Page of people
+          schema:
+            $ref: '#/definitions/handlers.PersonListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: List fake people
+      tags:
+      - people
   /files:
     post:
       consumes:

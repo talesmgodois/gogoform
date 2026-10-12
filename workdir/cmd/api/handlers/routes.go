@@ -62,6 +62,7 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
 	filesCtl := &filesController{files: svc.files}
+	fakeDataCtl := &fakeDataController{}
 	authCtl := &authController{auth: svc.auth}
 	auth := tenantsCtl.Authenticate
 	guard := authCtl.Guard
@@ -99,6 +100,12 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("POST /files", auth(filesCtl.Create))
 	mux.HandleFunc("GET /files/{id}", filesCtl.Get)
 	mux.HandleFunc("DELETE /files/{id}", auth(filesCtl.Delete))
+
+	// Static fake datasets powering data-bound components (select, autocomplete).
+	mux.HandleFunc("GET /fake/cars", guard(authpkg.Public, fakeDataCtl.Cars))
+	mux.HandleFunc("GET /fake/people", guard(authpkg.Public, fakeDataCtl.People))
+	mux.HandleFunc("GET /fake/animes", guard(authpkg.Public, fakeDataCtl.Animes))
+	mux.HandleFunc("GET /fake/cities", guard(authpkg.Public, fakeDataCtl.Cities))
 
 	// Credentials are optional: private forms check the user themselves.
 	mux.HandleFunc("GET /public/forms/{slug}", guard(authpkg.Public, formsCtl.GetPublic))

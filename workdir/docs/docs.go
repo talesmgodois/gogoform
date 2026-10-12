@@ -227,6 +227,258 @@ const docTemplate = `{
                 }
             }
         },
+        "/fake/animes": {
+            "get": {
+                "description": "Returns animes from the static fake dataset. Every field can be used as a filter: id matches exactly, name and description match a case-insensitive substring.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "animes"
+                ],
+                "summary": "List fake animes",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Exact anime ID",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the anime name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the description",
+                        "name": "description",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of animes to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of animes to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of animes",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.AnimeListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/cars": {
+            "get": {
+                "description": "Returns cars from the static fake dataset. Every field can be used as a filter: id matches exactly, name and branch match a case-insensitive substring.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cars"
+                ],
+                "summary": "List fake cars",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Exact car ID",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the car name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the car branch",
+                        "name": "branch",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of cars to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of cars to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of cars",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CarListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/cities": {
+            "get": {
+                "description": "Returns cities from the static fake dataset. Every field can be used as a filter: id matches exactly, name and country_code match a case-insensitive substring.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cities"
+                ],
+                "summary": "List fake cities",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Exact city ID",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the city name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the country code",
+                        "name": "country_code",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of cities to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of cities to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of cities",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CityListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/fake/people": {
+            "get": {
+                "description": "Returns people from the static fake dataset. Every field can be used as a filter, matching a case-insensitive substring.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "people"
+                ],
+                "summary": "List fake people",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the email",
+                        "name": "email",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the CPF",
+                        "name": "cpf",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Number of people to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of people to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Page of people",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.PersonListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/files": {
             "post": {
                 "security": [
@@ -1511,6 +1763,126 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.AnimeListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.AnimeResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 20
+                }
+            }
+        },
+        "handlers.AnimeResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Humanity fights for survival against giant humanoid creatures known as Titans."
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Attack on Titan"
+                }
+            }
+        },
+        "handlers.CarListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.CarResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 20
+                }
+            }
+        },
+        "handlers.CarResponse": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string",
+                    "example": "Toyota"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Corolla"
+                }
+            }
+        },
+        "handlers.CityListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.CityResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 20
+                }
+            }
+        },
+        "handlers.CityResponse": {
+            "type": "object",
+            "properties": {
+                "country_code": {
+                    "type": "string",
+                    "example": "BR"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Goiânia"
+                }
+            }
+        },
         "handlers.CreateSubmissionRequest": {
             "type": "object",
             "properties": {
@@ -1887,6 +2259,46 @@ const docTemplate = `{
                 "user_agent": {
                     "type": "string",
                     "example": "Mozilla/5.0"
+                }
+            }
+        },
+        "handlers.PersonListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.PersonResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 20
+                }
+            }
+        },
+        "handlers.PersonResponse": {
+            "type": "object",
+            "properties": {
+                "cpf": {
+                    "type": "string",
+                    "example": "123.456.789-01"
+                },
+                "email": {
+                    "type": "string",
+                    "example": "ana.silva@example.com"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Ana Silva"
                 }
             }
         },
