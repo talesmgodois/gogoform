@@ -156,12 +156,13 @@ func (f *fakeForms) Delete(ctx context.Context, tenantID, id int32) error {
 
 // fakeSubmissions is a submissions.Repository recording its inputs.
 type fakeSubmissions struct {
-	created     submissions.CreateSubmissionInput
-	metadata    submissions.Metadata
-	metadataErr error
-	filter      submissions.ListSubmissionsFilter
-	page        submissions.Page
-	list        []submissions.Submission
+	created      submissions.CreateSubmissionInput
+	metadata     submissions.Metadata
+	metadataErr  error
+	filter       submissions.ListSubmissionsFilter
+	page         submissions.Page
+	list         []submissions.Submission
+	total, today int64
 }
 
 func (f *fakeSubmissions) Create(_ context.Context, in submissions.CreateSubmissionInput) (submissions.Submission, error) {
@@ -185,6 +186,14 @@ func (f *fakeSubmissions) ListByForm(_ context.Context, filter submissions.ListS
 func (f *fakeSubmissions) ListAllByForm(_ context.Context, filter submissions.ListSubmissionsFilter) ([]submissions.Submission, error) {
 	f.filter = filter
 	return f.list, nil
+}
+
+func (f *fakeSubmissions) CountAll(context.Context) (int64, error) {
+	return f.total, nil
+}
+
+func (f *fakeSubmissions) CountToday(context.Context) (int64, error) {
+	return f.today, nil
 }
 
 // fakeWebhooks is a webhooks.Repository recording its inputs.
