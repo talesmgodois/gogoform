@@ -18,6 +18,14 @@ func IsUniqueViolation(err error) bool {
 	return hasSQLState(err, sqlStateUniqueViolation)
 }
 
+// IsUniqueViolationOf reports whether err is a PostgreSQL unique violation of
+// the named constraint or unique index.
+func IsUniqueViolationOf(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == sqlStateUniqueViolation &&
+		pgErr.ConstraintName == constraint
+}
+
 // IsForeignKeyViolation reports whether err is a PostgreSQL foreign key violation.
 func IsForeignKeyViolation(err error) bool {
 	return hasSQLState(err, sqlStateForeignKeyViolation)

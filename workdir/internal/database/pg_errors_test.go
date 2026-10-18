@@ -47,3 +47,14 @@ func TestIsCheckViolation(t *testing.T) {
 		t.Fatal("IsCheckViolation = true for another error")
 	}
 }
+
+func TestIsUniqueViolationOf(t *testing.T) {
+	owner := &pgconn.PgError{Code: sqlStateUniqueViolation, ConstraintName: "owner_key"}
+	if !IsUniqueViolationOf(owner, "owner_key") || !IsUniqueViolationOf(fmt.Errorf("insert: %w", owner), "owner_key") {
+		t.Fatal("IsUniqueViolationOf = false for a violation of the constraint")
+	}
+	if IsUniqueViolationOf(owner, "other_key") || IsUniqueViolationOf(nil, "owner_key") ||
+		IsUniqueViolationOf(&pgconn.PgError{Code: sqlStateCheckViolation, ConstraintName: "owner_key"}, "owner_key") {
+		t.Fatal("IsUniqueViolationOf = true for another error")
+	}
+}
