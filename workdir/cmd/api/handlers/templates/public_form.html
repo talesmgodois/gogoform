@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}}</title>
+  <script src="https://cdn.tailwindcss.com" nonce="{{.Nonce}}"></script>
+</head>
+{{/* Embed mode drops the page background and margins so the card fits the
+    host site's iframe. */}}
+<body class="{{if .Embed}}bg-transparent{{else}}min-h-full bg-slate-950{{end}} text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <main class="{{if .Embed}}p-2{{else}}mx-auto max-w-2xl px-6 py-12{{end}}">
+    <form id="public-form" data-slug="{{.Slug}}" data-content="{{.Content}}" novalidate class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl sm:p-8">
+      <header class="mb-8">
+        <h1 class="text-2xl font-bold tracking-tight break-words">{{.Title}}</h1>
+        {{with .Description}}<p class="mt-2 whitespace-pre-line text-sm text-slate-400 break-words">{{.}}</p>{{end}}
+        {{with .User}}<p class="mt-3 text-xs text-slate-500">Signed in as <span class="font-medium text-slate-300">{{.Username}}</span></p>{{end}}
+      </header>
+
+      <div id="form-fields" class="space-y-6"></div>
+
+      <p id="form-status" role="alert" class="mt-6 hidden rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"></p>
+
+      <div class="mt-8 flex justify-end">
+        <button type="submit" id="form-submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-60">Submit</button>
+      </div>
+    </form>
+
+{{template "powered-by" .PoweredBy}}
+  </main>
+
+  <script nonce="{{.Nonce}}" src="/static/form-render.js"></script>
+  <script nonce="{{.Nonce}}">
+    (() => {
+      "use strict";
+
+      const form = document.getElementById("public-form");
+      const status = document.getElementById("form-status");
+      const submit = document.getElementById("form-submit");
+      const slug = form.dataset.slug;
+      const endpoint = "/public/forms/" + encodeURIComponent(slug);
+      const page = "/f/" + encodeURIComponent(slug);
+      const PREFIX = "field-";
+      const startedAt = Date.now();
+      const embed = new URLSearchParams(location.search).get("embed") === "1";
+
+      let content = null;
+      try {
+        content = JSON.parse(form.dataset.content || "null");
+      } catch (_) {}
+      document.getElementById("form-fields").append(...FormRender.renderContent(content, PREFIX));
+
+      // inputs lists the fields that hold answers, nested in panels or not.
+      const LAYOUT = ["panel", "content", "button"];
+      const inputs = [];
+      const collect = (list) => {
+        for (const f of list) {
+          if (f.type === "panel") collect(f.fields);
+          else if (!LAYOUT.includes(f.type) && f.name) inputs.push(f);
+        }
+      };
+      collect(content && Array.isArray(content.fields) ? content.fields.map(FormRender.fromContent) : []);
+
+      const showError = (text) => {
+        status.textContent = text;
+        status.classList.remove("hidden");
+      };
+      const clearError = () => {
+        status.textContent = "";
+        status.classList.add("hidden");
+        for (const el of form.querySelectorAll("[data-field-error]")) el.remove();
+        for (const el of form.querySelectorAll("[aria-invalid]")) {
+          el.removeAttribute("aria-invalid");
+          el.removeAttribute("aria-describedby");
+        }
+      };
+
+      // showFieldErrors shows each message of errors ({name: message}) under
+      // the control of its field and returns the messages of the names with
+      // no control on the page, such as unknown keys.
+      const showFieldErrors = (errors) => {
+        const rest = [];
+        for (const [name, message] of Object.entries(errors)) {
+          const id = PREFIX + name;
+          const wrapper = form.querySelector('[data-field="' + CSS.escape(id) + '"]');
+          if (!wrapper) {
+            rest.push(name + ": " + message);
+            continue;
+          }
+          const el = document.getElementById(id);
+          const error = FormRender.h("p", { id: id + "-error", "data-field-error": true, class: "text-xs text-rose-400 break-words" }, String(message));
+          wrapper.append(error);
+          if (el) {
+            el.setAttribute("aria-invalid", "true");
+            el.setAttribute("aria-describedby", error.id);
+          }
+        }
+        return rest;
+      };
+
+      // FieldsError carries the field-level errors of a 400 response.
+      class FieldsError extends Error {
+        constructor(fields) {
+          super("Some answers need your attention.");
+          this.fields = fields;
+        }
+      }
+
+      // failure turns an error response into the error to throw: a
+      // FieldsError for the field-level errors of a 400, else a readable message.
+      const failure = async (res, action) => {
+        const data = await res.json().catch(() => null);
+        if (res.status === 400 && data && data.fields && typeof data.fields === "object") return new FieldsError(data.fields);
+        const detail = data && data.message ? data.message : "HTTP " + res.status;
+        switch (res.status) {
+          case 401:
+            return new Error("Sign in to " + action + " this form.");
+          case 403:
+            return new Error("This form is not accepting responses: " + detail + ".");
+          case 404:
+            return new Error("This form no longer exists.");
+        }
+        return new Error(res.status >= 500 ? "The server could not " + action + " the form. Try again later." : "Could not " + action + " the form: " + detail + ".");
+      };
+
+      // upload stores one file of a file field and resolves to its ID.
+      const upload = async (f, file) => {
+        const body = new FormData();
+        body.append("field", f.name);
+        body.append("file", file);
+        const res = await fetch(endpoint + "/files", { method: "POST", credentials: "same-origin", headers: { Accept: "application/json" }, body: body });
+        if (!res.ok) throw await failure(res, "upload a file to");
+        return (await res.json()).id;
+      };
+
+      // valueOf resolves to the answer of field f, or undefined when empty.
+      const valueOf = async (f) => {
+        const el = document.getElementById(PREFIX + f.name);
+        if (!el) return undefined;
+        switch (f.type) {
+          case "toggle":
+            return el.checked;
+          case "file": {
+            const files = Array.from(el.files || []);
+            if (!files.length) return undefined;
+            const ids = [];
+            for (const file of files) ids.push(await upload(f, file));
+            return f.multiple ? ids : ids[0];
+          }
+          case "textfield":
+            if (f.inputType === "number" && el.value !== "" && Number.isFinite(el.valueAsNumber)) return el.valueAsNumber;
+        }
+        return el.value === "" ? undefined : el.value;
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submit.disabled = true;
+        clearError();
+        try {
+          const payload = {};
+          for (const f of inputs) {
+            const v = await valueOf(f);
+            if (v !== undefined) payload[f.name] = v;
+          }
+          const res = await fetch(endpoint + "/submissions", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ payload: payload, completion_time_seconds: Math.round((Date.now() - startedAt) / 1000) }),
+          });
+          if (!res.ok) throw await failure(res, "submit");
+          // The button stays disabled while the thank-you page loads.
+          location.assign(page + "/thanks" + (embed ? "?embed=1" : ""));
+        } catch (err) {
+          if (err instanceof FieldsError) {
+            const rest = showFieldErrors(err.fields);
+            showError([err.message, ...rest].join(" "));
+            const first = form.querySelector("[aria-invalid]");
+            if (first) first.focus();
+          } else {
+            showError(err instanceof TypeError ? "Could not reach the server. Check your connection and try again." : err.message);
+          }
+          submit.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

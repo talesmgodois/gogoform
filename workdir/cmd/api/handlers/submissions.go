@@ -9,13 +9,22 @@ import (
 	"time"
 
 	apperrors "app/internal/errors"
+	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
 )
 
+// Messages of the submission validation errors.
+const (
+	msgInvalidAnswers = "some answers are invalid"
+	msgFileNotFound   = "file not found; upload it again"
+)
+
 // CreateSubmissionRequest is the body of POST /public/forms/{slug}/submissions.
 type CreateSubmissionRequest struct {
-	// Payload holds the answers; any JSON value but null.
+	// Payload holds the answers: a JSON object keyed by the names of the
+	// form's input fields. File fields take the IDs returned by
+	// POST /public/forms/{slug}/files.
 	Payload json.RawMessage `json:"payload" swaggertype:"object"`
 	// CompletionTimeSeconds is how long the respondent took to fill the form in.
 	CompletionTimeSeconds *int32 `json:"completion_time_seconds" example:"95" minimum:"0"`
@@ -50,12 +59,13 @@ type SubmissionListResponse struct {
 type submissionsController struct {
 	forms       forms.Repository
 	submissions submissions.Repository
+	files       files.Repository
 }
 
 // Create stores a submission of a public form.
 //
 //	@Summary		Submit a form
-//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous.
+//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose "fields" object maps each offending field name to its error.
 //	@Tags			submissions,public
 //	@Accept			json
 //	@Produce		json
@@ -64,9 +74,10 @@ type submissionsController struct {
 //	@Param			slug	path		string						true	"Form slug"
 //	@Param			body	body		CreateSubmissionRequest		true	"Answers"
 //	@Success		201		{object}	SubmissionResponse			"Submission stored"
-//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
+//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request, or invalid answers listed in fields"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
-//	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found or not available"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
+//	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug}/submissions [post]
 func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
@@ -75,9 +86,13 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
+	var payload map[string]json.RawMessage
 	switch {
 	case len(req.Payload) == 0 || bytes.Equal(req.Payload, []byte("null")):
 		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("payload is required"))
+		return
+	case req.Payload[0] != '{' || json.Unmarshal(req.Payload, &payload) != nil:
+		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("payload must be a JSON object"))
 		return
 	case req.CompletionTimeSeconds != nil && *req.CompletionTimeSeconds < 0:
 		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("completion_time_seconds must be >= 0"))
@@ -97,6 +112,10 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.UserID = &u.ID
+	}
+	if err := c.validatePayload(r, f, payload); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
 	}
 	sub, err := c.submissions.Create(r.Context(), in)
 	if err != nil {
@@ -118,6 +137,38 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 		sub.Metadata = &meta
 	}
 	writeJSON(w, r, http.StatusCreated, toSubmissionResponse(sub))
+}
+
+// validatePayload checks payload against the definition of f and that the
+// files it references were uploaded to f's tenant, returning a validation
+// error listing the offending fields.
+func (c *submissionsController) validatePayload(r *http.Request, f forms.Form, payload map[string]json.RawMessage) error {
+	content, err := forms.ParseContent(f.Content)
+	if err != nil {
+		// The form cannot be filled in: there is no way to know its fields.
+		return apperrors.Wrap(err, apperrors.CodeInternal, "form "+f.Slug+" has an invalid definition")
+	}
+	if errs := forms.ValidatePayload(content, payload); errs != nil {
+		return apperrors.NewValidation(msgInvalidAnswers, errs)
+	}
+	errs := map[string]string{}
+	for name, ids := range forms.FileIDs(content, payload) {
+		for _, id := range ids {
+			file, err := c.files.GetInfoByID(r.Context(), id)
+			switch {
+			case apperrors.HTTPStatus(err) == http.StatusNotFound || err == nil && file.TenantID != f.TenantID:
+				// Other tenants' files are reported as missing so their IDs
+				// cannot be probed.
+				errs[name] = msgFileNotFound
+			case err != nil:
+				return err
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return apperrors.NewValidation(msgInvalidAnswers, errs)
+	}
+	return nil
 }
 
 // List lists the submissions of one of the authenticated tenant's forms.

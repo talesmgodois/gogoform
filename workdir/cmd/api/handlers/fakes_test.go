@@ -122,6 +122,9 @@ type fakeForms struct {
 	err     error
 	// counts overrides the submission count of a form, 3 by default.
 	counts map[int32]int64
+	// tenantInactive marks tenants whose forms GetBySlug reports as belonging
+	// to an inactive tenant.
+	tenantInactive map[int32]bool
 }
 
 // count returns the submission count reported for the form id.
@@ -163,6 +166,17 @@ func (f *fakeForms) GetPublicBySlug(_ context.Context, slug string) (forms.Form,
 		}
 	}
 	return forms.Form{}, apperrors.NewNotFound("form not found")
+}
+
+// GetBySlug returns the form whatever its state; tenantInactive marks the
+// tenants reported as inactive.
+func (f *fakeForms) GetBySlug(_ context.Context, slug string) (forms.FormBySlug, error) {
+	for _, form := range f.forms {
+		if form.Slug == slug {
+			return forms.FormBySlug{Form: form, TenantName: "Acme", TenantActive: !f.tenantInactive[form.TenantID]}, nil
+		}
+	}
+	return forms.FormBySlug{}, apperrors.NewNotFound("form not found")
 }
 
 func (f *fakeForms) List(_ context.Context, filter forms.ListFormsFilter, page forms.Page) ([]forms.FormSummary, error) {
@@ -298,6 +312,12 @@ func (f *fakeFiles) GetByID(_ context.Context, id string) (files.File, error) {
 		return files.File{}, apperrors.NewNotFound("file not found")
 	}
 	return file, nil
+}
+
+func (f *fakeFiles) GetInfoByID(ctx context.Context, id string) (files.File, error) {
+	file, err := f.GetByID(ctx, id)
+	file.Data = nil
+	return file, err
 }
 
 func (f *fakeFiles) ListAll(_ context.Context, page files.Page) ([]files.FileSummary, error) {

@@ -314,7 +314,7 @@ func (c *formsController) Delete(w http.ResponseWriter, r *http.Request) {
 // GetPublic returns a form that can currently be filled in.
 //
 //	@Summary		Get a form to fill in
-//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.
+//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window; otherwise a 403 tells which. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.
 //	@Tags			public
 //	@Produce		json
 //	@Security		BearerAuth
@@ -322,7 +322,8 @@ func (c *formsController) Delete(w http.ResponseWriter, r *http.Request) {
 //	@Param			slug	path		string						true	"Form slug"
 //	@Success		200		{object}	PublicFormResponse			"Form"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Private form and not signed in, or invalid credentials"
-//	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found or not available"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
+//	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug} [get]
 func (c *formsController) GetPublic(w http.ResponseWriter, r *http.Request) {
@@ -344,15 +345,26 @@ func (c *formsController) GetPublic(w http.ResponseWriter, r *http.Request) {
 
 // availableForm returns the form of the slug path value if it can be filled
 // in by the user of the request, which Guard(auth.Public, ...) resolved.
+// Forms that exist but accept no responses get a 403 telling why, as the /f
+// page does; inactive forms and forms of inactive tenants share a message.
 func availableForm(r *http.Request, repo forms.Repository) (forms.Form, error) {
-	f, err := repo.GetPublicBySlug(r.Context(), r.PathValue("slug"))
+	f, err := repo.GetBySlug(r.Context(), r.PathValue("slug"))
 	if err != nil {
 		return forms.Form{}, err
+	}
+	switch forms.Availability(f.Form, f.TenantActive, time.Now()) {
+	case forms.Available:
+	case forms.NotStarted:
+		return forms.Form{}, apperrors.NewForbidden("form opens on " + f.StartDate.UTC().Format(time.RFC3339))
+	case forms.Ended:
+		return forms.Form{}, apperrors.NewForbidden("form closed on " + f.EndDate.UTC().Format(time.RFC3339))
+	default:
+		return forms.Form{}, apperrors.NewForbidden("form is not accepting responses")
 	}
 	if !f.PublicAvailable && userFrom(r.Context()) == nil {
 		return forms.Form{}, apperrors.NewUnauthorized("sign in to access this form")
 	}
-	return f, nil
+	return f.Form, nil
 }
 
 // decodeFormRequest decodes and validates a FormRequest. Dates are

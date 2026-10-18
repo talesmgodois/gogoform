@@ -21,6 +21,8 @@ func TestRoutes(t *testing.T) {
 		{http.MethodGet, "/swagger/index.html", http.StatusOK},
 		{http.MethodGet, "/swagger/doc.json", http.StatusOK},
 		{http.MethodGet, "/unknown", http.StatusNotFound},
+		{http.MethodGet, "/static/form-render.js", http.StatusOK},
+		{http.MethodGet, "/static/missing.js", http.StatusNotFound},
 		// Tenant-scoped endpoints require an API key.
 		{http.MethodGet, "/tenants/me", http.StatusUnauthorized},
 		{http.MethodPost, "/forms", http.StatusUnauthorized},
@@ -36,6 +38,7 @@ func TestRoutes(t *testing.T) {
 		{http.MethodPost, "/app", http.StatusMethodNotAllowed},
 		// Public endpoints do not.
 		{http.MethodGet, "/public/forms/missing", http.StatusNotFound},
+		{http.MethodGet, "/f/missing", http.StatusNotFound},
 		{http.MethodPatch, "/forms/1", http.StatusMethodNotAllowed},
 	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

@@ -46,7 +46,8 @@ func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 // Routes builds the HTTP handler. Tenant-scoped endpoints authenticate with
 // the tenant's API key or resolve the own tenant of a user signed in with a
 // JWT, HTTP Basic credentials or the /app session cookie (auth; see
-// tenantOrUser). User endpoints accept a JWT or HTTP Basic credentials, never
+// tenantOrUser). Respondents fill public forms in on the /f/{slug} page
+// (public_page.go). User endpoints accept a JWT or HTTP Basic credentials, never
 // the session cookie, guarded by an auth.Policy (guard). The /app pages,
 // listed in app_routes.go, use the session cookie of a signed-in user. The
 // development-only POST /tenants and /samples/* are only mounted when enabled
@@ -54,9 +55,9 @@ func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 func Routes(svc Services, features config.FeaturesConfig) http.Handler {
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
 	formsCtl := &formsController{forms: svc.forms}
-	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions}
+	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions, files: svc.files}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
-	filesCtl := &filesController{files: svc.files}
+	filesCtl := &filesController{files: svc.files, forms: svc.forms}
 	authCtl := &authController{auth: svc.auth}
 	auth := tenantOrUser(svc.tenants, authCtl)
 	guard := authCtl.Guard
@@ -64,6 +65,7 @@ func Routes(svc Services, features config.FeaturesConfig) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handler.Health)
 	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
+	mux.HandleFunc("GET /static/form-render.js", FormRenderScript)
 
 	mux.HandleFunc("POST /auth/signup", authCtl.SignUp)
 	mux.HandleFunc("POST /auth/signin", authCtl.SignIn)
@@ -101,8 +103,14 @@ func Routes(svc Services, features config.FeaturesConfig) http.Handler {
 	mux.HandleFunc("DELETE /files/{id}", auth(filesCtl.Delete))
 
 	// Credentials are optional: private forms check the user themselves.
-	mux.HandleFunc("GET /public/forms/{slug}", guard(authpkg.Public, formsCtl.GetPublic))
-	mux.HandleFunc("POST /public/forms/{slug}/submissions", guard(authpkg.Public, submissionsCtl.Create))
+	// The session cookie lets the /f page submit private forms.
+	mux.HandleFunc("GET /public/forms/{slug}", authCtl.PublicForm(formsCtl.GetPublic))
+	mux.HandleFunc("POST /public/forms/{slug}/submissions", authCtl.PublicForm(submissionsCtl.Create))
+	mux.HandleFunc("POST /public/forms/{slug}/files", authCtl.PublicForm(filesCtl.PublicCreate))
+
+	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth}
+	mux.HandleFunc("GET /f/{slug}", publicPageCtl.Form)
+	mux.HandleFunc("GET /f/{slug}/thanks", publicPageCtl.Thanks)
 
 	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
 	appCtl.mount(mux)

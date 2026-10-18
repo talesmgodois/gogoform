@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
+	"app/internal/pkg/forms"
 )
 
 const (
@@ -25,6 +27,9 @@ const (
 	multipartOverheadBytes = 64 << 10
 	// uploadField is the multipart form field carrying the file.
 	uploadField = "file"
+	// formFieldValue is the multipart form field naming, in public uploads,
+	// the file field of the form the file is for.
+	formFieldValue = "field"
 	// maxFileTextLen matches the size of the files.name and
 	// files.content_type columns.
 	maxFileTextLen = 255
@@ -47,6 +52,7 @@ type FileResponse struct {
 // filesController serves the file endpoints.
 type filesController struct {
 	files files.Repository
+	forms forms.Repository
 }
 
 // Create uploads a file for the authenticated tenant.
@@ -67,7 +73,7 @@ type filesController struct {
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/files [post]
 func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
-	in, err := readUpload(w, r)
+	in, _, err := readUpload(w, r)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -81,6 +87,85 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 	resp := toFileResponse(f)
 	w.Header().Set("Location", resp.URL)
 	writeJSON(w, r, http.StatusCreated, resp)
+}
+
+// PublicCreate uploads a file for one of the file fields of a public form,
+// storing it under the form's tenant.
+//
+//	@Summary		Upload a file to a form
+//	@Description	Stores the file sent in the "file" field of a multipart form, for the file field of the form named by the "field" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission.
+//	@Tags			files,public
+//	@Accept			multipart/form-data
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Security		BasicAuth
+//	@Param			slug	path		string						true	"Form slug"
+//	@Param			field	formData	string						true	"Name of the form's file field"
+//	@Param			file	formData	file						true	"File to upload"
+//	@Success		201		{object}	FileResponse				"File uploaded"
+//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid, missing, empty, too large or not accepted file, or unknown or non-file field"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
+//	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
+//	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
+//	@Router			/public/forms/{slug}/files [post]
+func (c *filesController) PublicCreate(w http.ResponseWriter, r *http.Request) {
+	f, err := availableForm(r, c.forms)
+	if err != nil {
+		unauthorized(w, r, err)
+		return
+	}
+	if !f.AcceptAnonymous && userFrom(r.Context()) == nil {
+		unauthorized(w, r, apperrors.NewUnauthorized("sign in to submit this form"))
+		return
+	}
+	in, values, err := readUpload(w, r)
+	if err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	field, err := uploadFormField(f, values.Get(formFieldValue))
+	if err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	switch {
+	case int64(len(in.Data)) > field.MaxSizeBytes():
+		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest(
+			"file must be at most "+strconv.FormatFloat(float64(field.MaxSizeBytes())/(1<<20), 'f', -1, 64)+" MiB"))
+		return
+	case !field.Accepts(in.Name, in.ContentType):
+		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("file type is not accepted, expected "+field.Accept))
+		return
+	}
+	in.TenantID = f.TenantID
+	file, err := c.files.Create(r.Context(), in)
+	if err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	resp := toFileResponse(file)
+	w.Header().Set("Location", resp.URL)
+	writeJSON(w, r, http.StatusCreated, resp)
+}
+
+// uploadFormField returns the file field called name of the form f.
+func uploadFormField(f forms.Form, name string) (forms.Field, error) {
+	if name == "" {
+		return forms.Field{}, apperrors.NewBadRequest(`multipart field "` + formFieldValue + `" naming a file field is required before the file`)
+	}
+	content, err := forms.ParseContent(f.Content)
+	if err != nil {
+		return forms.Field{}, apperrors.NewBadRequest("form has no file field " + strconv.Quote(name))
+	}
+	field, ok := content.Field(name)
+	switch {
+	case !ok:
+		return forms.Field{}, apperrors.NewBadRequest("form has no field " + strconv.Quote(name))
+	case field.Type != forms.FieldFile:
+		return forms.Field{}, apperrors.NewBadRequest("field " + strconv.Quote(name) + " is not a file field")
+	}
+	return field, nil
 }
 
 // Get serves a file's content.
@@ -147,26 +232,37 @@ func (c *filesController) Delete(w http.ResponseWriter, r *http.Request) {
 
 // readUpload streams the multipart body and returns the first part of the
 // uploadField field, rejecting bodies without it, empty files and files
-// larger than maxUploadBytes. Other fields are ignored.
-func readUpload(w http.ResponseWriter, r *http.Request) (files.CreateFileInput, error) {
+// larger than maxUploadBytes. It also returns the values of the text fields
+// sent before the file, truncated to maxFileTextLen bytes; later fields are
+// ignored.
+func readUpload(w http.ResponseWriter, r *http.Request) (files.CreateFileInput, url.Values, error) {
 	tooLarge := apperrors.NewBadRequest("file must be at most 10 MiB")
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+multipartOverheadBytes)
 	mr, err := r.MultipartReader()
 	if err != nil {
-		return files.CreateFileInput{}, apperrors.NewBadRequest("request must be a multipart/form-data body")
+		return files.CreateFileInput{}, nil, apperrors.NewBadRequest("request must be a multipart/form-data body")
 	}
+	values := url.Values{}
 	for {
 		part, err := mr.NextPart()
 		var maxErr *http.MaxBytesError
 		switch {
 		case errors.Is(err, io.EOF):
-			return files.CreateFileInput{}, apperrors.NewBadRequest(`multipart field "` + uploadField + `" with a file is required`)
+			return files.CreateFileInput{}, nil, apperrors.NewBadRequest(`multipart field "` + uploadField + `" with a file is required`)
 		case errors.As(err, &maxErr):
-			return files.CreateFileInput{}, tooLarge
+			return files.CreateFileInput{}, nil, tooLarge
 		case err != nil:
-			return files.CreateFileInput{}, apperrors.NewBadRequest("invalid multipart body: " + err.Error())
+			return files.CreateFileInput{}, nil, apperrors.NewBadRequest("invalid multipart body: " + err.Error())
 		}
 		if part.FormName() != uploadField || part.FileName() == "" {
+			if part.FileName() == "" && part.FormName() != "" {
+				v, err := io.ReadAll(io.LimitReader(part, maxFileTextLen))
+				if err != nil {
+					part.Close()
+					return files.CreateFileInput{}, nil, apperrors.NewBadRequest("invalid multipart body: " + err.Error())
+				}
+				values.Add(part.FormName(), string(v))
+			}
 			part.Close()
 			continue
 		}
@@ -174,17 +270,17 @@ func readUpload(w http.ResponseWriter, r *http.Request) (files.CreateFileInput, 
 		part.Close()
 		switch {
 		case errors.As(err, &maxErr), len(data) > maxUploadBytes:
-			return files.CreateFileInput{}, tooLarge
+			return files.CreateFileInput{}, nil, tooLarge
 		case err != nil:
-			return files.CreateFileInput{}, apperrors.NewBadRequest("invalid multipart body: " + err.Error())
+			return files.CreateFileInput{}, nil, apperrors.NewBadRequest("invalid multipart body: " + err.Error())
 		case len(data) == 0:
-			return files.CreateFileInput{}, apperrors.NewBadRequest("file must not be empty")
+			return files.CreateFileInput{}, nil, apperrors.NewBadRequest("file must not be empty")
 		}
 		return files.CreateFileInput{
 			Name:        sanitizeFileName(part.FileName()),
 			ContentType: detectContentType(part.Header.Get("Content-Type"), data),
 			Data:        data,
-		}, nil
+		}, values, nil
 	}
 }
 

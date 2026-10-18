@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"app/internal/pkg/files"
+	"app/internal/pkg/forms"
 )
 
 const testFileID = "0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10"
@@ -17,6 +18,15 @@ const testFileID = "0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10"
 // upload posts a multipart body with one part per field (name, filename,
 // content type, content) to /files, authenticated with testAPIKey.
 func upload(t *testing.T, svc Services, parts ...[4]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := multipartRequest(t, "/files", parts...)
+	req.Header.Set(apiKeyHeader, testAPIKey)
+	return serve(svc, req)
+}
+
+// multipartRequest builds a POST to path with a multipart body holding one
+// part per field (name, filename, content type, content).
+func multipartRequest(t *testing.T, path string, parts ...[4]string) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -37,12 +47,9 @@ func upload(t *testing.T, svc Services, parts ...[4]string) *httptest.ResponseRe
 		w.Write([]byte(p[3]))
 	}
 	mw.Close()
-	req := httptest.NewRequest(http.MethodPost, "/files", &body)
+	req := httptest.NewRequest(http.MethodPost, path, &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set(apiKeyHeader, testAPIKey)
-	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures).ServeHTTP(rec, req)
-	return rec
+	return req
 }
 
 func TestUploadFile(t *testing.T) {
@@ -163,5 +170,86 @@ func TestSanitizeFileName(t *testing.T) {
 		if got := sanitizeFileName(in); got != want {
 			t.Errorf("sanitizeFileName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// uploadForm is a public form, owned by another tenant than testTenant, with
+// file fields (one in a panel) and a non-file field.
+var uploadForm = forms.Form{
+	ID: 20, TenantID: 99, Title: "Jobs", Slug: "jobs", IsActive: true, PublicAvailable: true, AcceptAnonymous: true,
+	Content: []byte(`{"fields":[
+		{"type":"textfield","name":"email"},
+		{"type":"file","name":"photo","accept":"image/*,.pdf","max_size_mb":0.001},
+		{"type":"panel","title":"Docs","fields":[{"type":"file","name":"cv"}]}
+	]}`),
+}
+
+// publicUpload posts file to the form slug's upload endpoint for the field
+// named field, without credentials.
+func publicUpload(t *testing.T, svc Services, slug, field string, file [4]string) *httptest.ResponseRecorder {
+	t.Helper()
+	return serve(svc, multipartRequest(t, "/public/forms/"+slug+"/files", [4]string{"field", "", "", field}, file))
+}
+
+func TestPublicUploadFile(t *testing.T) {
+	svc := testServices(uploadForm)
+	rec := publicUpload(t, svc, "jobs", "photo", [4]string{"file", "me.png", "image/png", "\x89PNG"})
+	assertStatus(t, rec, http.StatusCreated)
+	if in := svc.files.(*fakeFiles).created; in.TenantID != uploadForm.TenantID || in.Name != "me.png" || in.ContentType != "image/png" {
+		t.Fatalf("input = %+v", in)
+	}
+	if body := decode[FileResponse](t, rec); body.ID != testFileID || rec.Header().Get("Location") != body.URL {
+		t.Fatalf("body = %+v, Location %q", body, rec.Header().Get("Location"))
+	}
+
+	// Extensions match too, and fields nested in panels are found.
+	assertStatus(t, publicUpload(t, svc, "jobs", "photo", [4]string{"file", "cv.PDF", "application/octet-stream", "x"}), http.StatusCreated)
+	assertStatus(t, publicUpload(t, svc, "jobs", "cv", [4]string{"file", "cv.txt", "text/plain", "x"}), http.StatusCreated)
+}
+
+func TestPublicUploadFileRejects(t *testing.T) {
+	svc := testServices(uploadForm)
+	png := [4]string{"file", "me.png", "image/png", "x"}
+	for name, rec := range map[string]*httptest.ResponseRecorder{
+		"too large for the field": publicUpload(t, svc, "jobs", "photo", [4]string{"file", "big.png", "image/png", strings.Repeat("x", 1100)}),
+		"too large for the API":   publicUpload(t, svc, "jobs", "cv", [4]string{"file", "big.bin", "", strings.Repeat("x", maxUploadBytes+1)}),
+		"wrong type":              publicUpload(t, svc, "jobs", "photo", [4]string{"file", "notes.txt", "text/plain", "x"}),
+		"unknown field":           publicUpload(t, svc, "jobs", "nope", png),
+		"non-file field":          publicUpload(t, svc, "jobs", "email", png),
+		"layout component":        publicUpload(t, svc, "jobs", "Docs", png),
+		"missing field":           serve(svc, multipartRequest(t, "/public/forms/jobs/files", png)),
+		"field after the file":    serve(svc, multipartRequest(t, "/public/forms/jobs/files", png, [4]string{"field", "", "", "photo"})),
+		"missing file":            serve(svc, multipartRequest(t, "/public/forms/jobs/files", [4]string{"field", "", "", "photo"})),
+	} {
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 (body %s)", name, rec.Code, rec.Body.String())
+		}
+	}
+	if in := svc.files.(*fakeFiles).created; in.Data != nil {
+		t.Fatalf("stored %+v", in)
+	}
+}
+
+func TestPublicUploadFileAvailability(t *testing.T) {
+	inactive := uploadForm
+	inactive.ID, inactive.Slug, inactive.IsActive = 21, "closed", false
+	private := uploadForm
+	private.ID, private.Slug, private.PublicAvailable = 22, "private", false
+	identified := uploadForm
+	identified.ID, identified.Slug, identified.AcceptAnonymous = 23, "identified", false
+	svc := testServices(uploadForm, inactive, private, identified)
+	png := [4]string{"file", "me.png", "image/png", "x"}
+
+	assertStatus(t, publicUpload(t, svc, "closed", "photo", png), http.StatusForbidden)
+	assertStatus(t, publicUpload(t, svc, "missing", "photo", png), http.StatusNotFound)
+	assertStatus(t, publicUpload(t, svc, "private", "photo", png), http.StatusUnauthorized)
+	assertStatus(t, publicUpload(t, svc, "identified", "photo", png), http.StatusUnauthorized)
+
+	// A signed-in user can upload to both.
+	token := bearer(tokenFor(t, svc, "basic"))
+	for _, slug := range []string{"private", "identified"} {
+		req := multipartRequest(t, "/public/forms/"+slug+"/files", [4]string{"field", "", "", "photo"}, png)
+		req.Header.Set("Authorization", token)
+		assertStatus(t, serve(svc, req), http.StatusCreated)
 	}
 }

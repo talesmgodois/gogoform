@@ -1,0 +1,11 @@
+{{/* powered-by is the "Powered by gogoform" footer badge of the public form
+    pages. It expects a bool, the result of showPoweredBy, and renders nothing
+    when false. */}}
+{{define "powered-by"}}{{if .}}
+  <footer class="mt-8 flex justify-center">
+    <a href="/" target="_blank" rel="noopener" data-powered-by class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-500 shadow-sm hover:text-slate-700">
+      <span class="grid h-4 w-4 place-items-center rounded bg-gradient-to-tr from-indigo-600 to-purple-600 text-[10px] font-bold text-white">G</span>
+      Powered by gogoform
+    </a>
+  </footer>
+{{end}}{{end}}

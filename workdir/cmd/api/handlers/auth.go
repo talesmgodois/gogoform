@@ -234,6 +234,27 @@ func (c *authController) Guard(p auth.Policy, next http.HandlerFunc) http.Handle
 	}
 }
 
+// PublicForm is Guard(auth.Public, next) for the public form endpoints, which
+// the public form page (/f/{slug}) calls with the /app session cookie rather
+// than an Authorization header: without the header, the user of the session
+// cookie is used. A cookie that is invalid, or sent by a cross-origin
+// state-changing request, is ignored, leaving the request anonymous.
+func (c *authController) PublicForm(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u, err := c.authenticate(r)
+		if err != nil {
+			unauthorized(w, r, err)
+			return
+		}
+		if u == nil {
+			if cu, err := sessionCookieUser(r, c); err == nil {
+				u = cu
+			}
+		}
+		next(w, r.WithContext(withUser(r.Context(), u)))
+	}
+}
+
 // authenticate returns the user identified by the Authorization header, or
 // nil when there is none.
 func (c *authController) authenticate(r *http.Request) (*auth.User, error) {

@@ -16,7 +16,9 @@ import (
 // HttpOnly, SameSite=Lax and scoped to "/" so the pages' scripts can call the
 // tenant API with it. guardPage reads it for the /app pages and tenantOrUser
 // for the tenant API, which rejects cross-origin state-changing requests
-// authenticated by it; the Guard routes (/auth, /users) never accept it.
+// authenticated by it. The public form page and endpoints read it as an
+// optional user (see PublicForm); the Guard routes (/auth, /users) never
+// accept it.
 const sessionCookie = "gogoform_session"
 
 // defaultSignInRedirect is where the sign-in page leads without a next page.
@@ -61,11 +63,17 @@ type appMessagePage struct {
 // sessionUser returns the user of the session cookie, or nil when there is
 // none. An invalid or expired cookie is cleared.
 func (c *appController) sessionUser(w http.ResponseWriter, r *http.Request) *auth.User {
+	return sessionUserOf(w, r, c.auth)
+}
+
+// sessionUserOf returns the user of the session cookie, checked by svc, or
+// nil when there is none. An invalid or expired cookie is cleared.
+func sessionUserOf(w http.ResponseWriter, r *http.Request, svc *auth.Service) *auth.User {
 	cookie, err := r.Cookie(sessionCookie)
 	if err != nil || cookie.Value == "" {
 		return nil
 	}
-	u, err := c.auth.CheckToken(r.Context(), cookie.Value)
+	u, err := svc.CheckToken(r.Context(), cookie.Value)
 	if err != nil {
 		clearSessionCookie(w, r)
 		return nil
@@ -189,12 +197,13 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// safeNext returns next if it is a local /app page, so the sign-in page
-// cannot be used as an open redirect, and defaultSignInRedirect otherwise.
+// safeNext returns next if it is a local /app page or a public form page
+// (/f/...), so the sign-in page cannot be used as an open redirect, and
+// defaultSignInRedirect otherwise.
 func safeNext(next string) string {
 	u, err := url.Parse(next)
 	if err != nil || u.Scheme != "" || u.Host != "" || u.Opaque != "" || strings.Contains(next, `\`) ||
-		!(u.Path == "/app" || strings.HasPrefix(u.Path, "/app/")) || strings.HasPrefix(u.Path, "/app/signin") {
+		!(u.Path == "/app" || strings.HasPrefix(u.Path, "/app/") || strings.HasPrefix(u.Path, "/f/")) || strings.HasPrefix(u.Path, "/app/signin") {
 		return defaultSignInRedirect
 	}
 	return u.RequestURI()
