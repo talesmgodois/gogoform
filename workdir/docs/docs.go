@@ -970,7 +970,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.",
+                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window; otherwise a 403 tells which. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.",
                 "produces": [
                     "application/json"
                 ],
@@ -1000,8 +1000,99 @@ const docTemplate = `{
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "403": {
+                        "description": "Form inactive, not open yet or closed",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "404": {
-                        "description": "Form not found or not available",
+                        "description": "Form not found",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/public/forms/{slug}/files": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Stores the file sent in the \"file\" field of a multipart form, for the file field of the form named by the \"field\" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files",
+                    "public"
+                ],
+                "summary": "Upload a file to a form",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Form slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name of the form's file field",
+                        "name": "field",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "File to upload",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "File uploaded",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.FileResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid, missing, empty, too large or not accepted file, or unknown or non-file field",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Sign-in required, or invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Form inactive, not open yet or closed",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Form not found",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1025,7 +1116,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous.",
+                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose \"fields\" object maps each offending field name to its error.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1063,7 +1154,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Invalid request, or invalid answers listed in fields",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1074,8 +1165,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "403": {
+                        "description": "Form inactive, not open yet or closed",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "404": {
-                        "description": "Form not found or not available",
+                        "description": "Form not found",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1582,6 +1679,13 @@ const docTemplate = `{
                     ],
                     "example": "not_found"
                 },
+                "fields": {
+                    "description": "Fields maps input field names to what is wrong with them; only set by\nvalidation errors.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "message": {
                     "type": "string",
                     "example": "form not found"
@@ -1611,7 +1715,7 @@ const docTemplate = `{
                     "example": 95
                 },
                 "payload": {
-                    "description": "Payload holds the answers; any JSON value but null.",
+                    "description": "Payload holds the answers: a JSON object keyed by the names of the\nform's input fields. File fields take the IDs returned by\nPOST /public/forms/{slug}/files.",
                     "type": "object"
                 }
             }
