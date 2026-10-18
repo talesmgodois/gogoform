@@ -95,6 +95,7 @@
     </div>
   </dialog>
 
+  <script nonce="{{.Nonce}}" src="/static/form-render.js"></script>
   <script nonce="{{.Nonce}}">
     (() => {
       // Component catalog: the types of the "fields" of the form content.
@@ -114,7 +115,6 @@
       const DRAG_FIELD = "text/x-gogoform-field";
 
       const INPUT = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none";
-      const PREVIEW = "w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300 placeholder:text-slate-600";
 
       // publicAvailable forms can be filled in without signing in, so they
       // always accept anonymous submissions (the API rejects anything else).
@@ -122,22 +122,8 @@
       let dirty = false;
       let nextID = 1;
 
-      // h creates an element; string children become text nodes, so user
-      // input is never parsed as HTML.
-      const h = (tag, props, ...children) => {
-        const el = document.createElement(tag);
-        for (const [k, v] of Object.entries(props || {})) {
-          if (v == null || v === false) continue;
-          if (k === "class") el.className = v;
-          else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-          else if (k in el && k !== "value") el[k] = v;
-          else if (k !== "value") el.setAttribute(k, v === true ? "" : v);
-        }
-        el.append(...children.flat().filter((c) => c != null && c !== false));
-        // A select only accepts a value once its options exist.
-        if (props && props.value != null) el.value = props.value;
-        return el;
-      };
+      // The field controls are rendered by the shared form-render.js.
+      const h = FormRender.h;
       const $ = (id) => document.getElementById(id);
 
       // Outline icons (Heroicons), each a list of SVG path data.
@@ -263,20 +249,11 @@
       // fromJSON maps a content field back to builder state; unknown types yield null.
       const fromJSON = (o) => {
         if (!o || !TYPES[o.type]) return null;
-        const src = o.data_source || {};
-        const str = (v, def) => (typeof v === "string" ? v : def);
-        const num = (v, def) => (Number.isFinite(v) ? v : def);
-        const props = {
-          label: str(o.label, TYPES[o.type].label), name: str(o.name, ""), nameEdited: true,
-          help: str(o.help, ""), required: o.required === true, placeholder: str(o.placeholder, ""),
-          inputType: INPUT_TYPES.includes(o.input_type) ? o.input_type : "text", rows: num(o.rows, 4),
-          source: { url: str(src.url, ""), labelKey: str(src.label_key, "name"), valueKey: str(src.value_key, "id"), searchParam: str(src.search_param, "q") },
-          minChars: num(o.min_chars, 2), accept: str(o.accept, ""), multiple: o.multiple === true,
-          maxSizeMb: num(o.max_size_mb, 10), defaultValue: o.default === true,
-        };
-        if (Array.isArray(o.options)) {
-          props.options = o.options.map((opt) => ({ label: str(opt && opt.label, ""), value: str(opt && opt.value, ""), valueEdited: true }));
-        }
+        const props = FormRender.fromContent(o);
+        if (typeof o.label !== "string") props.label = TYPES[o.type].label;
+        props.nameEdited = true;
+        if (Array.isArray(o.options)) props.options.forEach((opt) => { opt.valueEdited = true; });
+        else delete props.options;
         return newField(o.type, props);
       };
 
@@ -319,55 +296,6 @@
 
       // ---- Canvas (the form as respondents see it) ------------------------
 
-      // preview renders the control of a field. On the canvas it is a static
-      // picture; live (in the preview dialog) it is a working form control.
-      const preview = (f, live) => {
-        const ph = f.placeholder || null;
-        const attrs = live ? { id: "preview-" + f.uid, name: f.name, required: f.required } : { tabIndex: -1 };
-        const control = (tag, props, ...children) => h(tag, Object.assign({}, attrs, props), ...children);
-        const source = (text) => h("p", { class: "font-mono text-[11px] text-slate-500 truncate" }, text);
-        switch (f.type) {
-          case "textfield":
-            return control("input", { type: f.inputType, placeholder: ph, class: PREVIEW });
-          case "textarea":
-            return control("textarea", { rows: f.rows, placeholder: ph, class: PREVIEW + " resize-none" });
-          case "select":
-            return control("select", { class: PREVIEW },
-              h("option", { value: "" }, ph || "Select an option…"),
-              f.options.map((opt) => h("option", { value: opt.value }, opt.label)));
-          case "select-data":
-            return h("div", { class: "space-y-1.5" },
-              control("select", { class: PREVIEW }, h("option", { value: "" }, ph || "Select an option…")),
-              source("options ← " + (f.source.url || "(no URL yet)")));
-          case "autocomplete-data":
-            return h("div", { class: "space-y-1.5" },
-              control("input", { type: "search", placeholder: ph || "Start typing to search…", class: PREVIEW }),
-              source("suggestions ← " + (f.source.url || "(no URL yet)") + "?" + f.source.searchParam + "=… after " + f.minChars + " characters"));
-          case "file": {
-            const limits = (f.accept || "Any file type") + " · up to " + f.maxSizeMb + " MB" + (f.multiple ? " each" : "");
-            if (live) {
-              return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-4" },
-                control("input", { type: "file", accept: f.accept || null, multiple: f.multiple, class: "block w-full text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-200 hover:file:bg-slate-700" }),
-                h("p", { class: "mt-2 text-[11px] text-slate-500" }, limits));
-            }
-            return h("div", { class: "rounded-xl border-2 border-dashed border-slate-700 px-4 py-6 text-center" },
-              h("p", { class: "text-sm text-slate-300" }, f.multiple ? "Drop files here or browse" : "Drop a file here or browse"),
-              h("p", { class: "mt-1 text-[11px] text-slate-500" }, limits));
-          }
-          case "toggle":
-            if (live) {
-              return h("label", { class: "inline-flex cursor-pointer items-center gap-3" },
-                control("input", { type: "checkbox", checked: f.defaultValue, class: "peer sr-only" }),
-                h("span", { class: "relative h-6 w-11 shrink-0 rounded-full bg-slate-700 transition peer-checked:bg-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-400 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-all peer-checked:after:translate-x-5" }),
-                h("span", { class: "text-sm text-slate-400" }, "Yes"));
-            }
-            return h("div", { class: "flex items-center gap-3" },
-              h("span", { class: "relative inline-flex h-6 w-11 shrink-0 rounded-full transition " + (f.defaultValue ? "bg-indigo-600" : "bg-slate-700") },
-                h("span", { class: "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " + (f.defaultValue ? "left-[1.375rem]" : "left-0.5") })),
-              h("span", { class: "text-sm text-slate-400" }, f.defaultValue ? "Yes" : "No"));
-        }
-      };
-
       const iconButton = (label, name, onclick, danger) =>
         h("button", {
           type: "button", title: label, "aria-label": label,
@@ -404,7 +332,7 @@
                 iconButton("Move down", "down", () => move(i, i + 2)),
                 iconButton("Duplicate", "duplicate", () => duplicate(f.uid)),
                 iconButton("Delete", "trash", () => remove(f.uid), true))),
-            h("div", { class: "pointer-events-none select-none", inert: true }, preview(f)),
+            h("div", { class: "pointer-events-none select-none", inert: true }, FormRender.control(f)),
             h("div", { class: "mt-3 flex items-center justify-between text-[10px] font-mono uppercase text-slate-500" },
               h("span", { class: "normal-case" }, f.name),
               h("span", null, f.type)));
@@ -845,11 +773,7 @@
             h("h2", { class: "text-xl font-bold text-white break-words" }, state.title.trim() || "Untitled form"),
             state.description.trim() ? h("p", { class: "mt-1 whitespace-pre-line text-sm text-slate-400 break-words" }, state.description.trim()) : null),
           ...(state.fields.length
-            ? state.fields.map((f) => h("div", { class: "space-y-1.5" },
-              h(f.type === "toggle" ? "p" : "label", { class: "block text-sm font-semibold text-white break-words", htmlFor: f.type === "toggle" ? null : "preview-" + f.uid },
-                f.label || "Untitled field", f.required ? h("span", { class: "text-rose-400" }, " *") : null),
-              f.help ? h("p", { class: "text-xs text-slate-400 break-words" }, f.help) : null,
-              preview(f, true)))
+            ? state.fields.map((f) => FormRender.field(f, "preview-" + f.uid))
             : [h("p", { class: "rounded-xl border-2 border-dashed border-slate-800 px-6 py-10 text-center text-sm text-slate-500" }, "This form has no fields yet.")]),
           h("div", { class: "flex items-center gap-3 border-t border-slate-800 pt-5" },
             h("button", { type: "submit", class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500" }, "Submit"),

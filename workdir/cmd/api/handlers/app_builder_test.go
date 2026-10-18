@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func TestAppBuilderBlank(t *testing.T) {
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{`data-draft=""`, `data-mode="new"`, `data-form-id=""`, `id="palette"`, `id="canvas"`, `id="inspector"`, `id="code-panel"`, `id="preview-dialog"`, `id="download-code"`, `aria-current="page">Forms`, `<script nonce="`,
+	for _, want := range []string{`data-draft=""`, `data-mode="new"`, `data-form-id=""`, `id="palette"`, `id="canvas"`, `id="inspector"`, `id="code-panel"`, `id="preview-dialog"`, `id="download-code"`, `aria-current="page">Forms`, `<script nonce="`, `src="/static/form-render.js"`, `FormRender.field(f, "preview-" + f.uid)`,
 		`id="builder-heading" class="text-sm font-semibold tracking-tight">New form</h1>`, `<span data-request-label class="font-mono">POST /forms</span>`, `credentials: "same-origin"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
@@ -138,6 +139,26 @@ func TestCopySlug(t *testing.T) {
 		got := copySlug(in)
 		if got != want || len(got) > maxFormTextLen || !slugPattern.MatchString(got) {
 			t.Errorf("copySlug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFormRenderScript(t *testing.T) {
+	rec := httptest.NewRecorder()
+	FormRenderScript(rec, httptest.NewRequest(http.MethodGet, "/static/form-render.js", nil))
+
+	assertStatus(t, rec, http.StatusOK)
+	h := rec.Header()
+	if got := h.Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	if got := h.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q", got)
+	}
+	for _, want := range []string{"window.FormRender", "const h = (tag, props, ...children)", "const control = (f, opts)", "const field = (f, id, prefix)", `"data-field": id`,
+		"const fromContent = (o)", "const renderContent = (content, prefix)", "case \"panel\":", "case \"content\":", "case \"button\":"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("script does not contain %q", want)
 		}
 	}
 }
