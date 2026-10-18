@@ -30,6 +30,7 @@ var submissionMetaColumns = []string{"ip_address", "user_agent", "completion_tim
 type appFormPage struct {
 	appLayout
 	appView
+	Origin string
 	Form forms.FormOverview
 	// Table and JSON show the submissions of the current page, newest first.
 	Table submissionTable
@@ -129,6 +130,7 @@ func (c *appController) renderForm(w http.ResponseWriter, r *http.Request, v app
 	page := appFormPage{
 		appLayout: appLayout{Active: v.navKey()},
 		appView:   v,
+		Origin:    requestOrigin(r),
 		Form:      f,
 		Table:     newSubmissionTable(f.Content, subs),
 		JSON:      string(body),
@@ -395,4 +397,14 @@ func deref[T any](p *T) T {
 		return zero
 	}
 	return *p
+}
+
+// requestOrigin returns the scheme and host of r as an absolute origin, used
+// for building links and embed snippets on the /app pages.
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if isHTTPS(r) {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }

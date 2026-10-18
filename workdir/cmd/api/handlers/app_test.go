@@ -57,8 +57,8 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 		// Row actions and the New form button.
 		`href="/app/forms/1" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Open</a>`,
 		`href="/app/builder?form=1" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50">Edit</a>`,
-		`data-copy-link="/public/forms/customer-survey"`,
-		`data-copy-link="/public/forms/draft-poll"`,
+		`data-copy-link="/f/customer-survey"`,
+		`data-copy-link="/f/draft-poll"`,
 		`id="copy-status" role="status"`,
 		`<a href="/app/builder" class="bg-indigo-600`,
 		"logo.png", `href="/files/` + testFileID + `"`, "image/png", "2.0 KiB", "2026-09-24 12:00 UTC",
@@ -135,6 +135,17 @@ func TestAppNonceIsPerRequest(t *testing.T) {
 	}
 }
 
+// TestAppIsNeverFramed checks that embed=1, which lets other sites frame the
+// /f pages, does not apply to /app.
+func TestAppIsNeverFramed(t *testing.T) {
+	svc := appServices()
+	for _, path := range []string{"/app", "/app?embed=1"} {
+		rec := serve(svc, pageRequest(t, svc, path, appUser))
+		assertStatus(t, rec, http.StatusOK)
+		assertFrameAncestors(t, rec, false)
+	}
+}
+
 func TestAppEmpty(t *testing.T) {
 	rec := getApp(t, appServices(), appUser)
 
@@ -163,7 +174,7 @@ func TestAdminDashboardShowsTenantsWithoutEdit(t *testing.T) {
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{">Tenant</th>", "Acme", `href="/app/admin/forms/1"`, `data-copy-link="/public/forms/customer-survey"`} {
+	for _, want := range []string{">Tenant</th>", "Acme", `href="/app/admin/forms/1"`, `data-copy-link="/f/customer-survey"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
 		}

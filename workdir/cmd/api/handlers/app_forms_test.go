@@ -153,7 +153,7 @@ func TestAppFormActions(t *testing.T) {
 	for _, want := range []string{
 		`data-form-row data-form-id="1" data-form-slug="customer-survey" data-form-title="Customer survey" data-form-active="true" data-form-deleted-href="/app"`,
 		`href="/app/builder?form=1"`, "data-form-toggle", ">Deactivate</button>", "data-form-delete", "data-form-status",
-		`data-copy-link="/public/forms/customer-survey"`, `id="copy-status"`, `id="form-action-status"`, `id="form-delete-dialog"`,
+		`data-copy-link="/f/customer-survey"`, `id="copy-status"`, `id="form-action-status"`, `id="form-delete-dialog"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
@@ -169,7 +169,7 @@ func TestAdminFormHasNoWriteActions(t *testing.T) {
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{`href="/app/admin/forms/1/submissions.csv"`, `href="/app/admin/forms/1?page=3" rel="next"`, `data-copy-link="/public/forms/other"`} {
+	for _, want := range []string{`href="/app/admin/forms/1/submissions.csv"`, `href="/app/admin/forms/1?page=3" rel="next"`, `data-copy-link="/f/other"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
 		}

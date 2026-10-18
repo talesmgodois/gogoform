@@ -68,7 +68,7 @@
                 <div class="flex items-center justify-end gap-1 text-xs font-medium">
                   <a href="{{$.Base}}/forms/{{.ID}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Open</a>
                   {{if not $.Admin}}<a href="/app/builder?form={{.ID}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50">Edit</a>{{end}}
-                  <button type="button" data-copy-link="/public/forms/{{.Slug}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Copy the public link of {{.Title}}">Copy public link</button>
+                  <button type="button" data-copy-link="/f/{{.Slug}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Copy the public link of {{.Title}}">Copy public link</button>
                   {{if not $.Admin}}
                   <button type="button" data-form-toggle class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50 disabled:opacity-50">{{if .IsActive}}Deactivate{{else}}Activate{{end}}</button>
                   <button type="button" data-form-delete class="rounded-lg px-2 py-1 text-rose-300 hover:bg-rose-500/10" title="Delete {{.Title}}">Delete</button>
