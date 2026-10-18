@@ -663,7 +663,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
@@ -696,7 +697,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -833,7 +835,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "409":
@@ -875,7 +878,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -973,7 +977,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -1129,7 +1134,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -1418,7 +1424,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Signed-in user has no workspace, or cross-origin request authenticated
+            by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":

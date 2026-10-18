@@ -197,7 +197,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -297,7 +297,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -456,7 +456,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -606,7 +606,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -677,7 +677,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -920,7 +920,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1365,7 +1365,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
