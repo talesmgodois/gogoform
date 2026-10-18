@@ -18,7 +18,7 @@ import (
 	"app/internal/pkg/tenants"
 )
 
-// appListLimit caps how many forms, files and submissions the pages list; the
+// appListLimit caps how many forms, files and users the pages list; the
 // totals are still shown so truncation is visible.
 const appListLimit = 100
 
@@ -26,7 +26,7 @@ const appListLimit = 100
 // injects the generated CSS as inline <style> tags, and run the inline scripts
 // carrying the per-request nonce (the %s verb). The file viewer embeds files
 // from /files/{id}: images, audio/video, PDFs in a frame and text via fetch;
-// the form builder calls POST /forms.
+// the form builder and the form actions call the /forms API.
 const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%s'; " +
 	"style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -138,11 +138,20 @@ func (c *appController) renderIndex(w http.ResponseWriter, r *http.Request, v ap
 	}
 	page, err := load(r)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
 	page.appView, page.Active = v, v.navKey()
 	renderAppPage(w, r, appTemplate, &page)
+}
+
+// Billing is a placeholder for the billing page.
+func (c *appController) Billing(w http.ResponseWriter, r *http.Request) {
+	renderAppPage(w, r, appMessageTemplate, &appMessagePage{
+		appLayout: appLayout{Active: "billing"},
+		Title:     "Billing is coming soon",
+		Message:   "Plans and invoices will show up here. Your forms keep working in the meantime.",
+	})
 }
 
 // navKey is the navTab highlighted on the pages of v.

@@ -10,14 +10,17 @@
   <main class="mx-auto max-w-7xl px-6 py-8 space-y-10">
 
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-xs text-slate-500">{{if .Admin}}Admin view of every tenant, read-only · {{end}}Generated {{datetime .GeneratedAt}}</p>
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">{{if .Admin}}All tenants{{else}}Your forms{{end}}</h1>
+        <p class="mt-1 text-xs text-slate-500">{{if .Admin}}Admin view of every tenant, read-only · {{end}}Generated {{datetime .GeneratedAt}}</p>
+      </div>
       {{if not .Admin}}<a href="/app/builder" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/25">New form</a>{{end}}
     </div>
 
     <section class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Forms</p>
-        <p class="mt-2 text-3xl font-bold tracking-tight">{{.FormsTotal}}</p>
+        <p class="mt-2 text-3xl font-bold tracking-tight" data-forms-count="total" data-forms-total="{{.FormsTotal}}">{{.FormsTotal}}</p>
       </div>
       <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Files</p>
@@ -28,53 +31,66 @@
     <section id="forms">
       <div class="flex items-end justify-between mb-4">
         <h2 class="text-lg font-semibold tracking-tight">Forms</h2>
-        <p class="text-xs text-slate-500">Showing {{len .Forms}} of {{.FormsTotal}}, newest first</p>
+        <p class="text-xs text-slate-500" data-forms-count="showing" data-forms-shown="{{len .Forms}}" data-forms-total="{{.FormsTotal}}">Showing {{len .Forms}} of {{.FormsTotal}}, newest first</p>
       </div>
+      {{if not .Admin}}<p id="form-action-status" role="alert" class="hidden mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>{{end}}
+      <p id="copy-status" role="status" aria-live="polite" class="hidden mb-3 rounded-lg border px-3 py-2 text-xs"></p>
+      {{if .Forms}}
       <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">
         <table class="min-w-full text-sm">
           <thead class="bg-slate-900 text-left text-xs uppercase tracking-wider text-slate-400">
             <tr>
-              <th class="px-4 py-3 font-semibold">Form</th>
-              <th class="px-4 py-3 font-semibold">Tenant</th>
-              <th class="px-4 py-3 font-semibold">Status</th>
+              <th class="px-4 py-3 font-semibold">Title</th>
+              <th class="px-4 py-3 font-semibold">Slug</th>
+              {{if .Admin}}<th class="px-4 py-3 font-semibold">Tenant</th>{{end}}
+              <th class="px-4 py-3 font-semibold">Active</th>
               <th class="px-4 py-3 font-semibold text-right">Submissions</th>
-              <th class="px-4 py-3 font-semibold">Availability</th>
               <th class="px-4 py-3 font-semibold">Created</th>
               <th class="px-4 py-3 font-semibold text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800">
             {{range .Forms}}
-            <tr class="hover:bg-slate-800/40 transition">
+            <tr class="hover:bg-slate-800/40 transition"{{if not $.Admin}} data-form-row data-form-id="{{.ID}}" data-form-slug="{{.Slug}}" data-form-title="{{.Title}}" data-form-active="{{.IsActive}}"{{end}}>
               <td class="px-4 py-3 max-w-sm">
-                <a href="{{$.Base}}/forms/{{.ID}}" class="block font-medium text-slate-100 hover:text-indigo-400 truncate" title="View the submissions of {{.Title}}">{{.Title}}</a>
-                <p class="font-mono text-xs text-indigo-400 truncate">/{{.Slug}}</p>
+                <a href="{{$.Base}}/forms/{{.ID}}" class="block font-medium text-slate-100 hover:text-indigo-400 truncate" title="Open {{.Title}}">{{.Title}}</a>
                 {{with .Description}}<p class="mt-1 text-xs text-slate-400 line-clamp-2">{{.}}</p>{{end}}
               </td>
-              <td class="px-4 py-3 text-slate-300 whitespace-nowrap">{{.TenantName}}</td>
+              <td class="px-4 py-3 font-mono text-xs text-indigo-400 whitespace-nowrap">{{.Slug}}</td>
+              {{if $.Admin}}<td class="px-4 py-3 text-slate-300 whitespace-nowrap">{{.TenantName}}</td>{{end}}
               <td class="px-4 py-3 whitespace-nowrap">
-                {{with status .Form}}<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
+                {{with status .Form}}<span data-form-status class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
                 {{with access .Form}}<span class="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
               </td>
               <td class="px-4 py-3 text-right font-mono tabular-nums text-slate-200">{{.SubmissionCount}}</td>
-              <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                <p>From {{datetime .StartDate}}</p>
-                <p>Until {{datetime .EndDate}}</p>
-              </td>
               <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{{datetime .CreatedAt}}</td>
               <td class="px-4 py-3 whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1 text-xs font-medium">
-                  <a href="{{$.Base}}/forms/{{.ID}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Submissions</a>
-                  {{if not $.Admin}}<a href="/app/builder?form={{.ID}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Start a new form from a copy of this one">Duplicate</a>{{end}}
+                  <a href="{{$.Base}}/forms/{{.ID}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Open</a>
+                  {{if not $.Admin}}<a href="/app/builder?form={{.ID}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50">Edit</a>{{end}}
+                  <button type="button" data-copy-link="/public/forms/{{.Slug}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Copy the public link of {{.Title}}">Copy public link</button>
+                  {{if not $.Admin}}
+                  <button type="button" data-form-toggle class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50 disabled:opacity-50">{{if .IsActive}}Deactivate{{else}}Activate{{end}}</button>
+                  <button type="button" data-form-delete class="rounded-lg px-2 py-1 text-rose-300 hover:bg-rose-500/10" title="Delete {{.Title}}">Delete</button>
+                  {{end}}
                 </div>
               </td>
             </tr>
-            {{else}}
-            <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">No forms have been created yet.</td></tr>
             {{end}}
           </tbody>
         </table>
       </div>
+      {{else}}
+      <div class="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-12 text-center">
+        {{if .Admin}}
+        <p class="text-sm text-slate-400">No forms have been created yet.</p>
+        {{else}}
+        <p class="text-base font-semibold text-slate-200">You have no forms yet</p>
+        <p class="mt-1 text-sm text-slate-400">Build your first form, then share its public link to start collecting submissions.</p>
+        <a href="/app/builder" class="mt-5 inline-block bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition">Create your first form</a>
+        {{end}}
+      </div>
+      {{end}}
     </section>
 
     <section id="files">
@@ -118,7 +134,10 @@
               </td>
             </tr>
             {{else}}
-            <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">No files have been uploaded yet.</td></tr>
+            <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">
+              <p>No files have been uploaded yet.</p>
+              {{if not $.Admin}}<p class="mt-1 text-xs">Files sent through the file fields of your forms show up here.</p>{{end}}
+            </td></tr>
             {{end}}
           </tbody>
         </table>
@@ -141,6 +160,8 @@
     </div>
     <div id="file-viewer-body" class="flex h-[75vh] items-center justify-center overflow-hidden bg-slate-950"></div>
   </dialog>
+
+  {{if and (not .Admin) .Forms}}{{template "form-actions" .}}{{end}}
 
   <script nonce="{{.Nonce}}">
     (() => {
@@ -252,5 +273,7 @@
       });
     })();
   </script>
+
+  {{template "copy-link" .}}
 </body>
 </html>

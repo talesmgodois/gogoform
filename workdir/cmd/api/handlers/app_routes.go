@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 
-	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
 )
 
@@ -32,16 +31,17 @@ type appRoute struct {
 // routes lists every /app route.
 func (c *appController) routes() []appRoute {
 	return []appRoute{
-		{Pattern: "GET /app", Handler: c.Index, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "dashboard", Label: "Dashboard"}},
+		{Pattern: "GET /app", Handler: c.Index, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "dashboard", Label: "Forms"}},
 		{Pattern: "GET /app/forms/{id}", Handler: c.Form, Access: auth.SignedIn(), Workspace: true},
 		{Pattern: "GET /app/forms/{id}/submissions.json", Handler: c.ExportJSON, Access: auth.SignedIn(), Workspace: true},
 		{Pattern: "GET /app/forms/{id}/submissions.csv", Handler: c.ExportCSV, Access: auth.SignedIn(), Workspace: true},
-		{Pattern: "GET /app/builder", Handler: c.Builder, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "builder", Label: "Form builder"}},
+		{Pattern: "GET /app/builder", Handler: c.Builder, Access: auth.SignedIn(), Workspace: true},
 
 		{Pattern: "GET /app/signin", Handler: c.SignInPage, Access: auth.Public},
 		{Pattern: "POST /app/signin", Handler: c.SignIn, Access: auth.Public},
 		{Pattern: "POST /app/signout", Handler: c.SignOut, Access: auth.Public},
 		{Pattern: "GET /app/account", Handler: c.Account, Access: auth.SignedIn(), Nav: &navTab{Key: "account", Label: "Account"}},
+		{Pattern: "GET /app/billing", Handler: c.Billing, Access: auth.SignedIn(), Nav: &navTab{Key: "billing", Label: "Billing"}},
 		{Pattern: "GET /app/admin", Handler: c.AdminIndex, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "admin", Label: "All tenants"}},
 		{Pattern: "GET /app/admin/forms/{id}", Handler: c.AdminForm, Access: auth.SignedIn(auth.RoleAdmin)},
 		{Pattern: "GET /app/admin/forms/{id}/submissions.json", Handler: c.AdminExportJSON, Access: auth.SignedIn(auth.RoleAdmin)},
@@ -88,7 +88,7 @@ func (c *appController) guardPage(rt appRoute) http.HandlerFunc {
 				return
 			}
 			if err != nil {
-				apperrors.WriteHTTP(w, r, err)
+				renderAppError(w, r.WithContext(ctx), err)
 				return
 			}
 			ctx = withTenant(ctx, t)

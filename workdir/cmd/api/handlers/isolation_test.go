@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
-
 )
 
 func TestIsolationAppPagesHideOtherTenant(t *testing.T) {
@@ -27,12 +27,16 @@ func TestIsolationAppPagesHideOtherTenant(t *testing.T) {
 		"/app/forms/2/submissions.json",
 		"/app/forms/2/submissions.csv",
 		"/app/builder?form=2",
+		"/app/builder?copy=2",
 	} {
 		rec := serve(svc, pageRequest(t, svc, path, "creator"))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s as A = %d, want 404 (body %s)", path, rec.Code, rec.Body.String())
 		}
-		if strings.Contains(rec.Body.String(), "B's form") {
+		if !strings.Contains(rec.Body.String(), ">Form not found</h1>") {
+			t.Errorf("GET %s as A is not the form not found page", path)
+		}
+		if strings.Contains(rec.Body.String(), "B's form") || strings.Contains(rec.Body.String(), "B&#39;s form") {
 			t.Errorf("GET %s as A leaks B's title", path)
 		}
 	}
@@ -42,6 +46,99 @@ func TestIsolationAppPagesHideOtherTenant(t *testing.T) {
 
 	// User B keeps their own data.
 	assertStatus(t, serve(svc, pageRequest(t, svc, "/app/forms/2", "basic")), http.StatusOK)
+}
+
+// TestIsolationTwoSignedInUsers walks the dashboard, the form page, its
+// exports, the builder and the cookie-authenticated API as user A ("creator",
+// tenantA), who must reach only A's form and get 404 for B's ("basic",
+// tenantB) while B's form stays untouched.
+func TestIsolationTwoSignedInUsers(t *testing.T) {
+	svc := twoTenantServices()
+	fake := svc.forms.(*fakeForms)
+	formB := fake.forms[formOfB]
+	const origin = "http://example.com" // httptest.NewRequest's host
+
+	// A's dashboard lists only A's form.
+	rec := serve(svc, cookieRequest(t, svc, http.MethodGet, "/app", "", "creator", ""))
+	assertStatus(t, rec, http.StatusOK)
+	body := rec.Body.String()
+	if !strings.Contains(body, "A&#39;s form") || !strings.Contains(body, `data-form-id="1"`) {
+		t.Error("A's dashboard misses A's form")
+	}
+	if strings.Contains(body, "B&#39;s form") || strings.Contains(body, `data-form-id="2"`) {
+		t.Error("A's dashboard leaks B's form")
+	}
+
+	// A opens, exports and edits their own form.
+	assertStatus(t, serve(svc, cookieRequest(t, svc, http.MethodGet, "/app/forms/1", "", "creator", "")), http.StatusOK)
+	for _, tt := range []struct{ path, contentType string }{
+		{"/app/forms/1/submissions.json", "application/json"},
+		{"/app/forms/1/submissions.csv", "text/csv; charset=utf-8"},
+	} {
+		rec := serve(svc, cookieRequest(t, svc, http.MethodGet, tt.path, "", "creator", ""))
+		assertStatus(t, rec, http.StatusOK)
+		if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, tt.contentType) {
+			t.Errorf("GET %s Content-Type = %q, want %q", tt.path, got, tt.contentType)
+		}
+		if !strings.Contains(rec.Header().Get("Content-Disposition"), "attachment") {
+			t.Errorf("GET %s is not an attachment", tt.path)
+		}
+	}
+	rec = serve(svc, cookieRequest(t, svc, http.MethodGet, "/app/builder?form=1", "", "creator", ""))
+	assertStatus(t, rec, http.StatusOK)
+	body = rec.Body.String()
+	if !strings.Contains(body, `data-mode="edit"`) || !strings.Contains(body, `data-form-id="1"`) {
+		t.Error("builder is not editing A's form")
+	}
+	if got := pageDraft(t, body); got.Slug != "a" {
+		t.Errorf("builder draft slug = %q, want %q", got.Slug, "a")
+	}
+
+	// A gets 404 for every page and API call on B's form.
+	for _, path := range []string{
+		"/app/forms/2",
+		"/app/forms/2/submissions.json",
+		"/app/forms/2/submissions.csv",
+		"/app/builder?form=2",
+	} {
+		rec := serve(svc, cookieRequest(t, svc, http.MethodGet, path, "", "creator", ""))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s as A = %d, want 404", path, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "B&#39;s form") || strings.Contains(rec.Body.String(), "B's form") {
+			t.Errorf("GET %s as A leaks B's title", path)
+		}
+	}
+	for _, tt := range []struct{ method, body string }{
+		{http.MethodPut, validForm},
+		{http.MethodDelete, ""},
+	} {
+		rec := serve(svc, cookieRequest(t, svc, tt.method, "/forms/2", tt.body, "creator", origin))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s /forms/2 as A = %d, want 404 (body %s)", tt.method, rec.Code, rec.Body.String())
+		}
+	}
+	if got, ok := fake.forms[formOfB]; !ok || !reflect.DeepEqual(got, formB) {
+		t.Fatalf("B's form = %+v (present %v), want unchanged %+v", got, ok, formB)
+	}
+
+	// A changes and then deletes their own form through the API.
+	rec = serve(svc, cookieRequest(t, svc, http.MethodPut, "/forms/1", validForm, "creator", origin))
+	assertStatus(t, rec, http.StatusOK)
+	if got := fake.updated; got.ID != formOfA || got.TenantID != tenantA.ID || got.Slug != "contact-us" {
+		t.Fatalf("updated = %+v, want A's form in tenantA", got)
+	}
+	assertStatus(t, serve(svc, cookieRequest(t, svc, http.MethodDelete, "/forms/1", "", "creator", origin)), http.StatusNoContent)
+	if _, ok := fake.forms[formOfA]; ok {
+		t.Fatal("A's form was not deleted")
+	}
+	if got, ok := fake.forms[formOfB]; !ok || !reflect.DeepEqual(got, formB) {
+		t.Fatalf("B's form = %+v (present %v), want unchanged %+v", got, ok, formB)
+	}
+
+	// B still reaches their own form.
+	assertStatus(t, serve(svc, cookieRequest(t, svc, http.MethodGet, "/app/forms/2", "", "basic", "")), http.StatusOK)
+	assertStatus(t, serve(svc, cookieRequest(t, svc, http.MethodGet, "/forms/2", "", "basic", "")), http.StatusOK)
 }
 
 func TestIsolationAdminPages(t *testing.T) {
@@ -114,11 +211,11 @@ func TestIsolationAPIAndFiles(t *testing.T) {
 		t.Fatal("user A deleted user B's file")
 	}
 
-	// Builder shows the viewer's own API key.
+	// The builder works with the session and shows no API key.
 	rec := serve(svc, pageRequest(t, svc, "/app/builder", "creator"))
 	assertStatus(t, rec, http.StatusOK)
-	if !strings.Contains(rec.Body.String(), `data-api-key="key-a"`) {
-		t.Error("builder does not show user A's API key")
+	if strings.Contains(rec.Body.String(), "key-a") {
+		t.Error("builder shows user A's API key")
 	}
 }
 
@@ -138,4 +235,3 @@ func TestIsolationSignupHTTP(t *testing.T) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
 }
-

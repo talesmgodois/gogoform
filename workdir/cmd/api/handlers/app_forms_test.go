@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	apperrors "app/internal/errors"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
 )
@@ -56,8 +58,8 @@ func TestAppFormRendersSubmissions(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"Customer survey", "/customer-survey", "Acme",
-		"Showing 2 of 3", // the fake reports 3 submissions in total
-		`href="/app/forms/1/submissions.json"`, `href="/app/forms/1/submissions.csv"`, `href="/app/builder?form=1"`,
+		"Showing 1–2 of 3, newest first · page 1 of 1.", // the fake reports 3 submissions in total
+		`href="/app/forms/1/submissions.json"`, `href="/app/forms/1/submissions.csv"`, `href="/app/builder?form=1"`, `href="/app/builder?copy=1"`,
 		"Ada &lt;Lovelace&gt;", "ada@example.com", `[&#34;a&#34;,&#34;b&#34;]`, "2026-09-24 12:00 UTC",
 		`&#34;ip_address&#34;: &#34;203.0.113.7&#34;`, // JSON view
 		`<script nonce="`,
@@ -74,17 +76,108 @@ func TestAppFormRendersSubmissions(t *testing.T) {
 		}
 	}
 	fake := svc.submissions.(*fakeSubmissions)
-	if fake.filter != (submissions.ListSubmissionsFilter{TenantID: 7, FormID: 1}) || fake.page != (submissions.Page{Limit: appListLimit}) {
+	if fake.filter != (submissions.ListSubmissionsFilter{TenantID: 7, FormID: 1}) || fake.page != (submissions.Page{Limit: formPageSize}) {
 		t.Errorf("filter = %+v, page = %+v", fake.filter, fake.page)
 	}
 }
 
 func TestAppFormEmpty(t *testing.T) {
-	rec := getAppPath(t, appServices(forms.Form{ID: 1, TenantID: 7, Title: "Empty", Slug: "empty", Content: json.RawMessage(`{}`)}), "/app/forms/1")
+	svc := appServices(forms.Form{ID: 1, TenantID: 7, Title: "Empty", Slug: "empty", Content: json.RawMessage(`{}`)})
+	svc.forms.(*fakeForms).counts = map[int32]int64{1: 0}
+
+	rec := getAppPath(t, svc, "/app/forms/1")
 
 	assertStatus(t, rec, http.StatusOK)
-	if !strings.Contains(rec.Body.String(), "This form has no submissions yet.") {
-		t.Fatal("empty state missing")
+	body := rec.Body.String()
+	for _, want := range []string{"This form has no submissions yet.", "No submissions to show.", `href="/app/forms/1/submissions.csv"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(body, `aria-label="Submission pages"`) {
+		t.Error("a single page shows the pagination links")
+	}
+}
+
+// pagedForm returns Services holding a form of tenant 7 reporting total
+// submissions, and a page of two of them.
+func pagedForm(total int64) Services {
+	svc := formWithSubmissions()
+	svc.forms.(*fakeForms).counts = map[int32]int64{1: total}
+	return svc
+}
+
+func TestAppFormPagination(t *testing.T) {
+	svc := pagedForm(2*formPageSize + 2)
+
+	rec := getAppPath(t, svc, "/app/forms/1?page=2")
+
+	assertStatus(t, rec, http.StatusOK)
+	if got, want := svc.submissions.(*fakeSubmissions).page, (submissions.Page{Offset: formPageSize, Limit: formPageSize}); got != want {
+		t.Errorf("page = %+v, want %+v", got, want)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Showing 51–52 of 102, newest first · page 2 of 3.", // the fake lists 2 submissions
+		`href="/app/forms/1?page=1" rel="prev"`, `href="/app/forms/1?page=3" rel="next"`, "Page 2 of 3",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAppFormPaginationClampsThePage(t *testing.T) {
+	tests := map[string]int32{"abc": 0, "0": 0, "-3": 0, "": 0, "99": 2 * formPageSize, "3": 2 * formPageSize, "2": formPageSize}
+	for param, offset := range tests {
+		svc := pagedForm(2*formPageSize + 2)
+
+		rec := getAppPath(t, svc, "/app/forms/1?page="+param)
+
+		assertStatus(t, rec, http.StatusOK)
+		if got, want := svc.submissions.(*fakeSubmissions).page, (submissions.Page{Offset: offset, Limit: formPageSize}); got != want {
+			t.Errorf("page=%q: page = %+v, want %+v", param, got, want)
+		}
+	}
+	rec := getAppPath(t, pagedForm(2*formPageSize+2), "/app/forms/1?page=99")
+	body := rec.Body.String()
+	if !strings.Contains(body, "page 3 of 3") || !strings.Contains(body, `rel="prev"`) || strings.Contains(body, `rel="next"`) {
+		t.Error("an out-of-range page is not clamped to the last one")
+	}
+}
+
+func TestAppFormActions(t *testing.T) {
+	rec := getAppPath(t, formWithSubmissions(), "/app/forms/1")
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		`data-form-row data-form-id="1" data-form-slug="customer-survey" data-form-title="Customer survey" data-form-active="true" data-form-deleted-href="/app"`,
+		`href="/app/builder?form=1"`, "data-form-toggle", ">Deactivate</button>", "data-form-delete", "data-form-status",
+		`data-copy-link="/public/forms/customer-survey"`, `id="copy-status"`, `id="form-action-status"`, `id="form-delete-dialog"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAdminFormHasNoWriteActions(t *testing.T) {
+	svc := pagedForm(2*formPageSize + 2)
+	svc.forms.(*fakeForms).forms[1] = forms.Form{ID: 1, TenantID: 8, Title: "Other", Slug: "other", Content: json.RawMessage(`{}`)}
+
+	rec := serve(svc, pageRequest(t, svc, "/app/admin/forms/1?page=2", "admin"))
+
+	assertStatus(t, rec, http.StatusOK)
+	body := rec.Body.String()
+	for _, want := range []string{`href="/app/admin/forms/1/submissions.csv"`, `href="/app/admin/forms/1?page=3" rel="next"`, `data-copy-link="/public/forms/other"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"data-form-row", "data-form-toggle", "data-form-delete", `id="form-delete-dialog"`, "/app/builder"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("body contains %q", unwanted)
+		}
 	}
 }
 
@@ -99,17 +192,54 @@ func TestAppFormOfAnotherTenantIsNotFound(t *testing.T) {
 			t.Errorf("%s: body shows the other tenant's form", path)
 		}
 	}
+	// The form lookup fails before any submission is read.
+	if got := svc.submissions.(*fakeSubmissions).filter; got != (submissions.ListSubmissionsFilter{}) {
+		t.Errorf("submissions of another tenant's form were listed: %+v", got)
+	}
 }
 
 func TestAppFormErrors(t *testing.T) {
 	for _, path := range []string{"/app/forms/9", "/app/forms/9/submissions.json", "/app/forms/9/submissions.csv", "/app/builder?form=9"} {
-		assertStatus(t, getAppPath(t, formWithSubmissions(), path), http.StatusNotFound)
+		assertMessagePage(t, getAppPath(t, formWithSubmissions(), path), http.StatusNotFound, "Form not found")
 	}
-	for _, path := range []string{"/app/forms/abc", "/app/forms/0/submissions.csv", "/app/builder?form=abc"} {
-		assertStatus(t, getAppPath(t, formWithSubmissions(), path), http.StatusBadRequest)
+	for _, path := range []string{"/app/forms/abc", "/app/forms/0/submissions.csv", "/app/forms/x/submissions.json", "/app/builder?form=abc"} {
+		assertMessagePage(t, getAppPath(t, formWithSubmissions(), path), http.StatusBadRequest, "Invalid form")
 	}
 	for _, path := range []string{"/app/forms/1", "/app/forms/1/submissions.json", "/app/forms/1/submissions.csv", "/app/builder"} {
 		assertStatus(t, do(t, formWithSubmissions(), http.MethodGet, path, "", false), http.StatusSeeOther)
+	}
+}
+
+func TestAppFormRepositoryError(t *testing.T) {
+	for _, path := range []string{"/app/forms/1", "/app/forms/1/submissions.json", "/app/forms/1/submissions.csv"} {
+		svc := formWithSubmissions()
+		svc.submissions.(*fakeSubmissions).listErr = apperrors.NewInternal(errors.New("db down"))
+
+		rec := getAppPath(t, svc, path)
+
+		assertMessagePage(t, rec, http.StatusInternalServerError, "Something went wrong")
+		if strings.Contains(rec.Body.String(), "db down") {
+			t.Errorf("%s: internal error details leaked to the client", path)
+		}
+	}
+}
+
+// assertMessagePage checks that rec is the HTML message page titled title,
+// with the given status and a link back to the dashboard.
+func assertMessagePage(t *testing.T, rec *httptest.ResponseRecorder, status int, title string) {
+	t.Helper()
+	assertStatus(t, rec, status)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want an HTML page", ct)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); cd != "" {
+		t.Errorf("Content-Disposition = %q, want no download", cd)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"<h1 class=\"text-2xl font-bold tracking-tight\">" + title + "</h1>", `href="/app"`, "Back to your forms"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("message page does not contain %q: %s", want, body)
+		}
 	}
 }
 

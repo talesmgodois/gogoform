@@ -10,24 +10,32 @@
   <main class="mx-auto max-w-7xl px-6 py-8 space-y-8">
 
     {{with .Form}}
-    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6"{{if not $.Admin}} data-form-row data-form-id="{{.ID}}" data-form-slug="{{.Slug}}" data-form-title="{{.Title}}" data-form-active="{{.IsActive}}" data-form-deleted-href="/app"{{end}}>
       <a href="{{$.Base}}#forms" class="text-xs font-medium text-slate-400 hover:text-indigo-400">&larr; All forms</a>
       <div class="mt-3 flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
           <h1 class="text-xl font-bold tracking-tight flex flex-wrap items-center gap-3">
             <span class="truncate">{{.Title}}</span>
-            {{with status .Form}}<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
+            {{with status .Form}}<span data-form-status class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
             {{with access .Form}}<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{.Class}}">{{.Label}}</span>{{end}}
           </h1>
           <p class="mt-1 font-mono text-xs text-indigo-400">/{{.Slug}} <span class="text-slate-500">· {{.TenantName}} · created {{datetime .CreatedAt}}</span></p>
           {{with .Description}}<p class="mt-2 max-w-2xl text-sm text-slate-400">{{.}}</p>{{end}}
         </div>
         <div class="flex flex-wrap items-center gap-2 text-xs font-medium">
-          {{if not $.Admin}}<a href="/app/builder?form={{.ID}}" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">Duplicate in builder</a>{{end}}
+          {{if not $.Admin}}
+          <a href="/app/builder?form={{.ID}}" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">Edit</a>
+          <a href="/app/builder?copy={{.ID}}" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800" title="Start a new form from a copy of {{.Title}}">Duplicate</a>
+          <button type="button" data-form-toggle class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800 disabled:opacity-50">{{if .IsActive}}Deactivate{{else}}Activate{{end}}</button>
+          {{end}}
+          <button type="button" data-copy-link="/public/forms/{{.Slug}}" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800" title="Copy the public link of {{.Title}}">Copy public link</button>
           <a href="{{$.Base}}/forms/{{.ID}}/submissions.json" download class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">Download JSON</a>
           <a href="{{$.Base}}/forms/{{.ID}}/submissions.csv" download class="rounded-lg bg-indigo-600 px-3 py-2 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-600/25">Download CSV</a>
+          {{if not $.Admin}}<button type="button" data-form-delete class="rounded-lg border border-rose-500/30 px-3 py-2 text-rose-300 hover:bg-rose-500/10" title="Delete {{.Title}}">Delete</button>{{end}}
         </div>
       </div>
+      {{if not $.Admin}}<p id="form-action-status" role="alert" class="hidden mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>{{end}}
+      <p id="copy-status" role="status" aria-live="polite" class="hidden mt-4 rounded-lg border px-3 py-2 text-xs"></p>
     </section>
     {{end}}
 
@@ -35,7 +43,7 @@
       <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <h2 class="text-lg font-semibold tracking-tight">Submissions</h2>
-          <p class="text-xs text-slate-500">Showing {{len .Table.Rows}} of {{.Form.SubmissionCount}}, newest first. Downloads include every submission.</p>
+          {{with .Pager}}<p class="text-xs text-slate-500" data-submissions-range>{{if .To}}Showing {{.From}}–{{.To}} of {{.Total}}, newest first · page {{.Page}} of {{.Pages}}.{{else}}No submissions to show.{{end}} Downloads include every submission.</p>{{end}}
         </div>
         <div role="tablist" aria-label="Submissions view" class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
           <button type="button" role="tab" id="view-table-tab" aria-controls="view-table" aria-selected="true" data-view="table" class="px-4 py-1.5 rounded-lg">Table</button>
@@ -60,7 +68,15 @@
               {{range .Cells}}<td class="px-4 py-3 text-slate-200 max-w-xs"><p class="line-clamp-3 break-words" title="{{.}}">{{if .}}{{.}}{{else}}<span class="text-slate-600">—</span>{{end}}</p></td>{{end}}
             </tr>
             {{else}}
-            <tr><td colspan="{{len .Table.Columns | add 2}}" class="px-4 py-12 text-center text-slate-500">This form has no submissions yet.</td></tr>
+            <tr><td colspan="{{len .Table.Columns | add 2}}" class="px-4 py-12 text-center text-slate-500">
+              {{if .Pager.Total}}
+              <p>There are no submissions on this page.</p>
+              <p class="mt-1 text-xs"><a href="{{.Base}}/forms/{{.Form.ID}}" class="text-indigo-400 hover:text-indigo-300">Go to the first page</a></p>
+              {{else}}
+              <p>This form has no submissions yet.</p>
+              {{if not .Admin}}<p class="mt-1 text-xs">Share its public link to start collecting answers{{if not .Form.IsActive}}, after activating it{{end}}.</p>{{end}}
+              {{end}}
+            </td></tr>
             {{end}}
           </tbody>
         </table>
@@ -70,6 +86,14 @@
         <button type="button" id="copy-json" class="absolute right-3 top-3 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800">Copy</button>
         <pre id="json-content" class="max-h-[70vh] overflow-auto p-5 font-mono text-xs leading-relaxed text-slate-300">{{.JSON}}</pre>
       </div>
+
+      {{with .Pager}}{{if gt .Pages 1}}
+      <nav aria-label="Submission pages" class="mt-4 flex items-center justify-between gap-3 text-xs font-medium">
+        {{if .PrevHref}}<a href="{{.PrevHref}}" rel="prev" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">&larr; Previous</a>{{else}}<span class="rounded-lg border border-slate-800 px-3 py-2 text-slate-600" aria-disabled="true">&larr; Previous</span>{{end}}
+        <span class="text-slate-400">Page {{.Page}} of {{.Pages}}</span>
+        {{if .NextHref}}<a href="{{.NextHref}}" rel="next" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">Next &rarr;</a>{{else}}<span class="rounded-lg border border-slate-800 px-3 py-2 text-slate-600" aria-disabled="true">Next &rarr;</span>{{end}}
+      </nav>
+      {{end}}{{end}}
     </section>
 
   </main>
@@ -101,5 +125,8 @@
       });
     })();
   </script>
+
+  {{if not .Admin}}{{template "form-actions" .}}{{end}}
+  {{template "copy-link" .}}
 </body>
 </html>

@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -33,6 +34,8 @@ func TestAppPageAccess(t *testing.T) {
 		{"/app/users", "", http.StatusSeeOther},
 		{"/app/users", "creator", http.StatusForbidden},
 		{"/app/users", "admin", http.StatusOK},
+		{"/app/billing", "", http.StatusSeeOther},
+		{"/app/billing", "basic", http.StatusOK},
 	}
 	for _, tt := range tests {
 		rec := serve(svc, pageRequest(t, svc, tt.path, tt.user))
@@ -75,6 +78,58 @@ func TestAppAccountListsRoutes(t *testing.T) {
 	// Tabs only list the pages the viewer may open.
 	if !strings.Contains(body, `href="/app/account"`) || strings.Contains(body, `href="/app/users"`) {
 		t.Error("nav tabs do not follow the route access")
+	}
+}
+
+func TestAppHeaderNavigation(t *testing.T) {
+	svc := testServices()
+	rec := serve(svc, pageRequest(t, svc, "/app/account", "creator"))
+	assertStatus(t, rec, http.StatusOK)
+	body := rec.Body.String()
+	nonce := regexp.MustCompile(`'nonce-([A-Za-z0-9_=-]+)'`).FindStringSubmatch(rec.Header().Get("Content-Security-Policy"))
+	if nonce == nil {
+		t.Fatal("no nonce in the Content-Security-Policy")
+	}
+	for _, want := range []string{
+		`href="/app" class="px-4`, `>Forms</a>`,
+		`href="/app/account" class="px-4`, `aria-current="page">Account</a>`,
+		`href="/app/billing" class="px-4`, `>Billing</a>`,
+		`data-signout`, `>Sign out</button>`,
+		`<script nonce="` + nonce[1] + `">`, `fetch("/app/signout", { method: "POST"`, `location.assign("/app/signin")`,
+		"Your forms and submissions",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("header misses %q", want)
+		}
+	}
+	for _, unwanted := range []string{`href="/app/builder" class="px-4`, `>All tenants</a>`, `>admin</span>`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("header shows %q to a non-admin", unwanted)
+		}
+	}
+
+	admin := serve(svc, pageRequest(t, svc, "/app/admin", "admin")).Body.String()
+	for _, want := range []string{`aria-current="page">All tenants</a>`, `>Users</a>`, `>admin</span>`, "Forms and files across every tenant"} {
+		if !strings.Contains(admin, want) {
+			t.Errorf("admin header misses %q", want)
+		}
+	}
+
+	signin := serve(svc, pageRequest(t, svc, "/app/signin", "")).Body.String()
+	if strings.Contains(signin, "data-signout") || strings.Contains(signin, `href="/app/billing"`) {
+		t.Error("sign-in page shows the signed-in navigation")
+	}
+}
+
+func TestAppBillingPlaceholder(t *testing.T) {
+	svc := testServices()
+	rec := serve(svc, pageRequest(t, svc, "/app/billing", "basic"))
+	assertStatus(t, rec, http.StatusOK)
+	body := rec.Body.String()
+	for _, want := range []string{"Billing is coming soon", `aria-current="page">Billing</a>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("billing page misses %q", want)
+		}
 	}
 }
 

@@ -48,6 +48,8 @@ type fakeTenants struct {
 	keys    map[int32]string
 	created tenants.CreateTenantInput
 	err     error
+	// ownerErr, when set, is returned by GetByOwner.
+	ownerErr error
 }
 
 func (f *fakeTenants) Create(_ context.Context, in tenants.CreateTenantInput) (tenants.Tenant, error) {
@@ -90,6 +92,9 @@ func (f *fakeTenants) GetByID(_ context.Context, id int32) (tenants.Tenant, erro
 }
 
 func (f *fakeTenants) GetByOwner(_ context.Context, userID int32) (tenants.Tenant, error) {
+	if f.ownerErr != nil {
+		return tenants.Tenant{}, f.ownerErr
+	}
 	return f.find(func(t tenants.Tenant) bool { return t.OwnerUserID != nil && *t.OwnerUserID == userID })
 }
 
@@ -115,6 +120,16 @@ type fakeForms struct {
 	filter  forms.ListFormsFilter
 	page    forms.Page
 	err     error
+	// counts overrides the submission count of a form, 3 by default.
+	counts map[int32]int64
+}
+
+// count returns the submission count reported for the form id.
+func (f *fakeForms) count(id int32) int64 {
+	if n, ok := f.counts[id]; ok {
+		return n
+	}
+	return 3
 }
 
 func newFakeForms(fs ...forms.Form) *fakeForms {
@@ -187,7 +202,7 @@ func (f *fakeForms) GetAnyByID(_ context.Context, id int32) (forms.FormOverview,
 	if !ok {
 		return forms.FormOverview{}, apperrors.NewNotFound("form not found")
 	}
-	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: 3}, TenantName: "Acme"}, nil
+	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: f.count(id)}, TenantName: "Acme"}, nil
 }
 
 func (f *fakeForms) GetOverview(_ context.Context, tenantID, id int32) (forms.FormOverview, error) {
@@ -195,7 +210,7 @@ func (f *fakeForms) GetOverview(_ context.Context, tenantID, id int32) (forms.Fo
 	if !ok || form.TenantID != tenantID {
 		return forms.FormOverview{}, apperrors.NewNotFound("form not found")
 	}
-	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: 3}, TenantName: "Acme"}, nil
+	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: f.count(id)}, TenantName: "Acme"}, nil
 }
 
 func (f *fakeForms) Update(_ context.Context, in forms.UpdateFormInput) (forms.Form, error) {
@@ -222,6 +237,8 @@ type fakeSubmissions struct {
 	filter      submissions.ListSubmissionsFilter
 	page        submissions.Page
 	list        []submissions.Submission
+	// listErr, when set, is returned by ListByForm and ListAllByForm.
+	listErr error
 }
 
 func (f *fakeSubmissions) Create(_ context.Context, in submissions.CreateSubmissionInput) (submissions.Submission, error) {
@@ -239,12 +256,12 @@ func (f *fakeSubmissions) AddMetadata(_ context.Context, _ int32, m submissions.
 
 func (f *fakeSubmissions) ListByForm(_ context.Context, filter submissions.ListSubmissionsFilter, page submissions.Page) ([]submissions.Submission, error) {
 	f.filter, f.page = filter, page
-	return f.list, nil
+	return f.list, f.listErr
 }
 
 func (f *fakeSubmissions) ListAllByForm(_ context.Context, filter submissions.ListSubmissionsFilter) ([]submissions.Submission, error) {
 	f.filter = filter
-	return f.list, nil
+	return f.list, f.listErr
 }
 
 // fakeWebhooks is a webhooks.Repository recording its inputs.

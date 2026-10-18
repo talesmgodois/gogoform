@@ -10,7 +10,7 @@
   <main class="mx-auto max-w-lg px-6 py-20 text-center">
     <h1 class="text-2xl font-bold tracking-tight">{{.Title}}</h1>
     <p class="mt-3 text-sm text-slate-400">{{.Message}}</p>
-    <a href="/app/account" class="mt-8 inline-block rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Go to your account</a>
+    {{if .Href}}<a href="{{.Href}}" class="mt-8 inline-block rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">{{.Link}}</a>{{else}}<a href="/app/account" class="mt-8 inline-block rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Go to your account</a>{{end}}
   </main>
 </body>
 </html>

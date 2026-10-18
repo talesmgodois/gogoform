@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -52,6 +53,9 @@ type appUsersPage struct {
 type appMessagePage struct {
 	appLayout
 	Title, Message string
+	// Href and Link are where the page sends the viewer next; the account
+	// page when empty.
+	Href, Link string
 }
 
 // sessionUser returns the user of the session cookie, or nil when there is
@@ -130,7 +134,7 @@ func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		page.Workspace = &t
 	case !isNotFound(err):
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
 	for _, rt := range c.mounted {
@@ -143,7 +147,7 @@ func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
 func (c *appController) Users(w http.ResponseWriter, r *http.Request) {
 	users, err := c.auth.ListUsers(r.Context(), auth.Page{Limit: appListLimit})
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
 	renderAppPage(w, r, appUsersTemplate, &appUsersPage{appLayout: appLayout{Active: "users"}, Users: users})
@@ -152,6 +156,30 @@ func (c *appController) Users(w http.ResponseWriter, r *http.Request) {
 // renderAppMessage renders a page showing a message, with the given status.
 func renderAppMessage(w http.ResponseWriter, r *http.Request, status int, title, message string) {
 	renderAppPageStatus(w, r, status, appMessageTemplate, &appMessagePage{Title: title, Message: message})
+}
+
+// renderAppError renders err as a message page, the HTML counterpart of
+// apperrors.WriteHTTP for the /app pages: malformed and unknown form IDs get
+// a 400 and a 404 page linking back to the dashboard, and 5xx errors are
+// logged and shown without their details.
+func renderAppError(w http.ResponseWriter, r *http.Request, err error) {
+	status := apperrors.HTTPStatus(err)
+	page := appMessagePage{Href: "/app", Link: "Back to your forms"}
+	switch {
+	case status == http.StatusBadRequest:
+		page.Title, page.Message = "Invalid form", "The form address is malformed. Open the form from your dashboard."
+	case status == http.StatusNotFound:
+		page.Title, page.Message = "Form not found", "This form does not exist or is not in your workspace."
+	case status >= http.StatusInternalServerError:
+		slog.ErrorContext(r.Context(), "request failed", "status", status, "error", err)
+		page.Title, page.Message = "Something went wrong", "We could not load this page. Try again in a moment."
+	default:
+		page.Title, page.Message = http.StatusText(status), "This request could not be completed."
+		if appErr, ok := apperrors.As(err); ok {
+			page.Message = appErr.Message
+		}
+	}
+	renderAppPageStatus(w, r, status, appMessageTemplate, &page)
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {

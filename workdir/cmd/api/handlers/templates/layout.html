@@ -9,7 +9,8 @@
 {{end}}
 
 {{/* nav is the top bar; it expects the page, whose Active names the current tab,
-    Tabs lists the tabs the viewer may open and User is the signed-in viewer. */}}
+    Tabs lists the tabs the viewer may open, User is the signed-in viewer and
+    Nonce authorizes the sign-out script. */}}
 {{define "nav"}}
   <header class="sticky top-0 z-20 shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
     <div class="px-6 h-16 flex items-center justify-between gap-6">
@@ -18,9 +19,9 @@
         <div>
           <p class="font-bold text-base tracking-tight flex items-center gap-2">
             GoGoForm
-            <span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono uppercase">admin</span>
+            {{if or (eq .Active "admin") (eq .Active "users")}}<span class="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-mono uppercase">admin</span>{{end}}
           </p>
-          <p class="text-xs text-slate-400 hidden sm:block">Forms and files across every tenant</p>
+          <p class="text-xs text-slate-400 hidden sm:block">{{if eq .Active "admin"}}Forms and files across every tenant{{else if eq .Active "users"}}User accounts{{else if .User}}Your forms and submissions{{else}}Sign in to manage your forms{{end}}</p>
         </div>
       </a>
       <div class="flex items-center gap-4">
@@ -35,10 +36,240 @@
           <span class="font-medium">{{.Username}}</span>
           <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-[10px] text-indigo-300 ring-1 ring-inset ring-indigo-500/20">{{.Role}}</span>
         </a>
+        <button type="button" data-signout class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800">Sign out</button>
         {{else}}{{if ne $.Active "signin"}}
         <a href="/app/signin" class="text-xs font-semibold text-slate-300 hover:text-white">Sign in</a>
         {{end}}{{end}}
       </div>
     </div>
   </header>
+  {{if .User}}
+  <script nonce="{{.Nonce}}">
+    for (const button of document.querySelectorAll("[data-signout]")) {
+      button.addEventListener("click", () => {
+        button.disabled = true;
+        fetch("/app/signout", { method: "POST", credentials: "same-origin" }).finally(() => location.assign("/app/signin"));
+      });
+    }
+  </script>
+  {{end}}
+{{end}}
+
+{{/* form-actions is the Activate/Deactivate and Delete behavior of the form
+    controls: buttons marked data-form-toggle and data-form-delete inside an
+    element marked data-form-row, which carries data-form-id, data-form-slug,
+    data-form-title and data-form-active (and, optionally, data-form-deleted-href
+    to open after a delete instead of removing the element). It calls
+    GET/PUT/DELETE /forms/{id} with the session cookie, keeps the row's
+    data-form-status badge and toggle label in sync and reports failures in the
+    #form-action-status alert. It expects the page, whose Nonce authorizes the
+    script. */}}
+{{define "form-actions"}}
+  <dialog id="form-delete-dialog" aria-labelledby="form-delete-heading" class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    <div class="p-6">
+      <h3 id="form-delete-heading" class="text-base font-semibold">Delete form?</h3>
+      <p class="mt-2 text-sm text-slate-400">&ldquo;<span id="form-delete-name" class="font-medium text-slate-200"></span>&rdquo; will be deleted permanently and its public link will stop working. Forms that already have submissions or webhooks cannot be deleted.</p>
+      <div class="mt-6 flex justify-end gap-2 text-xs font-semibold">
+        <button type="button" id="form-delete-cancel" class="rounded-lg border border-slate-700 px-4 py-2 text-slate-200 hover:bg-slate-800">Cancel</button>
+        <button type="button" id="form-delete-confirm" class="rounded-lg bg-rose-600 px-4 py-2 text-white hover:bg-rose-500">Delete form</button>
+      </div>
+    </div>
+  </dialog>
+  <script nonce="{{.Nonce}}">
+    (() => {
+      const status = document.getElementById("form-action-status");
+      const dialog = document.getElementById("form-delete-dialog");
+      const confirmButton = document.getElementById("form-delete-confirm");
+      let deleting = null;
+
+      // Mirrors formStatus in app.go.
+      const badges = {
+        Inactive: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+        Scheduled: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
+        Ended: "bg-rose-500/10 text-rose-400 ring-rose-500/20",
+        Live: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+      };
+      const statusOf = (form) => {
+        const now = Date.now();
+        if (!form.is_active) return "Inactive";
+        if (form.start_date && now < Date.parse(form.start_date)) return "Scheduled";
+        if (form.end_date && now >= Date.parse(form.end_date)) return "Ended";
+        return "Live";
+      };
+
+      const showError = (text) => {
+        status.textContent = text;
+        status.classList.remove("hidden");
+      };
+      const clearError = () => {
+        status.textContent = "";
+        status.classList.add("hidden");
+      };
+
+      // api calls the forms API with the session cookie and resolves to the
+      // decoded JSON body (null for 204), or rejects with a readable message.
+      const api = (method, id, body) =>
+        fetch("/forms/" + encodeURIComponent(id), {
+          method: method,
+          credentials: "same-origin",
+          headers: body ? { "Content-Type": "application/json", Accept: "application/json" } : { Accept: "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        }).then(
+          async (res) => {
+            const data = res.status === 204 ? null : await res.json().catch(() => null);
+            if (res.ok) return data;
+            const detail = data && data.message ? data.message : "HTTP " + res.status;
+            switch (res.status) {
+              case 401:
+                throw new Error("Your session has expired. Sign in again and retry.");
+              case 403:
+                throw new Error("You are not allowed to change this form (" + detail + ").");
+              case 404:
+                throw new Error("This form no longer exists (" + detail + "). Reload the page.");
+              case 409:
+                throw new Error("The form could not be changed: " + detail + ".");
+              default:
+                throw new Error(res.status >= 500 ? "The server failed to change the form (" + detail + "). Try again later." : "The form could not be changed (" + detail + ").");
+            }
+          },
+          () => {
+            throw new Error("Could not reach the server. Check your connection and try again.");
+          },
+        );
+
+      const render = (row, form) => {
+        row.dataset.formActive = String(form.is_active);
+        row.dataset.formTitle = form.title;
+        row.dataset.formSlug = form.slug;
+        const label = statusOf(form);
+        for (const badge of row.querySelectorAll("[data-form-status]")) {
+          badge.className = "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset " + badges[label];
+          badge.textContent = label;
+        }
+        for (const button of row.querySelectorAll("[data-form-toggle]")) {
+          button.textContent = form.is_active ? "Deactivate" : "Activate";
+        }
+      };
+
+      const toggle = (row, button) => {
+        const id = row.dataset.formId;
+        button.disabled = true;
+        clearError();
+        api("GET", id)
+          .then((form) =>
+            api("PUT", id, {
+              title: form.title,
+              slug: form.slug,
+              description: form.description,
+              is_active: !form.is_active,
+              start_date: form.start_date,
+              end_date: form.end_date,
+              content: form.content,
+              public_available: form.public_available,
+              accept_anonymous: form.accept_anonymous,
+            }),
+          )
+          .then((form) => render(row, form))
+          .catch((err) => showError(err.message))
+          .finally(() => (button.disabled = false));
+      };
+
+      const removed = (row) => {
+        if (row.dataset.formDeletedHref) {
+          location.assign(row.dataset.formDeletedHref);
+          return;
+        }
+        row.remove();
+        // The empty state is rendered by the server.
+        if (!document.querySelector("[data-form-row]")) {
+          location.reload();
+          return;
+        }
+        // data-forms-count="total" shows the total alone, "showing" the listed
+        // forms out of the total.
+        for (const counter of document.querySelectorAll("[data-forms-count]")) {
+          const total = Number(counter.dataset.formsTotal) - 1;
+          counter.dataset.formsTotal = total;
+          if (counter.dataset.formsCount === "total") {
+            counter.textContent = total;
+            continue;
+          }
+          const shown = Number(counter.dataset.formsShown) - 1;
+          counter.dataset.formsShown = shown;
+          counter.textContent = "Showing " + shown + " of " + total + ", newest first";
+        }
+      };
+
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-form-toggle], [data-form-delete]");
+        const row = button && button.closest("[data-form-row]");
+        if (!row) return;
+        if (button.hasAttribute("data-form-toggle")) {
+          toggle(row, button);
+          return;
+        }
+        deleting = row;
+        document.getElementById("form-delete-name").textContent = row.dataset.formTitle;
+        dialog.showModal();
+      });
+      document.getElementById("form-delete-cancel").addEventListener("click", () => dialog.close());
+      dialog.addEventListener("close", () => (deleting = null));
+      confirmButton.addEventListener("click", () => {
+        const row = deleting;
+        if (!row) return;
+        confirmButton.disabled = true;
+        clearError();
+        api("DELETE", row.dataset.formId)
+          .then(() => {
+            dialog.close();
+            removed(row);
+          })
+          .catch((err) => {
+            dialog.close();
+            showError(err.message);
+          })
+          .finally(() => (confirmButton.disabled = false));
+      });
+    })();
+  </script>
+{{end}}
+
+{{/* copy-link copies the absolute URL of the path in the data-copy-link
+    attribute of a clicked button to the clipboard, and reports the outcome in
+    the #copy-status element. It expects the page, whose Nonce authorizes the
+    script. */}}
+{{define "copy-link"}}
+  <script nonce="{{.Nonce}}">
+    (() => {
+      const status = document.getElementById("copy-status");
+      const ok = "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+      const fail = "border-amber-500/30 bg-amber-500/10 text-amber-300";
+      let timer = null;
+      const show = (text, className) => {
+        status.className = "mb-3 rounded-lg border px-3 py-2 text-xs break-all " + className;
+        status.textContent = text;
+        clearTimeout(timer);
+        timer = setTimeout(() => status.classList.add("hidden"), 6000);
+      };
+
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-copy-link]");
+        if (!button) return;
+        const url = new URL(button.dataset.copyLink, location.origin).href;
+        // The Clipboard API needs a secure context; otherwise show the link to copy by hand.
+        if (!navigator.clipboard) {
+          show("Copy this link: " + url, fail);
+          return;
+        }
+        navigator.clipboard.writeText(url).then(
+          () => {
+            show("Copied " + url + " to the clipboard.", ok);
+            button.textContent = "Copied!";
+            setTimeout(() => (button.textContent = "Copy public link"), 2000);
+          },
+          () => show("Could not copy automatically. Copy this link: " + url, fail),
+        );
+      });
+    })();
+  </script>
 {{end}}

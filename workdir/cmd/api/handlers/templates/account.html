@@ -20,7 +20,7 @@
           {{with .Email}}<p class="mt-1 font-mono text-sm text-slate-300">{{.}}</p>{{end}}
           <p class="mt-1 text-xs text-slate-500">User #{{.ID}} · member since {{datetime .CreatedAt}}</p>
         </div>
-        <button type="button" id="signout" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Sign out</button>
+        <button type="button" data-signout class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Sign out</button>
       </div>
       <p class="mt-4 text-sm text-slate-400">This page only opens for signed-in users: its route is declared with <span class="font-mono text-slate-300">auth.SignedIn()</span> in <span class="font-mono text-slate-300">app_routes.go</span>.</p>
     </section>
@@ -67,11 +67,5 @@
       </div>
     </section>
   </main>
-
-  <script nonce="{{.Nonce}}">
-    document.getElementById("signout").addEventListener("click", () => {
-      fetch("/app/signout", { method: "POST", credentials: "same-origin" }).finally(() => location.assign("/app/signin"));
-    });
-  </script>
 </body>
 </html>

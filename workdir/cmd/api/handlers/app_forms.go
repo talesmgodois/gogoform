@@ -16,6 +16,9 @@ import (
 	"app/internal/pkg/submissions"
 )
 
+// formPageSize is how many submissions a page of the form page lists.
+const formPageSize = 50
+
 // payloadColumn heads the column holding payloads that are not JSON objects,
 // which have no keys to spread over columns.
 const payloadColumn = "payload"
@@ -28,9 +31,54 @@ type appFormPage struct {
 	appLayout
 	appView
 	Form forms.FormOverview
-	// Table and JSON show the newest appListLimit submissions.
+	// Table and JSON show the submissions of the current page, newest first.
 	Table submissionTable
 	JSON  string
+	Pager pager
+}
+
+// pager is the position of a page of submissions within all of them.
+type pager struct {
+	// Page is the current page, from 1 to Pages.
+	Page, Pages int
+	// From and To are the 1-based positions of the first and last listed
+	// submissions out of Total; both are 0 when nothing is listed.
+	From, To, Total int64
+	// PrevHref and NextHref link the neighbor pages; empty at either end.
+	PrevHref, NextHref string
+}
+
+// newPager returns the page of size items named by the page parameter s out
+// of total items, linked from base. A missing, malformed or out-of-range page
+// is clamped to the nearest valid one.
+func newPager(s string, size int, total int64, base string) pager {
+	pages := max(1, int((total+int64(size)-1)/int64(size)))
+	page, err := strconv.Atoi(s)
+	if err != nil || page < 1 {
+		page = 1
+	}
+	page = min(page, pages)
+	p := pager{Page: page, Pages: pages, Total: total}
+	if page > 1 {
+		p.PrevHref = base + "?page=" + strconv.Itoa(page-1)
+	}
+	if page < pages {
+		p.NextHref = base + "?page=" + strconv.Itoa(page+1)
+	}
+	return p
+}
+
+// offset is the number of items before the current page.
+func (p pager) offset(size int) int32 {
+	return int32((p.Page - 1) * size)
+}
+
+// listed records that n items starting at offset are shown.
+func (p *pager) listed(offset int32, n int) {
+	if n == 0 {
+		return
+	}
+	p.From, p.To = int64(offset)+1, int64(offset)+int64(n)
 }
 
 // submissionTable lays submissions out with one column per payload key.
@@ -45,8 +93,8 @@ type submissionRow struct {
 	Cells      []string
 }
 
-// Form renders the submissions of a form of the viewer's workspace as a
-// table and as JSON.
+// Form renders a page of the submissions of a form of the viewer's
+// workspace, selected by the page query parameter, as a table and as JSON.
 func (c *appController) Form(w http.ResponseWriter, r *http.Request) {
 	c.renderForm(w, r, workspaceView)
 }
@@ -59,27 +107,32 @@ func (c *appController) AdminForm(w http.ResponseWriter, r *http.Request) {
 func (c *appController) renderForm(w http.ResponseWriter, r *http.Request, v appView) {
 	f, err := c.viewForm(r, v, "id", r.PathValue("id"))
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
+	p := newPager(r.URL.Query().Get("page"), formPageSize, f.SubmissionCount,
+		v.Base+"/forms/"+strconv.Itoa(int(f.ID)))
+	offset := p.offset(formPageSize)
 	subs, err := c.submissions.ListByForm(r.Context(),
 		submissions.ListSubmissionsFilter{TenantID: f.TenantID, FormID: f.ID},
-		submissions.Page{Limit: appListLimit})
+		submissions.Page{Offset: offset, Limit: formPageSize})
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
 	body, err := submissionsJSON(subs)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
+		renderAppError(w, r, apperrors.NewInternal(err))
 		return
 	}
+	p.listed(offset, len(subs))
 	page := appFormPage{
 		appLayout: appLayout{Active: v.navKey()},
 		appView:   v,
 		Form:      f,
 		Table:     newSubmissionTable(f.Content, subs),
 		JSON:      string(body),
+		Pager:     p,
 	}
 	renderAppPage(w, r, appFormTemplate, &page)
 }
@@ -98,12 +151,12 @@ func (c *appController) AdminExportJSON(w http.ResponseWriter, r *http.Request) 
 func (c *appController) exportJSON(w http.ResponseWriter, r *http.Request, v appView) {
 	f, subs, err := c.allSubmissions(r, v)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
 	body, err := submissionsJSON(subs)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
+		renderAppError(w, r, apperrors.NewInternal(err))
 		return
 	}
 	writeAttachment(w, "application/json", f.Slug+"-submissions.json", append(body, '\n'))
@@ -123,12 +176,12 @@ func (c *appController) AdminExportCSV(w http.ResponseWriter, r *http.Request) {
 func (c *appController) exportCSV(w http.ResponseWriter, r *http.Request, v appView) {
 	f, subs, err := c.allSubmissions(r, v)
 	if err != nil {
-		apperrors.WriteHTTP(w, r, err)
+		renderAppError(w, r, err)
 		return
 	}
 	body, err := submissionsCSV(newSubmissionTable(f.Content, subs))
 	if err != nil {
-		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
+		renderAppError(w, r, apperrors.NewInternal(err))
 		return
 	}
 	writeAttachment(w, "text/csv; charset=utf-8", f.Slug+"-submissions.csv", body)

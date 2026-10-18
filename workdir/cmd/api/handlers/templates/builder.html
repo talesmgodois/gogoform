@@ -7,12 +7,12 @@
 
 {{template "nav" .}}
 
-  <div id="builder" data-draft="{{.Draft}}" data-api-key="{{.APIKey}}" class="flex-1 flex flex-col overflow-hidden">
+  <div id="builder" data-draft="{{.Draft}}" data-mode="{{.Mode}}" data-form-id="{{with .FormID}}{{.}}{{end}}" class="flex-1 flex flex-col overflow-hidden">
 
     <div class="shrink-0 border-b border-slate-800 bg-slate-900/40 px-6 py-3 flex flex-wrap items-center justify-between gap-3">
       <div class="min-w-0">
-        <h1 class="text-sm font-semibold tracking-tight">Form builder</h1>
-        <p class="text-xs text-slate-500 truncate">{{with .SourceTitle}}Copy of “{{.}}”. {{end}}Click or drag components onto the form, then create it in your workspace.</p>
+        <h1 id="builder-heading" class="text-sm font-semibold tracking-tight">{{if eq .Mode "edit"}}Edit form{{else}}New form{{end}}</h1>
+        <p id="builder-subtitle" class="text-xs text-slate-500 truncate">{{with .SourceTitle}}{{if eq $.Mode "edit"}}Editing “{{.}}”{{else}}Copy of “{{.}}”{{end}}. {{end}}Click or drag components onto the form, then {{if eq .Mode "edit"}}save your changes{{else}}create it in your workspace{{end}}.</p>
       </div>
       <div class="flex items-center gap-2 text-xs font-medium">
         <button type="button" id="issues-badge" class="rounded-lg px-3 py-2"></button>
@@ -43,7 +43,7 @@
               <button type="button" id="expand-code" data-icon="expand" title="Open in a larger view" aria-label="Open in a larger view" class="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
             </div>
           </div>
-          <p class="shrink-0 text-[11px] leading-snug text-slate-500">The <span class="font-mono">POST /forms</span> request body. Its <span class="font-mono">content</span> is what respondents' clients render.</p>
+          <p class="shrink-0 text-[11px] leading-snug text-slate-500">The <span data-request-label class="font-mono">{{if eq .Mode "edit"}}PUT /forms/{{.FormID}}{{else}}POST /forms{{end}}</span> request body. Its <span class="font-mono">content</span> is what respondents' clients render.</p>
           <pre id="code-panel" class="flex-1 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300"></pre>
         </div>
       </aside>
@@ -66,7 +66,7 @@
   <dialog id="code-dialog" aria-labelledby="code-dialog-title" class="w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
     <div class="flex items-center justify-between gap-4 border-b border-slate-800 px-5 py-3">
       <div>
-        <h3 id="code-dialog-title" class="text-sm font-semibold">POST /forms request body</h3>
+        <h3 id="code-dialog-title" class="text-sm font-semibold"><span data-request-label>{{if eq .Mode "edit"}}PUT /forms/{{.FormID}}{{else}}POST /forms{{end}}</span> request body</h3>
         <p class="text-xs text-slate-500">The <span class="font-mono">content</span> is what respondents' clients render.</p>
       </div>
       <div class="flex shrink-0 items-center gap-2 text-xs font-medium">
@@ -222,14 +222,17 @@
         }
         return o;
       };
-      const requestBody = () => ({
+      // requestBody is the FormRequest the builder sends. When editing it
+      // keeps the form's activation and dates, which the builder does not
+      // change, since PUT replaces the whole form.
+      const requestBody = () => Object.assign({
         title: state.title.trim(),
         slug: state.slug,
         description: state.description.trim() || null,
         public_available: state.publicAvailable,
         accept_anonymous: state.publicAvailable || state.acceptAnonymous,
         content: { version: 1, fields: state.fields.map(fieldJSON) },
-      });
+      }, save.formID ? { is_active: save.kept.is_active, start_date: save.kept.start_date, end_date: save.kept.end_date } : {});
 
       // toYAML renders a JSON value as block-style YAML. Strings that YAML
       // would read as something else are written as JSON strings, which are
@@ -520,8 +523,15 @@
         ];
       };
 
-      const create = { key: $("builder").dataset.apiKey || "", busy: false, result: null };
-      const canCreate = (problems) => !create.busy && create.key !== "" && !problems.length;
+      // save tracks saving the form: formID is the form being edited (empty
+      // when creating one) and kept holds the parts of it the builder keeps.
+      const save = {
+        formID: $("builder").dataset.mode === "edit" ? $("builder").dataset.formId : "",
+        kept: { is_active: true, start_date: null, end_date: null },
+        busy: false,
+        result: null,
+      };
+      const canSave = (problems) => !save.busy && !problems.length;
 
       const settingsInspector = () => [
         h("div", { class: "space-y-5" },
@@ -543,16 +553,16 @@
                 ? "Only signed-in users can fill it in; who submitted is not recorded."
                 : "Only signed-in users can fill it in; each submission records who sent it.")),
           section("Checks", h("div", { id: "checks" })),
-          section("Create form",
-            h("p", { class: "text-xs leading-snug text-slate-500" }, "The form is created in the workspace owning the API key, prefilled with yours. Send it as the X-API-Key header to call the API from your own integrations."),
-            row("Workspace API key", text(create.key, (v) => { create.key = v.trim(); renderStatus(issues()); },
-              { autocomplete: "off", spellcheck: false, class: INPUT + " font-mono" })),
+          section(save.formID ? "Save form" : "Create form",
+            h("p", { class: "text-xs leading-snug text-slate-500" }, save.formID
+              ? "Saving replaces the form in your workspace. Its activation and dates are kept; change them from the form page."
+              : "The form is created in your workspace and starts active."),
             h("button", {
-              type: "button", id: "create-form",
+              type: "button", id: "save-form",
               class: "w-full rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none",
               onclick: submit,
             }),
-            h("div", { id: "create-result" }))),
+            h("div", { id: "save-result" }))),
       ];
 
       // renderStatus refreshes the parts of the form settings that follow the
@@ -566,10 +576,10 @@
               onclick: () => { if (p.uid) select(p.uid); else if (!state.title.trim()) $("form-title").focus(); },
             }, p.message))))
           : h("p", { class: "rounded-lg bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300" }, "Everything looks good."));
-        const button = $("create-form");
-        button.disabled = !canCreate(problems);
-        button.textContent = create.busy ? "Creating…" : "Create form";
-        $("create-result").replaceChildren(...(create.result ? [create.result] : []));
+        const button = $("save-form");
+        button.disabled = !canSave(problems);
+        button.textContent = save.formID ? (save.busy ? "Saving…" : "Save changes") : (save.busy ? "Creating…" : "Create form");
+        $("save-result").replaceChildren(...(save.result ? [save.result] : []));
       };
 
       const renderInspector = (problems) => {
@@ -588,7 +598,7 @@
       // request since that would steal the focus of the input being typed in.
       const changed = (rebuildInspector) => {
         dirty = true;
-        create.result = null;
+        save.result = null;
         render(rebuildInspector);
       };
       const render = (rebuildInspector) => {
@@ -614,7 +624,7 @@
       const insert = (f, index) => {
         state.fields.splice(index == null ? state.fields.length : index, 0, f);
         dirty = true;
-        create.result = null;
+        save.result = null;
         select(f.uid);
       };
       // move puts the field at index from before position to (0..length).
@@ -679,30 +689,79 @@
 
       const bodyText = () => JSON.stringify(requestBody(), null, 2);
 
+      const note = (tone, ...children) => h("p", { class: "rounded-lg px-3 py-2 text-xs " + tone, role: "alert" }, ...children);
+      const failed = (...children) => note("bg-rose-500/10 text-rose-300", ...children);
+      const link = (href, label, props) => h("a", Object.assign({ href: href, class: "font-semibold underline" }, props), label);
+
+      // failure explains a failed save from the API's response; the request
+      // can be retried once the problem is fixed, as the draft stays.
+      const failure = (status, data) => {
+        const detail = data && data.message ? data.message : "HTTP " + status;
+        switch (status) {
+          case 400:
+            return failed("The form is not valid: " + detail + ". Fix it and try again.");
+          case 401:
+            return failed("Your session has expired. ", link("/app/signin", "Sign in again", { target: "_blank", rel: "opener" }),
+              " in a new tab, then retry; your changes stay here.");
+          case 403:
+            return failed("You are not allowed to save this form (" + detail + ").");
+          case 404:
+            return failed("This form no longer exists or is not in your workspace. ", link("/app", "Back to your forms"));
+          case 409:
+            return failed("The slug “" + state.slug + "” is already used by another form. Choose a different slug and try again.");
+          default:
+            return failed(status >= 500
+              ? "The server could not save the form (" + detail + "). Try again later."
+              : "The form could not be saved (" + detail + ").");
+        }
+      };
+
+      // editing switches the page to editing the form the API returned, so
+      // the next save updates it instead of creating another one.
+      const editing = (form) => {
+        save.formID = String(form.id);
+        save.kept = { is_active: form.is_active, start_date: form.start_date, end_date: form.end_date };
+        const builder = $("builder");
+        builder.dataset.mode = "edit";
+        builder.dataset.formId = save.formID;
+        history.replaceState(null, "", "/app/builder?form=" + encodeURIComponent(save.formID));
+        $("builder-heading").textContent = "Edit form";
+        $("builder-subtitle").textContent = "Editing “" + form.title + "”. Click or drag components onto the form, then save your changes.";
+        document.querySelectorAll("[data-request-label]").forEach((el) => { el.textContent = "PUT /forms/" + save.formID; });
+      };
+
+      // submit creates the form with POST /forms or, when editing, saves it
+      // with PUT /forms/{id}, authenticated by the session cookie.
       const submit = () => {
         const problems = issues();
-        if (!canCreate(problems)) return;
-        create.busy = true;
-        create.result = null;
+        if (!canSave(problems)) return;
+        const creating = !save.formID;
+        save.busy = true;
+        save.result = null;
         renderStatus(problems);
-        fetch("/forms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-API-Key": create.key },
+        fetch(creating ? "/forms" : "/forms/" + encodeURIComponent(save.formID), {
+          method: creating ? "POST" : "PUT",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: bodyText(),
         })
-          .then((res) => res.json().catch(() => ({})).then((data) => ({ res: res, data: data })))
-          .then(({ res, data }) => {
-            if (!res.ok) throw new Error(data.message || "HTTP " + res.status);
-            dirty = false;
-            create.result = h("div", { class: "rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300" },
-              "Form created. ", h("a", { href: "/app/forms/" + encodeURIComponent(data.id), class: "font-semibold underline" }, "View its submissions"));
-          })
-          .catch((err) => {
-            create.result = h("p", { class: "rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-300", role: "alert" }, "Could not create the form: " + err.message);
-          })
+          .then(
+            (res) => res.json().catch(() => null).then((data) => {
+              if (!res.ok || !data) {
+                save.result = failure(res.ok ? 500 : res.status, data);
+                return;
+              }
+              dirty = false;
+              if (creating) editing(data);
+              else save.kept = { is_active: data.is_active, start_date: data.start_date, end_date: data.end_date };
+              save.result = note("bg-emerald-500/10 text-emerald-300", creating ? "Form created. " : "Changes saved. ",
+                link("/app/forms/" + encodeURIComponent(data.id), "Open the form"), " or ", link("/app", "back to your forms"), ".");
+            }),
+            () => { save.result = failed("Could not reach the server. Check your connection and try again."); },
+          )
           .finally(() => {
-            create.busy = false;
-            renderStatus(issues());
+            save.busy = false;
+            render(creating && save.formID !== "");
           });
       };
 
@@ -872,10 +931,11 @@
         state.description = d.description || "";
         state.publicAvailable = d.public_available !== false;
         state.acceptAnonymous = d.accept_anonymous !== false;
+        if (save.formID) save.kept = { is_active: d.is_active !== false, start_date: d.start_date || null, end_date: d.end_date || null };
         const fields = d.content && Array.isArray(d.content.fields) ? d.content.fields : [];
         state.fields = fields.map(fromJSON).filter(Boolean);
         if (state.fields.length < fields.length || !(d.content && Array.isArray(d.content.fields))) {
-          create.result = h("p", { class: "rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-300" },
+          save.result = h("p", { class: "rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-300" },
             "Some of the source form's content is not in the builder's format and was left out.");
         }
       }
