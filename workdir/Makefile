@@ -17,7 +17,7 @@ SCHEMA_OUTPUT  ?= ../__ai_work/outputs/schema.sql
 MIGRATIONS_DIR ?= db/migrations
 DATABASE_URL   ?= postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable
 DBMATE         := dbmate --migrations-dir $(MIGRATIONS_DIR) --wait --no-dump-schema
-export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR DATABASE_URL
+export DBML_INPUT SCHEMA_OUTPUT MIGRATIONS_DIR
 # Tools installed by `make setup-tools` may live outside the user's PATH.
 export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
@@ -50,7 +50,7 @@ run: build ## Build and execute the compiled binary
 	./$(BIN)
 
 test: ## Run unit/integration tests
-	go test -v ./...
+	env -u DATABASE_URL -u AUTH_ADMIN_USERNAME -u AUTH_ADMIN_PASSWORD -u AUTH_JWT_SECRET go test -v ./...
 
 swagger: ## Regenerate Swagger documentation into ./docs
 	swag init -g $(MAIN) -o ./docs
@@ -62,20 +62,20 @@ generate-schema: ## Convert the DBML schema into SQL (SCHEMA_OUTPUT)
 	$(DB_SCRIPT) schema
 
 migrate-init: ## Create the initial dbmate migration from the generated SQL (no-op if it exists)
-	$(DB_SCRIPT) migration
+	DATABASE_URL="$(DATABASE_URL)" $(DB_SCRIPT) migration
 
 migrate-new: ## Create an empty dbmate migration: make migrate-new NAME=add_x
 	@test -n "$(NAME)" || { echo "usage: make migrate-new NAME=<migration_name>"; exit 1; }
 	$(DBMATE) new $(NAME)
 
 migrate-up: ## Apply pending migrations to DATABASE_URL
-	$(DBMATE) up
+	DATABASE_URL="$(DATABASE_URL)" $(DBMATE) up
 
 migrate-down: ## Roll back the most recent migration
-	$(DBMATE) down
+	DATABASE_URL="$(DATABASE_URL)" $(DBMATE) down
 
 migrate-status: ## Show applied and pending migrations
-	$(DBMATE) status
+	DATABASE_URL="$(DATABASE_URL)" $(DBMATE) status
 
 sqlc: ## Generate type-safe Go code from db/queries into internal/db
 	sqlc generate
