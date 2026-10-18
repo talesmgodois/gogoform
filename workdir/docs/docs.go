@@ -62,7 +62,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Checks the HTTP Basic credentials (\"Authorization: Basic \" + btoa(username + \":\" + password)) and returns a JWT access token to send as \"Authorization: Bearer \u003ctoken\u003e\".",
+                "description": "Checks the HTTP Basic credentials (\"Authorization: Basic \" + btoa(email + \":\" + password)) and returns a JWT access token to send as \"Authorization: Bearer \u003ctoken\u003e\". The identifier is the email, or the username for accounts without one (such as the bootstrap admin).",
                 "produces": [
                     "application/json"
                 ],
@@ -94,7 +94,7 @@ const docTemplate = `{
         },
         "/auth/signup": {
             "post": {
-                "description": "Creates an account with the BASIC role. Usernames are case-insensitive.",
+                "description": "Creates an account with the BASIC role, and its workspace (tenant). Emails are case-insensitive.",
                 "consumes": [
                     "application/json"
                 ],
@@ -120,17 +120,17 @@ const docTemplate = `{
                     "201": {
                         "description": "Account created",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserResponse"
+                            "$ref": "#/definitions/handlers.SignUpResponse"
                         }
                     },
                     "400": {
-                        "description": "Invalid username or password",
+                        "description": "Invalid email, username or password",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
                     "409": {
-                        "description": "Username already taken",
+                        "description": "Email already registered, or username already taken",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -149,6 +149,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Stores the file sent in the \"file\" field of a multipart form. Files are limited to 10 MiB and can then be read publicly at the returned url.",
@@ -185,7 +191,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -249,6 +261,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Deletes one of the authenticated tenant's files.",
@@ -273,7 +291,13 @@ const docTemplate = `{
                         "description": "File deleted"
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -298,6 +322,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Lists the authenticated tenant's forms, newest first, with their submission counts.",
@@ -353,7 +383,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -370,6 +406,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.",
@@ -408,7 +450,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -433,6 +481,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Returns one of the authenticated tenant's forms.",
@@ -466,7 +520,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -489,6 +549,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true.",
@@ -534,7 +600,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -563,6 +635,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Deletes one of the authenticated tenant's forms. Forms that have submissions or webhooks cannot be deleted.",
@@ -593,7 +671,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -624,6 +708,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Lists the submissions of one of the authenticated tenant's forms, newest first, with their metadata.",
@@ -674,7 +764,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -699,6 +795,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Lists the active webhooks of one of the authenticated tenant's forms, oldest first.",
@@ -732,7 +834,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -755,6 +863,12 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
                 "description": "Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL.",
@@ -800,7 +914,13 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1111,7 +1231,7 @@ const docTemplate = `{
         },
         "/tenants": {
             "post": {
-                "description": "Registers a new tenant and returns it with a freshly generated API key. The key is shown only once; send it in the X-API-Key header of authenticated requests.",
+                "description": "Registers a new tenant and returns it with a freshly generated API key. The key is shown only once; send it in the X-API-Key header of authenticated requests. Development only: mounted when features.public_tenant_signup (FEATURE_PUBLIC_TENANT_SIGNUP) is enabled, which is off by default outside development.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1137,11 +1257,17 @@ const docTemplate = `{
                     "201": {
                         "description": "Tenant created",
                         "schema": {
-                            "$ref": "#/definitions/handlers.CreateTenantResponse"
+                            "$ref": "#/definitions/handlers.TenantWithAPIKeyResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Disabled outside development",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1160,9 +1286,15 @@ const docTemplate = `{
                 "security": [
                     {
                         "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
                     }
                 ],
-                "description": "Returns the tenant that owns the API key of the request.",
+                "description": "Returns the tenant that owns the API key of the request, or the workspace of the signed-in user, including its API key so signed-in users can integrate.",
                 "produces": [
                     "application/json"
                 ],
@@ -1174,11 +1306,72 @@ const docTemplate = `{
                     "200": {
                         "description": "Authenticated tenant",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TenantResponse"
+                            "$ref": "#/definitions/handlers.TenantWithAPIKeyResponse"
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid API key",
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/me/api-key/rotate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Generates a new API key for the tenant that owns the API key of the request, or the workspace of the signed-in user, and returns it. The previous key stops working immediately.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "Rotate the API key",
+                "responses": {
+                    "200": {
+                        "description": "Tenant with its new API key",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TenantWithAPIKeyResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Signed-in user has no workspace",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Tenant no longer active",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1426,31 +1619,6 @@ const docTemplate = `{
         "handlers.CreateTenantRequest": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "example": "Acme Inc."
-                }
-            }
-        },
-        "handlers.CreateTenantResponse": {
-            "type": "object",
-            "properties": {
-                "api_key": {
-                    "type": "string",
-                    "example": "3f1c...e9a0"
-                },
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-01-01T00:00:00Z"
-                },
-                "id": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "is_active": {
-                    "type": "boolean",
-                    "example": true
-                },
                 "name": {
                     "type": "string",
                     "example": "Acme Inc."
@@ -1847,13 +2015,66 @@ const docTemplate = `{
         "handlers.SignUpRequest": {
             "type": "object",
             "properties": {
+                "email": {
+                    "description": "Email is case-insensitive; the account signs in with it.",
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
                 "password": {
                     "description": "Password is 8 to 72 bytes long.",
                     "type": "string",
                     "example": "correct horse battery"
                 },
                 "username": {
-                    "description": "Username is case-insensitive: 3 to 50 letters, digits, '.', '_' or '-'.",
+                    "description": "Username is optional and case-insensitive: 3 to 50 letters, digits,\n'.', '_' or '-'. When omitted, one is derived from the email.",
+                    "type": "string",
+                    "example": "alice"
+                }
+            }
+        },
+        "handlers.SignUpResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-01-01T00:00:00Z"
+                },
+                "email": {
+                    "description": "Email is empty for accounts created without one, such as the\nbootstrap admin.",
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "email_verified_at": {
+                    "type": "string",
+                    "example": "2026-01-01T00:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "role": {
+                    "enum": [
+                        "ADMIN",
+                        "FORM_CREATOR",
+                        "BASIC"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/auth.Role"
+                        }
+                    ],
+                    "example": "BASIC"
+                },
+                "tenant_id": {
+                    "description": "TenantID is the workspace created for the account.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "username": {
                     "type": "string",
                     "example": "alice"
                 }
@@ -1906,9 +2127,13 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TenantResponse": {
+        "handlers.TenantWithAPIKeyResponse": {
             "type": "object",
             "properties": {
+                "api_key": {
+                    "type": "string",
+                    "example": "3f1c...e9a0"
+                },
                 "created_at": {
                     "type": "string",
                     "example": "2026-01-01T00:00:00Z"
@@ -1971,6 +2196,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "type": "string",
+                    "example": "2026-01-01T00:00:00Z"
+                },
+                "email": {
+                    "description": "Email is empty for accounts created without one, such as the\nbootstrap admin.",
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "email_verified_at": {
                     "type": "string",
                     "example": "2026-01-01T00:00:00Z"
                 },

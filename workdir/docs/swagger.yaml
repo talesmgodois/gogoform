@@ -65,24 +65,6 @@ definitions:
         example: Acme Inc.
         type: string
     type: object
-  handlers.CreateTenantResponse:
-    properties:
-      api_key:
-        example: 3f1c...e9a0
-        type: string
-      created_at:
-        example: "2026-01-01T00:00:00Z"
-        type: string
-      id:
-        example: 1
-        type: integer
-      is_active:
-        example: true
-        type: boolean
-      name:
-        example: Acme Inc.
-        type: string
-    type: object
   handlers.CreateWebhookRequest:
     properties:
       secret_token:
@@ -370,13 +352,54 @@ definitions:
     type: object
   handlers.SignUpRequest:
     properties:
+      email:
+        description: Email is case-insensitive; the account signs in with it.
+        example: alice@example.com
+        type: string
       password:
         description: Password is 8 to 72 bytes long.
         example: correct horse battery
         type: string
       username:
-        description: 'Username is case-insensitive: 3 to 50 letters, digits, ''.'',
-          ''_'' or ''-''.'
+        description: |-
+          Username is optional and case-insensitive: 3 to 50 letters, digits,
+          '.', '_' or '-'. When omitted, one is derived from the email.
+        example: alice
+        type: string
+    type: object
+  handlers.SignUpResponse:
+    properties:
+      created_at:
+        example: "2026-01-01T00:00:00Z"
+        type: string
+      email:
+        description: |-
+          Email is empty for accounts created without one, such as the
+          bootstrap admin.
+        example: alice@example.com
+        type: string
+      email_verified_at:
+        example: "2026-01-01T00:00:00Z"
+        type: string
+      id:
+        example: 1
+        type: integer
+      is_active:
+        example: true
+        type: boolean
+      role:
+        allOf:
+        - $ref: '#/definitions/auth.Role'
+        enum:
+        - ADMIN
+        - FORM_CREATOR
+        - BASIC
+        example: BASIC
+      tenant_id:
+        description: TenantID is the workspace created for the account.
+        example: 1
+        type: integer
+      username:
         example: alice
         type: string
     type: object
@@ -413,8 +436,11 @@ definitions:
         example: 3
         type: integer
     type: object
-  handlers.TenantResponse:
+  handlers.TenantWithAPIKeyResponse:
     properties:
+      api_key:
+        example: 3f1c...e9a0
+        type: string
       created_at:
         example: "2026-01-01T00:00:00Z"
         type: string
@@ -459,6 +485,15 @@ definitions:
   handlers.UserResponse:
     properties:
       created_at:
+        example: "2026-01-01T00:00:00Z"
+        type: string
+      email:
+        description: |-
+          Email is empty for accounts created without one, such as the
+          bootstrap admin.
+        example: alice@example.com
+        type: string
+      email_verified_at:
         example: "2026-01-01T00:00:00Z"
         type: string
       id:
@@ -541,9 +576,10 @@ paths:
       - auth
   /auth/signin:
     post:
-      description: 'Checks the HTTP Basic credentials ("Authorization: Basic " + btoa(username
+      description: 'Checks the HTTP Basic credentials ("Authorization: Basic " + btoa(email
         + ":" + password)) and returns a JWT access token to send as "Authorization:
-        Bearer <token>".'
+        Bearer <token>". The identifier is the email, or the username for accounts
+        without one (such as the bootstrap admin).'
       produces:
       - application/json
       responses:
@@ -568,7 +604,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates an account with the BASIC role. Usernames are case-insensitive.
+      description: Creates an account with the BASIC role, and its workspace (tenant).
+        Emails are case-insensitive.
       parameters:
       - description: Credentials of the new account
         in: body
@@ -582,13 +619,13 @@ paths:
         "201":
           description: Account created
           schema:
-            $ref: '#/definitions/handlers.UserResponse'
+            $ref: '#/definitions/handlers.SignUpResponse'
         "400":
-          description: Invalid username or password
+          description: Invalid email, username or password
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "409":
-          description: Username already taken
+          description: Email already registered, or username already taken
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
@@ -622,7 +659,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
@@ -631,6 +672,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Upload a file
       tags:
       - files
@@ -649,7 +692,11 @@ paths:
         "204":
           description: File deleted
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -662,6 +709,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Delete a file
       tags:
       - files
@@ -736,7 +785,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
@@ -745,6 +798,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: List forms
       tags:
       - forms
@@ -774,7 +829,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "409":
@@ -787,6 +846,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Create a form
       tags:
       - forms
@@ -810,7 +871,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -827,6 +892,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Delete a form
       tags:
       - forms
@@ -850,7 +917,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -863,6 +934,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Get a form
       tags:
       - forms
@@ -896,7 +969,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -913,6 +990,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Update a form
       tags:
       - forms
@@ -951,7 +1030,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -964,6 +1047,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: List form submissions
       tags:
       - submissions
@@ -989,7 +1074,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -1002,6 +1091,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: List webhooks
       tags:
       - webhooks
@@ -1034,7 +1125,11 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -1047,6 +1142,8 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Create a webhook
       tags:
       - webhooks
@@ -1240,9 +1337,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Registers a new tenant and returns it with a freshly generated
+      description: 'Registers a new tenant and returns it with a freshly generated
         API key. The key is shown only once; send it in the X-API-Key header of authenticated
-        requests.
+        requests. Development only: mounted when features.public_tenant_signup (FEATURE_PUBLIC_TENANT_SIGNUP)
+        is enabled, which is off by default outside development.'
       parameters:
       - description: Tenant to create
         in: body
@@ -1256,9 +1354,13 @@ paths:
         "201":
           description: Tenant created
           schema:
-            $ref: '#/definitions/handlers.CreateTenantResponse'
+            $ref: '#/definitions/handlers.TenantWithAPIKeyResponse'
         "400":
           description: Invalid request
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "404":
+          description: Disabled outside development
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
@@ -1270,16 +1372,22 @@ paths:
       - tenants
   /tenants/me:
     get:
-      description: Returns the tenant that owns the API key of the request.
+      description: Returns the tenant that owns the API key of the request, or the
+        workspace of the signed-in user, including its API key so signed-in users
+        can integrate.
       produces:
       - application/json
       responses:
         "200":
           description: Authenticated tenant
           schema:
-            $ref: '#/definitions/handlers.TenantResponse'
+            $ref: '#/definitions/handlers.TenantWithAPIKeyResponse'
         "401":
-          description: Missing or invalid API key
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "500":
@@ -1288,7 +1396,44 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
       security:
       - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
       summary: Get the current tenant
+      tags:
+      - tenants
+  /tenants/me/api-key/rotate:
+    post:
+      description: Generates a new API key for the tenant that owns the API key of
+        the request, or the workspace of the signed-in user, and returns it. The previous
+        key stops working immediately.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tenant with its new API key
+          schema:
+            $ref: '#/definitions/handlers.TenantWithAPIKeyResponse'
+        "401":
+          description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "403":
+          description: Signed-in user has no workspace
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "404":
+          description: Tenant no longer active
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - BasicAuth: []
+      summary: Rotate the API key
       tags:
       - tenants
   /users:
