@@ -216,6 +216,56 @@ func (q *Queries) GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFo
 	return i, err
 }
 
+const getFormBySlug = `-- name: GetFormBySlug :one
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name, t.is_active AS tenant_is_active
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+WHERE f.slug = $1
+`
+
+type GetFormBySlugRow struct {
+	ID              int32           `db:"id" json:"id"`
+	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
+	Title           string          `db:"title" json:"title"`
+	Slug            string          `db:"slug" json:"slug"`
+	Description     *string         `db:"description" json:"description"`
+	IsActive        *bool           `db:"is_active" json:"is_active"`
+	StartDate       *time.Time      `db:"start_date" json:"start_date"`
+	EndDate         *time.Time      `db:"end_date" json:"end_date"`
+	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	TenantName      string          `db:"tenant_name" json:"tenant_name"`
+	TenantIsActive  *bool           `db:"tenant_is_active" json:"tenant_is_active"`
+}
+
+// Any state, for the respondent pages that explain why a form is closed. The
+// caller decides availability from is_active, the window and tenant_is_active.
+func (q *Queries) GetFormBySlug(ctx context.Context, slug string) (GetFormBySlugRow, error) {
+	row := q.db.QueryRow(ctx, getFormBySlug, slug)
+	var i GetFormBySlugRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Title,
+		&i.Slug,
+		&i.Description,
+		&i.IsActive,
+		&i.StartDate,
+		&i.EndDate,
+		&i.FormContent,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PublicAvailable,
+		&i.AcceptAnonymous,
+		&i.TenantName,
+		&i.TenantIsActive,
+	)
+	return i, err
+}
+
 const getFormOverviewByID = `-- name: GetFormOverviewByID :one
 SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
        (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count

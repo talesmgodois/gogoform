@@ -81,3 +81,20 @@ func TestWriteHTTPHidesInternalCause(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteHTTPValidationFields(t *testing.T) {
+	rec, _, body := writeAndDecode(t, NewValidation("invalid answers", map[string]string{"email": "is required"}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if body.Code != CodeInvalidArgument || body.Message != "invalid answers" || body.Fields["email"] != "is required" || len(body.Fields) != 1 {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestWriteHTTPOmitsEmptyFields(t *testing.T) {
+	_, raw, _ := writeAndDecode(t, NewBadRequest("bad"))
+	if strings.Contains(raw, "fields") {
+		t.Fatalf("response has fields: %s", raw)
+	}
+}

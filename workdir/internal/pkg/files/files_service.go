@@ -91,6 +91,30 @@ func (s *Service) GetByID(ctx context.Context, id string) (File, error) {
 	}, nil
 }
 
+// GetInfoByID returns the file with the given ID without its Data, e.g. to
+// check its owner.
+func (s *Service) GetInfoByID(ctx context.Context, id string) (File, error) {
+	if !uuidPattern.MatchString(id) {
+		return File{}, apperrors.NewNotFound(msgNotFound)
+	}
+	row, err := s.q.GetFileInfoByID(ctx, id)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return File{}, apperrors.NewNotFound(msgNotFound)
+	case err != nil:
+		return File{}, apperrors.NewInternal(err)
+	}
+	return File{
+		ID:          row.ID,
+		TenantID:    row.TenantID,
+		Name:        row.Name,
+		ContentType: row.ContentType,
+		Size:        row.SizeBytes,
+		Checksum:    row.ChecksumSha256,
+		CreatedAt:   row.CreatedAt,
+	}, nil
+}
+
 // ListByTenant returns the tenant's files without their Data, newest first.
 func (s *Service) ListByTenant(ctx context.Context, tenantID int32, page Page) ([]FileSummary, error) {
 	if page.Offset < 0 || page.Limit < 1 {

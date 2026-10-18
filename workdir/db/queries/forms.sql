@@ -24,6 +24,14 @@ WHERE f.slug = $1
   AND (f.start_date IS NULL OR f.start_date <= now())
   AND (f.end_date IS NULL OR f.end_date > now());
 
+-- name: GetFormBySlug :one
+-- Any state, for the respondent pages that explain why a form is closed. The
+-- caller decides availability from is_active, the window and tenant_is_active.
+SELECT f.*, t.name AS tenant_name, t.is_active AS tenant_is_active
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+WHERE f.slug = $1;
+
 -- name: ListFormsByTenant :many
 -- Optional filters: is_active (nil = any) and search (case-insensitive title match).
 SELECT f.*, (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count

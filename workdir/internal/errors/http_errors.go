@@ -13,11 +13,20 @@ const internalMessage = "internal server error"
 type HTTPErrorResponse struct {
 	Code    Code   `json:"code" example:"not_found"`
 	Message string `json:"message" example:"form not found"`
+	// Fields maps input field names to what is wrong with them; only set by
+	// validation errors.
+	Fields map[string]string `json:"fields,omitempty"`
 }
 
 // NewBadRequest returns an AppError that maps to 400 Bad Request.
 func NewBadRequest(message string) *AppError {
 	return New(CodeInvalidArgument, message)
+}
+
+// NewValidation returns an AppError that maps to 400 Bad Request and lists
+// the offending fields with their messages.
+func NewValidation(message string, fields map[string]string) *AppError {
+	return &AppError{Code: CodeInvalidArgument, Message: message, Fields: fields}
 }
 
 // NewUnauthorized returns an AppError that maps to 401 Unauthorized.
@@ -75,7 +84,7 @@ func WriteHTTP(w http.ResponseWriter, r *http.Request, err error) {
 
 	resp := HTTPErrorResponse{Code: CodeInternal, Message: internalMessage}
 	if appErr, ok := As(err); ok && status < http.StatusInternalServerError {
-		resp = HTTPErrorResponse{Code: appErr.Code, Message: appErr.Message}
+		resp = HTTPErrorResponse{Code: appErr.Code, Message: appErr.Message, Fields: appErr.Fields}
 	}
 	if status >= http.StatusInternalServerError {
 		slog.ErrorContext(r.Context(), "request failed", "status", status, "error", err)

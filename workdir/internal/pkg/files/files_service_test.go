@@ -20,6 +20,7 @@ type fakeQuerier struct {
 	db.Querier
 	createFile  func(db.CreateFileParams) (db.CreateFileRow, error)
 	getFileByID func(string) (db.File, error)
+	getFileInfo func(string) (db.GetFileInfoByIDRow, error)
 	deleteFile  func(db.DeleteFileParams) (int64, error)
 	listAll     func(db.ListAllFilesParams) ([]db.ListAllFilesRow, error)
 	countAll    func() (int64, error)
@@ -41,6 +42,10 @@ func (f *fakeQuerier) CreateFile(_ context.Context, arg db.CreateFileParams) (db
 
 func (f *fakeQuerier) GetFileByID(_ context.Context, id string) (db.File, error) {
 	return f.getFileByID(id)
+}
+
+func (f *fakeQuerier) GetFileInfoByID(_ context.Context, id string) (db.GetFileInfoByIDRow, error) {
+	return f.getFileInfo(id)
 }
 
 func (f *fakeQuerier) DeleteFile(_ context.Context, arg db.DeleteFileParams) (int64, error) {
@@ -144,6 +149,38 @@ func TestGetByID(t *testing.T) {
 			}})
 
 			got, err := svc.GetByID(context.Background(), tt.id)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("file = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetInfoByID(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       string
+		err      error
+		wantCode apperrors.Code
+		want     File
+	}{
+		{"ok", fileID, nil, "", meta},
+		{"not found", fileID, pgx.ErrNoRows, apperrors.CodeNotFound, File{}},
+		{"malformed id", "42", nil, apperrors.CodeNotFound, File{}},
+		{"db failure", fileID, errDB, apperrors.CodeInternal, File{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{getFileInfo: func(id string) (db.GetFileInfoByIDRow, error) {
+				if id != fileID {
+					t.Fatalf("id = %q", id)
+				}
+				return db.GetFileInfoByIDRow{ID: fileID, TenantID: 7, Name: "hello.txt", ContentType: "text/plain", SizeBytes: 5, ChecksumSha256: helloSHA256, CreatedAt: now}, tt.err
+			}})
+
+			got, err := svc.GetInfoByID(context.Background(), tt.id)
 
 			assertCode(t, err, tt.wantCode)
 			if !reflect.DeepEqual(got, tt.want) {

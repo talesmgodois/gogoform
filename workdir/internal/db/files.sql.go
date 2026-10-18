@@ -121,6 +121,38 @@ func (q *Queries) GetFileByID(ctx context.Context, id string) (File, error) {
 	return i, err
 }
 
+const getFileInfoByID = `-- name: GetFileInfoByID :one
+SELECT id, tenant_id, name, content_type, size_bytes, checksum_sha256, created_at
+FROM files
+WHERE id = $1
+`
+
+type GetFileInfoByIDRow struct {
+	ID             string    `db:"id" json:"id"`
+	TenantID       int32     `db:"tenant_id" json:"tenant_id"`
+	Name           string    `db:"name" json:"name"`
+	ContentType    string    `db:"content_type" json:"content_type"`
+	SizeBytes      int64     `db:"size_bytes" json:"size_bytes"`
+	ChecksumSha256 string    `db:"checksum_sha256" json:"checksum_sha256"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+}
+
+// Metadata only, for checking a file's owner without loading its blob.
+func (q *Queries) GetFileInfoByID(ctx context.Context, id string) (GetFileInfoByIDRow, error) {
+	row := q.db.QueryRow(ctx, getFileInfoByID, id)
+	var i GetFileInfoByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.ChecksumSha256,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listAllFiles = `-- name: ListAllFiles :many
 SELECT f.id, f.tenant_id, f.name, f.content_type, f.size_bytes, f.checksum_sha256, f.created_at,
        t.name AS tenant_name

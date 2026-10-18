@@ -8,6 +8,12 @@ RETURNING id, tenant_id, name, content_type, size_bytes, checksum_sha256, create
 SELECT * FROM files
 WHERE id = $1;
 
+-- name: GetFileInfoByID :one
+-- Metadata only, for checking a file's owner without loading its blob.
+SELECT id, tenant_id, name, content_type, size_bytes, checksum_sha256, created_at
+FROM files
+WHERE id = $1;
+
 -- name: DeleteFile :execrows
 -- Scoped by tenant so one tenant can never remove another tenant's file.
 DELETE FROM files

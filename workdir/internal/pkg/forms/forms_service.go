@@ -106,6 +106,33 @@ func (s *Service) GetPublicBySlug(ctx context.Context, slug string) (Form, error
 	return toForm(row), nil
 }
 
+// GetBySlug returns the form with the given slug whatever its state.
+func (s *Service) GetBySlug(ctx context.Context, slug string) (FormBySlug, error) {
+	row, err := s.q.GetFormBySlug(ctx, slug)
+	if err != nil {
+		return FormBySlug{}, mapGetError(err)
+	}
+	return FormBySlug{
+		Form: toForm(db.Form{
+			ID:              row.ID,
+			TenantID:        row.TenantID,
+			Title:           row.Title,
+			Slug:            row.Slug,
+			Description:     row.Description,
+			IsActive:        row.IsActive,
+			StartDate:       row.StartDate,
+			EndDate:         row.EndDate,
+			FormContent:     row.FormContent,
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+			PublicAvailable: row.PublicAvailable,
+			AcceptAnonymous: row.AcceptAnonymous,
+		}),
+		TenantName:   row.TenantName,
+		TenantActive: deref(row.TenantIsActive),
+	}, nil
+}
+
 // List returns the forms matching filter, newest first.
 func (s *Service) List(ctx context.Context, filter ListFormsFilter, page Page) ([]FormSummary, error) {
 	if page.Offset < 0 || page.Limit < 1 {

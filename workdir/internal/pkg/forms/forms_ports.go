@@ -17,6 +17,10 @@ type Repository interface {
 	// in publicly: the form and its tenant are active and now is inside the
 	// availability window.
 	GetPublicBySlug(ctx context.Context, slug string) (Form, error)
+	// GetBySlug returns the form with the given slug whatever its state, with
+	// whether its tenant is active. Use Availability to decide whether it can
+	// be filled in.
+	GetBySlug(ctx context.Context, slug string) (FormBySlug, error)
 	// List returns the forms matching filter, newest first.
 	List(ctx context.Context, filter ListFormsFilter, page Page) ([]FormSummary, error)
 	// Count returns how many forms match filter, for pagination totals.

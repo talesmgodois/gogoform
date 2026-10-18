@@ -22,6 +22,7 @@ type fakeQuerier struct {
 	createForm          func(db.CreateFormParams) (db.Form, error)
 	getFormByID         func(db.GetFormByIDParams) (db.GetFormByIDRow, error)
 	getPublicFormBySlug func(string) (db.Form, error)
+	getFormBySlug       func(string) (db.GetFormBySlugRow, error)
 	listFormsByTenant   func(db.ListFormsByTenantParams) ([]db.ListFormsByTenantRow, error)
 	countFormsByTenant  func(db.CountFormsByTenantParams) (int64, error)
 	listAllForms        func(db.ListAllFormsParams) ([]db.ListAllFormsRow, error)
@@ -42,6 +43,10 @@ func (f *fakeQuerier) GetFormByID(_ context.Context, arg db.GetFormByIDParams) (
 
 func (f *fakeQuerier) GetPublicFormBySlug(_ context.Context, slug string) (db.Form, error) {
 	return f.getPublicFormBySlug(slug)
+}
+
+func (f *fakeQuerier) GetFormBySlug(_ context.Context, slug string) (db.GetFormBySlugRow, error) {
+	return f.getFormBySlug(slug)
 }
 
 func (f *fakeQuerier) ListFormsByTenant(_ context.Context, arg db.ListFormsByTenantParams) ([]db.ListFormsByTenantRow, error) {
@@ -291,6 +296,41 @@ func TestGetPublicBySlug(t *testing.T) {
 			assertCode(t, err, tt.wantCode)
 			if err == nil && !reflect.DeepEqual(got, wantForm) {
 				t.Fatalf("form = %+v, want %+v", got, wantForm)
+			}
+		})
+	}
+}
+
+func TestGetBySlug(t *testing.T) {
+	row := db.GetFormBySlugRow{
+		ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
+		IsActive: ptr(true), StartDate: &now, FormContent: content,
+		CreatedAt: &now, UpdatedAt: &now, TenantName: "Acme", TenantIsActive: ptr(true),
+	}
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+	}{
+		{"ok", nil, ""},
+		{"missing", pgx.ErrNoRows, apperrors.CodeNotFound},
+		{"db failure", errDB, apperrors.CodeInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{getFormBySlug: func(slug string) (db.GetFormBySlugRow, error) {
+				if slug != "survey" {
+					t.Fatalf("slug = %q", slug)
+				}
+				return row, tt.err
+			}})
+
+			got, err := svc.GetBySlug(context.Background(), "survey")
+
+			assertCode(t, err, tt.wantCode)
+			want := FormBySlug{Form: wantForm, TenantName: "Acme", TenantActive: true}
+			if err == nil && !reflect.DeepEqual(got, want) {
+				t.Fatalf("form = %+v, want %+v", got, want)
 			}
 		})
 	}

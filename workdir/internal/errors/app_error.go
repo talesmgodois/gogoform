@@ -23,7 +23,10 @@ const (
 type AppError struct {
 	Code    Code
 	Message string
-	Err     error
+	// Fields maps input field names to what is wrong with them, for
+	// validation errors that concern specific fields.
+	Fields map[string]string
+	Err    error
 }
 
 // New returns an AppError with the given code and message.

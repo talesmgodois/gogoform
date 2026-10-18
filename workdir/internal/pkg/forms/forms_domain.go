@@ -36,6 +36,14 @@ type FormDetails struct {
 	TenantName string
 }
 
+// FormBySlug is a Form looked up by slug in any state, together with its
+// tenant, so callers can tell why a form is not available (see Availability).
+type FormBySlug struct {
+	Form
+	TenantName   string
+	TenantActive bool
+}
+
 // FormSummary is a Form as shown in listings, with its submission count.
 type FormSummary struct {
 	Form

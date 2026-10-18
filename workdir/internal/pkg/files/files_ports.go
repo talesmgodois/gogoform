@@ -13,6 +13,8 @@ type Repository interface {
 	Create(ctx context.Context, in CreateFileInput) (File, error)
 	// GetByID returns the file with the given ID, including its Data.
 	GetByID(ctx context.Context, id string) (File, error)
+	// GetInfoByID returns the file with the given ID without its Data.
+	GetInfoByID(ctx context.Context, id string) (File, error)
 	// ListByTenant returns the tenant's files without their Data, newest
 	// first.
 	ListByTenant(ctx context.Context, tenantID int32, page Page) ([]FileSummary, error)

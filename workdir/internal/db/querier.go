@@ -30,8 +30,13 @@ type Querier interface {
 	// Across every tenant, for the read-only /app dashboard.
 	GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDRow, error)
 	GetFileByID(ctx context.Context, id string) (File, error)
+	// Metadata only, for checking a file's owner without loading its blob.
+	GetFileInfoByID(ctx context.Context, id string) (GetFileInfoByIDRow, error)
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
+	// Any state, for the respondent pages that explain why a form is closed. The
+	// caller decides availability from is_active, the window and tenant_is_active.
+	GetFormBySlug(ctx context.Context, slug string) (GetFormBySlugRow, error)
 	// GetAnyFormByID scoped by tenant, for the /app pages of a signed-in user.
 	GetFormOverviewByID(ctx context.Context, arg GetFormOverviewByIDParams) (GetFormOverviewByIDRow, error)
 	// Open for submissions: the form and its tenant must be active and inside the
