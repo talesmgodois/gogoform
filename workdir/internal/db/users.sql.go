@@ -10,19 +10,25 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (username, password_hash, role)
-VALUES ($1, $2, $3)
-RETURNING id, username, password_hash, role, is_active, created_at, updated_at
+INSERT INTO users (username, email, password_hash, role)
+VALUES ($1, $2, $3, $4)
+RETURNING id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at
 `
 
 type CreateUserParams struct {
 	Username     string   `db:"username" json:"username"`
+	Email        *string  `db:"email" json:"email"`
 	PasswordHash string   `db:"password_hash" json:"password_hash"`
 	Role         UserRole `db:"role" json:"role"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Username, arg.PasswordHash, arg.Role)
+	row := q.db.QueryRow(ctx, createUser,
+		arg.Username,
+		arg.Email,
+		arg.PasswordHash,
+		arg.Role,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -32,6 +38,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
@@ -57,8 +65,31 @@ func (q *Queries) CreateUserIfNotExists(ctx context.Context, arg CreateUserIfNot
 	return result.RowsAffected(), nil
 }
 
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at FROM users
+WHERE lower(email) = lower($1::text) AND is_active
+`
+
+// Emails are stored lowercase; lower() matches the users_email_key index.
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, role, is_active, created_at, updated_at FROM users
+SELECT id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at FROM users
 WHERE id = $1 AND is_active
 `
 
@@ -73,12 +104,14 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, role, is_active, created_at, updated_at FROM users
+SELECT id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at FROM users
 WHERE username = $1 AND is_active
 `
 
@@ -93,12 +126,14 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, role, is_active, created_at, updated_at FROM users
+SELECT id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at FROM users
 ORDER BY id
 LIMIT $2 OFFSET $1
 `
@@ -125,6 +160,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Email,
+			&i.EmailVerifiedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -141,7 +178,7 @@ UPDATE users
 SET role = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, username, password_hash, role, is_active, created_at, updated_at
+RETURNING id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at
 `
 
 type UpdateUserRoleParams struct {
@@ -160,6 +197,8 @@ func (q *Queries) UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) 
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }

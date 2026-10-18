@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"strings"
 	"time"
@@ -16,15 +14,12 @@ import (
 // apiKeyHeader is the request header carrying a tenant's API key.
 const apiKeyHeader = "X-API-Key"
 
-// maxTenantNameLen matches the tenants.name column size.
-const maxTenantNameLen = 100
-
 // CreateTenantRequest is the body of POST /tenants.
 type CreateTenantRequest struct {
 	Name string `json:"name" example:"Acme Inc."`
 }
 
-// TenantResponse is a tenant as returned to its owner, without the API key.
+// TenantResponse is a tenant without its API key.
 type TenantResponse struct {
 	ID        int32     `json:"id" example:"1"`
 	Name      string    `json:"name" example:"Acme Inc."`
@@ -32,14 +27,14 @@ type TenantResponse struct {
 	CreatedAt time.Time `json:"created_at" example:"2026-01-01T00:00:00Z"`
 }
 
-// CreateTenantResponse is the body returned when a tenant is created. It is
-// the only response that ever contains the API key.
-type CreateTenantResponse struct {
+// TenantWithAPIKeyResponse is a tenant as returned to its owner, including
+// the API key to send in the X-API-Key header.
+type TenantWithAPIKeyResponse struct {
 	TenantResponse
 	APIKey string `json:"api_key" example:"3f1c...e9a0"`
 }
 
-// tenantsController serves the tenant endpoints and authenticates requests.
+// tenantsController serves the tenant endpoints.
 type tenantsController struct {
 	tenants tenants.Repository
 }
@@ -47,13 +42,14 @@ type tenantsController struct {
 // Create registers a new tenant and issues its API key.
 //
 //	@Summary		Create a tenant
-//	@Description	Registers a new tenant and returns it with a freshly generated API key. The key is shown only once; send it in the X-API-Key header of authenticated requests.
+//	@Description	Registers a new tenant and returns it with a freshly generated API key. The key is shown only once; send it in the X-API-Key header of authenticated requests. Development only: mounted when features.public_tenant_signup (FEATURE_PUBLIC_TENANT_SIGNUP) is enabled, which is off by default outside development.
 //	@Tags			tenants
 //	@Accept			json
 //	@Produce		json
 //	@Param			body	body		CreateTenantRequest			true	"Tenant to create"
-//	@Success		201		{object}	CreateTenantResponse		"Tenant created"
+//	@Success		201		{object}	TenantWithAPIKeyResponse	"Tenant created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
+//	@Failure		404		{object}	errors.HTTPErrorResponse	"Disabled outside development"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/tenants [post]
 func (c *tenantsController) Create(w http.ResponseWriter, r *http.Request) {
@@ -63,11 +59,11 @@ func (c *tenantsController) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(req.Name)
-	if name == "" || utf8.RuneCountInString(name) > maxTenantNameLen {
+	if name == "" || utf8.RuneCountInString(name) > tenants.MaxNameLen {
 		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("name is required and must be at most 100 characters"))
 		return
 	}
-	apiKey, err := generateAPIKey()
+	apiKey, err := tenants.GenerateAPIKey()
 	if err != nil {
 		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
 		return
@@ -77,63 +73,125 @@ func (c *tenantsController) Create(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	writeJSON(w, r, http.StatusCreated, CreateTenantResponse{TenantResponse: toTenantResponse(t), APIKey: t.APIKey})
+	writeJSON(w, r, http.StatusCreated, toTenantWithAPIKeyResponse(t))
 }
 
-// Me returns the authenticated tenant.
+// Me returns the authenticated tenant with its API key.
 //
 //	@Summary		Get the current tenant
-//	@Description	Returns the tenant that owns the API key of the request.
+//	@Description	Returns the tenant that owns the API key of the request, or the workspace of the signed-in user, including its API key so signed-in users can integrate.
 //	@Tags			tenants
 //	@Produce		json
 //	@Security		ApiKeyAuth
-//	@Success		200	{object}	TenantResponse				"Authenticated tenant"
-//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Security		BearerAuth
+//	@Security		BasicAuth
+//	@Success		200	{object}	TenantWithAPIKeyResponse	"Authenticated tenant"
+//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/tenants/me [get]
 func (c *tenantsController) Me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, r, http.StatusOK, toTenantResponse(tenantFrom(r.Context())))
+	writeJSON(w, r, http.StatusOK, toTenantWithAPIKeyResponse(tenantFrom(r.Context())))
 }
 
-// Authenticate wraps next so it only runs for requests carrying the API key
-// of an active tenant, which is then available through tenantFrom.
-func (c *tenantsController) Authenticate(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.Header.Get(apiKeyHeader)
-		if key == "" {
-			apperrors.WriteHTTP(w, r, apperrors.NewUnauthorized("missing API key"))
-			return
-		}
-		t, err := c.tenants.GetByAPIKey(r.Context(), key)
-		if err != nil {
-			if appErr, ok := apperrors.As(err); ok && appErr.Code == apperrors.CodeNotFound {
-				err = apperrors.NewUnauthorized("invalid API key")
-			}
-			apperrors.WriteHTTP(w, r, err)
-			return
-		}
-		next(w, r.WithContext(context.WithValue(r.Context(), tenantKey{}, t)))
+// RotateAPIKey replaces the API key of the authenticated tenant.
+//
+//	@Summary		Rotate the API key
+//	@Description	Generates a new API key for the tenant that owns the API key of the request, or the workspace of the signed-in user, and returns it. The previous key stops working immediately.
+//	@Tags			tenants
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
+//	@Success		200	{object}	TenantWithAPIKeyResponse	"Tenant with its new API key"
+//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
+//	@Failure		404	{object}	errors.HTTPErrorResponse	"Tenant no longer active"
+//	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
+//	@Router			/tenants/me/api-key/rotate [post]
+func (c *tenantsController) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	apiKey, err := tenants.GenerateAPIKey()
+	if err != nil {
+		apperrors.WriteHTTP(w, r, apperrors.NewInternal(err))
+		return
 	}
+	t, err := c.tenants.RotateAPIKey(r.Context(), tenantFrom(r.Context()).ID, apiKey)
+	if err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	writeJSON(w, r, http.StatusOK, toTenantWithAPIKeyResponse(t))
+}
+
+// tenantOrUser returns a middleware that only runs next for requests
+// resolved to an active tenant, which is then available through tenantFrom.
+// An X-API-Key header identifies the tenant directly. Otherwise the user
+// authenticated by the Authorization header (see authController.authenticate)
+// is resolved to the tenant they own, and is also available through userFrom.
+// Missing or invalid credentials give 401, a user without a workspace 403.
+func tenantOrUser(ts tenants.Repository, authCtl *authController) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			var t tenants.Tenant
+			var err error
+			if key := r.Header.Get(apiKeyHeader); key != "" {
+				t, err = ts.GetByAPIKey(ctx, key)
+				if isNotFound(err) {
+					err = apperrors.NewUnauthorized("invalid API key")
+				}
+				if err != nil {
+					apperrors.WriteHTTP(w, r, err)
+					return
+				}
+			} else {
+				u, authErr := authCtl.authenticate(r)
+				if authErr == nil && u == nil {
+					authErr = apperrors.NewUnauthorized("missing API key or Authorization header")
+				}
+				if authErr != nil {
+					unauthorized(w, r, authErr)
+					return
+				}
+				t, err = ts.GetByOwner(ctx, u.ID)
+				if isNotFound(err) {
+					err = apperrors.NewForbidden("your account has no workspace")
+				}
+				if err != nil {
+					apperrors.WriteHTTP(w, r, err)
+					return
+				}
+				ctx = withUser(ctx, u)
+			}
+			next(w, r.WithContext(withTenant(ctx, t)))
+		}
+	}
+}
+
+// isNotFound reports whether err is an apperrors NotFound error.
+func isNotFound(err error) bool {
+	appErr, ok := apperrors.As(err)
+	return ok && appErr.Code == apperrors.CodeNotFound
 }
 
 // tenantKey is the context key of the authenticated tenant.
 type tenantKey struct{}
 
-// tenantFrom returns the tenant stored in ctx by Authenticate.
+func withTenant(ctx context.Context, t tenants.Tenant) context.Context {
+	return context.WithValue(ctx, tenantKey{}, t)
+}
+
+// tenantFrom returns the tenant stored in ctx by tenantOrUser, or by
+// guardPage for the /app workspace routes.
 func tenantFrom(ctx context.Context) tenants.Tenant {
 	t, _ := ctx.Value(tenantKey{}).(tenants.Tenant)
 	return t
 }
 
-// generateAPIKey returns a random 256-bit key, hex encoded.
-func generateAPIKey() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
 func toTenantResponse(t tenants.Tenant) TenantResponse {
 	return TenantResponse{ID: t.ID, Name: t.Name, IsActive: t.IsActive, CreatedAt: t.CreatedAt}
+}
+
+func toTenantWithAPIKeyResponse(t tenants.Tenant) TenantWithAPIKeyResponse {
+	return TenantWithAPIKeyResponse{TenantResponse: toTenantResponse(t), APIKey: t.APIKey}
 }

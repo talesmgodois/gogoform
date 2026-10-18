@@ -23,6 +23,16 @@ type fakeQuerier struct {
 	deleteFile  func(db.DeleteFileParams) (int64, error)
 	listAll     func(db.ListAllFilesParams) ([]db.ListAllFilesRow, error)
 	countAll    func() (int64, error)
+	listTenant  func(db.ListFilesByTenantParams) ([]db.ListFilesByTenantRow, error)
+	countTenant func(int32) (int64, error)
+}
+
+func (f *fakeQuerier) ListFilesByTenant(_ context.Context, arg db.ListFilesByTenantParams) ([]db.ListFilesByTenantRow, error) {
+	return f.listTenant(arg)
+}
+
+func (f *fakeQuerier) CountFilesByTenant(_ context.Context, tenantID int32) (int64, error) {
+	return f.countTenant(tenantID)
 }
 
 func (f *fakeQuerier) CreateFile(_ context.Context, arg db.CreateFileParams) (db.CreateFileRow, error) {
@@ -204,6 +214,77 @@ func TestListAll(t *testing.T) {
 			assertCode(t, err, tt.wantCode)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("files = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListByTenant(t *testing.T) {
+	row := db.ListFilesByTenantRow{
+		ID: fileID, TenantID: 7, Name: "hello.txt", ContentType: "text/plain",
+		SizeBytes: 5, ChecksumSha256: helloSHA256, CreatedAt: now, TenantName: "Acme",
+	}
+	tests := []struct {
+		name     string
+		page     Page
+		err      error
+		wantCode apperrors.Code
+		want     []FileSummary
+	}{
+		{"ok", Page{Offset: 20, Limit: 10}, nil, "", []FileSummary{{File: meta, TenantName: "Acme"}}},
+		{"negative offset", Page{Offset: -1, Limit: 10}, nil, apperrors.CodeInvalidArgument, nil},
+		{"zero limit", Page{Offset: 0, Limit: 0}, nil, apperrors.CodeInvalidArgument, nil},
+		{"db failure", Page{Offset: 0, Limit: 10}, errDB, apperrors.CodeInternal, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{listTenant: func(arg db.ListFilesByTenantParams) ([]db.ListFilesByTenantRow, error) {
+				if want := (db.ListFilesByTenantParams{TenantID: 7, PageOffset: tt.page.Offset, PageLimit: tt.page.Limit}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				if tt.err != nil {
+					return nil, tt.err
+				}
+				return []db.ListFilesByTenantRow{row}, nil
+			}})
+
+			got, err := svc.ListByTenant(context.Background(), 7, tt.page)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("files = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountByTenant(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", nil, "", 42},
+		{"db failure", errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{countTenant: func(tenantID int32) (int64, error) {
+				if tenantID != 7 {
+					t.Fatalf("tenant = %d, want 7", tenantID)
+				}
+				if tt.err != nil {
+					return 0, tt.err
+				}
+				return 42, nil
+			}})
+
+			got, err := svc.CountByTenant(context.Background(), 7)
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("count = %d, want %d", got, tt.want)
 			}
 		})
 	}

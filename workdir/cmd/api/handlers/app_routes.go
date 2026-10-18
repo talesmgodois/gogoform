@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"app/internal/config"
+	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
 )
 
@@ -20,10 +20,10 @@ type appRoute struct {
 	// visitors of a non-public page are sent to the sign-in page; users
 	// whose role is not allowed get a 403 page.
 	Access auth.Policy
-	// Operator routes show every tenant's data, so they also require the
-	// HTTP Basic credentials of config.AppConfig and are only mounted when
-	// those are set.
-	Operator bool
+	// Workspace routes show the data of the viewer's own tenant, which
+	// guardPage resolves and stores for tenantFrom. Viewers without a tenant
+	// get a 403 page.
+	Workspace bool
 	// Nav, when set, lists the route in the navigation bar for the users it
 	// allows.
 	Nav *navTab
@@ -32,47 +32,40 @@ type appRoute struct {
 // routes lists every /app route.
 func (c *appController) routes() []appRoute {
 	return []appRoute{
-		// The dashboard and the builder are not tied to user accounts yet:
-		// they keep using the operator credentials only.
-		{Pattern: "GET /app", Handler: c.Index, Access: auth.Public, Operator: true, Nav: &navTab{Key: "dashboard", Label: "Dashboard"}},
-		{Pattern: "GET /app/forms/{id}", Handler: c.Form, Access: auth.Public, Operator: true},
-		{Pattern: "GET /app/forms/{id}/submissions.json", Handler: c.ExportJSON, Access: auth.Public, Operator: true},
-		{Pattern: "GET /app/forms/{id}/submissions.csv", Handler: c.ExportCSV, Access: auth.Public, Operator: true},
-		{Pattern: "GET /app/builder", Handler: c.Builder, Access: auth.Public, Operator: true, Nav: &navTab{Key: "builder", Label: "Form builder"}},
+		{Pattern: "GET /app", Handler: c.Index, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "dashboard", Label: "Dashboard"}},
+		{Pattern: "GET /app/forms/{id}", Handler: c.Form, Access: auth.SignedIn(), Workspace: true},
+		{Pattern: "GET /app/forms/{id}/submissions.json", Handler: c.ExportJSON, Access: auth.SignedIn(), Workspace: true},
+		{Pattern: "GET /app/forms/{id}/submissions.csv", Handler: c.ExportCSV, Access: auth.SignedIn(), Workspace: true},
+		{Pattern: "GET /app/builder", Handler: c.Builder, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "builder", Label: "Form builder"}},
 
 		{Pattern: "GET /app/signin", Handler: c.SignInPage, Access: auth.Public},
 		{Pattern: "POST /app/signin", Handler: c.SignIn, Access: auth.Public},
 		{Pattern: "POST /app/signout", Handler: c.SignOut, Access: auth.Public},
 		{Pattern: "GET /app/account", Handler: c.Account, Access: auth.SignedIn(), Nav: &navTab{Key: "account", Label: "Account"}},
+		{Pattern: "GET /app/admin", Handler: c.AdminIndex, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "admin", Label: "All tenants"}},
+		{Pattern: "GET /app/admin/forms/{id}", Handler: c.AdminForm, Access: auth.SignedIn(auth.RoleAdmin)},
+		{Pattern: "GET /app/admin/forms/{id}/submissions.json", Handler: c.AdminExportJSON, Access: auth.SignedIn(auth.RoleAdmin)},
+		{Pattern: "GET /app/admin/forms/{id}/submissions.csv", Handler: c.AdminExportCSV, Access: auth.SignedIn(auth.RoleAdmin)},
 		{Pattern: "GET /app/users", Handler: c.Users, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "users", Label: "Users"}},
 	}
 }
 
-// mount registers the routes on mux; the operator routes only when cfg holds
-// credentials.
-func (c *appController) mount(mux *http.ServeMux, cfg config.AppConfig) {
+// mount registers the routes on mux.
+func (c *appController) mount(mux *http.ServeMux) {
 	c.mounted = nil
 	for _, rt := range c.routes() {
-		if rt.Operator && !cfg.Enabled() {
-			continue
-		}
-		h := c.guardPage(rt)
-		if rt.Operator {
-			h = basicAuth(cfg, h)
-		}
-		mux.HandleFunc(rt.Pattern, h)
+		mux.HandleFunc(rt.Pattern, c.guardPage(rt))
 		if rt.Nav != nil {
 			rt.Nav.Href = routePath(rt.Pattern)
 		}
 		c.mounted = append(c.mounted, rt)
 	}
-	if cfg.Enabled() {
-		mux.Handle("GET /app/{$}", http.RedirectHandler("/app", http.StatusMovedPermanently))
-	}
+	mux.Handle("GET /app/{$}", http.RedirectHandler("/app", http.StatusMovedPermanently))
 }
 
-// guardPage wraps the handler of rt with its Access check. The session user
-// and the navigation tabs they may see are then available to renderAppPage.
+// guardPage wraps the handler of rt with its Access check and, for workspace
+// routes, resolves the viewer's tenant. The session user and the navigation
+// tabs they may see are then available to renderAppPage.
 func (c *appController) guardPage(rt appRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := c.sessionUser(w, r)
@@ -87,6 +80,19 @@ func (c *appController) guardPage(rt appRoute) http.HandlerFunc {
 			return
 		}
 		ctx := withAppView(withUser(r.Context(), u), c.tabsFor(u))
+		if rt.Workspace {
+			t, err := c.tenants.GetByOwner(ctx, u.ID)
+			if isNotFound(err) {
+				renderAppMessage(w, r.WithContext(ctx), http.StatusForbidden, "No workspace",
+					"Your account has no workspace, so there are no forms or files to show.")
+				return
+			}
+			if err != nil {
+				apperrors.WriteHTTP(w, r, err)
+				return
+			}
+			ctx = withTenant(ctx, t)
+		}
 		rt.Handler(w, r.WithContext(ctx))
 	}
 }
@@ -125,8 +131,8 @@ func describeAccess(rt appRoute) string {
 		}
 		s = "Roles: " + strings.Join(names, ", ")
 	}
-	if rt.Operator {
-		s += " + operator credentials"
+	if rt.Workspace {
+		s += " · own workspace"
 	}
 	return s
 }

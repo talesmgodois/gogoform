@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"app/internal/config"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/forms"
 )
@@ -68,7 +67,7 @@ func TestAppAccountListsRoutes(t *testing.T) {
 	rec := serve(svc, pageRequest(t, svc, "/app/account", "creator"))
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{"creator", "FORM_CREATOR", "GET /app/users", "Roles: ADMIN", "operator credentials"} {
+	for _, want := range []string{"creator", "FORM_CREATOR", "GET /app/users", "Roles: ADMIN", "Signed in · own workspace"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("account page misses %q", want)
 		}
@@ -160,21 +159,6 @@ func TestSafeNext(t *testing.T) {
 	}
 }
 
-func TestAppUserPagesWithoutOperatorCredentials(t *testing.T) {
-	svc := testServices()
-	h := Routes(svc, config.AppConfig{})
-
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, pageRequest(t, svc, "/app/account", "basic"))
-	assertStatus(t, rec, http.StatusOK)
-	if strings.Contains(rec.Body.String(), `href="/app/builder"`) {
-		t.Error("nav lists the unmounted builder")
-	}
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, pageRequest(t, svc, "/app/builder", "admin"))
-	assertStatus(t, rec, http.StatusNotFound)
-}
-
 func TestDescribeAccess(t *testing.T) {
 	tests := []struct {
 		rt   appRoute
@@ -183,7 +167,7 @@ func TestDescribeAccess(t *testing.T) {
 		{appRoute{Access: auth.Public}, "Public"},
 		{appRoute{Access: auth.SignedIn()}, "Signed in"},
 		{appRoute{Access: auth.SignedIn(auth.RoleFormCreator, auth.RoleBasic)}, "Roles: FORM_CREATOR, BASIC"},
-		{appRoute{Access: auth.Public, Operator: true}, "Public + operator credentials"},
+		{appRoute{Access: auth.SignedIn(), Workspace: true}, "Signed in · own workspace"},
 	}
 	for _, tt := range tests {
 		if got := describeAccess(tt.rt); got != tt.want {

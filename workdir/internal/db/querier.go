@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	CountAllFiles(ctx context.Context) (int64, error)
 	CountAllForms(ctx context.Context) (int64, error)
+	CountFilesByTenant(ctx context.Context, tenantID int32) (int64, error)
 	// Same filters as ListFormsByTenant, for pagination totals.
 	CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error)
 	// Returns the metadata only: the blob was just sent by the caller.
@@ -31,11 +32,17 @@ type Querier interface {
 	GetFileByID(ctx context.Context, id string) (File, error)
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
+	// GetAnyFormByID scoped by tenant, for the /app pages of a signed-in user.
+	GetFormOverviewByID(ctx context.Context, arg GetFormOverviewByIDParams) (GetFormOverviewByIDRow, error)
 	// Open for submissions: the form and its tenant must be active and inside the
 	// availability window. Whether signing in is required is up to the caller
 	// (public_available, accept_anonymous).
 	GetPublicFormBySlug(ctx context.Context, slug string) (Form, error)
 	GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant, error)
+	GetTenantByID(ctx context.Context, id int32) (Tenant, error)
+	GetTenantByOwner(ctx context.Context, ownerUserID int32) (Tenant, error)
+	// Emails are stored lowercase; lower() matches the users_email_key index.
+	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int32) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	ListActiveWebhooksByForm(ctx context.Context, formID int32) ([]FormWebhook, error)
@@ -45,11 +52,14 @@ type Querier interface {
 	ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]ListAllFormsRow, error)
 	// Same as ListSubmissionsByForm without pagination, for exports.
 	ListAllSubmissionsByForm(ctx context.Context, arg ListAllSubmissionsByFormParams) ([]ListAllSubmissionsByFormRow, error)
+	// Metadata only, scoped by tenant, for the /app dashboard of a signed-in user.
+	ListFilesByTenant(ctx context.Context, arg ListFilesByTenantParams) ([]ListFilesByTenantRow, error)
 	// Optional filters: is_active (nil = any) and search (case-insensitive title match).
 	ListFormsByTenant(ctx context.Context, arg ListFormsByTenantParams) ([]ListFormsByTenantRow, error)
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).
 	ListSubmissionsByForm(ctx context.Context, arg ListSubmissionsByFormParams) ([]ListSubmissionsByFormRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	RotateTenantAPIKey(ctx context.Context, arg RotateTenantAPIKeyParams) (Tenant, error)
 	UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error)
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error)
 }

@@ -44,18 +44,19 @@ func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 }
 
 // Routes builds the HTTP handler. Tenant-scoped endpoints authenticate with
-// the tenant's API key (auth), user endpoints with a JWT or HTTP Basic
-// credentials guarded by an auth.Policy (guard). The /app pages are listed in
-// app_routes.go; the operator ones, which list every tenant's data, are only
-// mounted when appCfg holds credentials.
-func Routes(svc Services, appCfg config.AppConfig) http.Handler {
+// the tenant's API key or a signed-in user's own tenant (auth), user endpoints with a JWT or HTTP Basic
+// credentials guarded by an auth.Policy (guard). The /app pages, listed in
+// app_routes.go, use the session cookie of a signed-in user. The
+// development-only POST /tenants and /samples/* are only mounted when enabled
+// in features.
+func Routes(svc Services, features config.FeaturesConfig) http.Handler {
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
 	formsCtl := &formsController{forms: svc.forms}
 	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
 	filesCtl := &filesController{files: svc.files}
 	authCtl := &authController{auth: svc.auth}
-	auth := tenantsCtl.Authenticate
+	auth := tenantOrUser(svc.tenants, authCtl)
 	guard := authCtl.Guard
 
 	mux := http.NewServeMux()
@@ -68,14 +69,19 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("GET /users", guard(authpkg.SignedIn(authpkg.RoleAdmin), authCtl.ListUsers))
 	mux.HandleFunc("PUT /users/{id}/role", guard(authpkg.SignedIn(authpkg.RoleAdmin), authCtl.SetRole))
 
-	// Examples of every kind of policy.
-	mux.HandleFunc("GET /samples/public", guard(authpkg.Public, SamplePublic))
-	mux.HandleFunc("GET /samples/signed-in", guard(authpkg.SignedIn(), SampleSignedIn))
-	mux.HandleFunc("GET /samples/form-creator", guard(authpkg.SignedIn(authpkg.RoleFormCreator), SampleFormCreator))
-	mux.HandleFunc("GET /samples/admin", guard(authpkg.SignedIn(authpkg.RoleAdmin), SampleAdmin))
+	if features.SamplesEnabled() {
+		// Examples of every kind of policy.
+		mux.HandleFunc("GET /samples/public", guard(authpkg.Public, SamplePublic))
+		mux.HandleFunc("GET /samples/signed-in", guard(authpkg.SignedIn(), SampleSignedIn))
+		mux.HandleFunc("GET /samples/form-creator", guard(authpkg.SignedIn(authpkg.RoleFormCreator), SampleFormCreator))
+		mux.HandleFunc("GET /samples/admin", guard(authpkg.SignedIn(authpkg.RoleAdmin), SampleAdmin))
+	}
 
-	mux.HandleFunc("POST /tenants", tenantsCtl.Create)
+	if features.PublicTenantSignupEnabled() {
+		mux.HandleFunc("POST /tenants", tenantsCtl.Create)
+	}
 	mux.HandleFunc("GET /tenants/me", auth(tenantsCtl.Me))
+	mux.HandleFunc("POST /tenants/me/api-key/rotate", auth(tenantsCtl.RotateAPIKey))
 
 	mux.HandleFunc("POST /forms", auth(formsCtl.Create))
 	mux.HandleFunc("GET /forms", auth(formsCtl.List))
@@ -96,7 +102,7 @@ func Routes(svc Services, appCfg config.AppConfig) http.Handler {
 	mux.HandleFunc("GET /public/forms/{slug}", guard(authpkg.Public, formsCtl.GetPublic))
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", guard(authpkg.Public, submissionsCtl.Create))
 
-	appCtl := &appController{forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
-	appCtl.mount(mux, appCfg)
+	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
+	appCtl.mount(mux)
 	return mux
 }

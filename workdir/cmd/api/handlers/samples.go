@@ -3,7 +3,9 @@ package handlers
 import "net/http"
 
 // SampleResponse is the body of the /samples endpoints, which show how
-// routes are guarded by an auth.Policy.
+// routes are guarded by an auth.Policy. They are only mounted when
+// features.samples_enabled (FEATURE_SAMPLES) is on, the default in
+// development only.
 type SampleResponse struct {
 	Message string `json:"message" example:"Hello, alice"`
 	// Policy describes who may call the endpoint.

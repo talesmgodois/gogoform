@@ -3,8 +3,6 @@ package handlers
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"fmt"
@@ -12,12 +10,12 @@ import (
 	"net/http"
 	"time"
 
-	"app/internal/config"
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
+	"app/internal/pkg/tenants"
 )
 
 // appListLimit caps how many forms, files and submissions the pages list; the
@@ -85,9 +83,24 @@ type appPageData interface {
 	layout() *appLayout
 }
 
+// appView is the scope of a dashboard or form page: the viewer's workspace
+// under /app, or every tenant under /app/admin.
+type appView struct {
+	// Base prefixes the links to the pages of the same view.
+	Base string
+	// Admin views show the data of every tenant, read-only.
+	Admin bool
+}
+
+var (
+	workspaceView = appView{Base: "/app"}
+	adminView     = appView{Base: "/app/admin", Admin: true}
+)
+
 // appPage is the data rendered by templates/app.html.
 type appPage struct {
 	appLayout
+	appView
 	Forms       []forms.FormOverview
 	FormsTotal  int64
 	Files       []files.FileSummary
@@ -96,9 +109,10 @@ type appPage struct {
 }
 
 // appController serves the /app pages: the dashboard listing the forms and
-// files of every tenant, the submissions of each form, the form builder and
-// the account pages. Its routes are listed in app_routes.go.
+// files of the signed-in user's workspace, the submissions of each form, the
+// form builder, the account pages and the admin view of every tenant. Its routes are listed in app_routes.go.
 type appController struct {
+	tenants     tenants.Repository
 	forms       forms.Repository
 	files       files.Repository
 	submissions submissions.Repository
@@ -107,15 +121,36 @@ type appController struct {
 	mounted []appRoute
 }
 
-// Index renders the dashboard.
+// Index renders the dashboard of the viewer's workspace.
 func (c *appController) Index(w http.ResponseWriter, r *http.Request) {
-	page, err := c.load(r)
+	c.renderIndex(w, r, workspaceView)
+}
+
+// AdminIndex renders the dashboard of every tenant.
+func (c *appController) AdminIndex(w http.ResponseWriter, r *http.Request) {
+	c.renderIndex(w, r, adminView)
+}
+
+func (c *appController) renderIndex(w http.ResponseWriter, r *http.Request, v appView) {
+	load := c.load
+	if v.Admin {
+		load = c.loadAll
+	}
+	page, err := load(r)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	page.Active = "dashboard"
+	page.appView, page.Active = v, v.navKey()
 	renderAppPage(w, r, appTemplate, &page)
+}
+
+// navKey is the navTab highlighted on the pages of v.
+func (v appView) navKey() string {
+	if v.Admin {
+		return "admin"
+	}
+	return "dashboard"
 }
 
 // renderAppPage renders t with page, which it gives a fresh nonce and the
@@ -154,7 +189,34 @@ func setAppNoStoreHeaders(h http.Header) {
 	h.Set("Cache-Control", "no-store")
 }
 
+// load lists the forms and files of the viewer's tenant.
 func (c *appController) load(r *http.Request) (appPage, error) {
+	ctx := r.Context()
+	t := tenantFrom(ctx)
+	page := appPage{GeneratedAt: time.Now().UTC()}
+	filter := forms.ListFormsFilter{TenantID: t.ID}
+	summaries, err := c.forms.List(ctx, filter, forms.Page{Limit: appListLimit})
+	if err != nil {
+		return appPage{}, err
+	}
+	page.Forms = make([]forms.FormOverview, len(summaries))
+	for i, f := range summaries {
+		page.Forms[i] = forms.FormOverview{FormSummary: f, TenantName: t.Name}
+	}
+	if page.FormsTotal, err = c.forms.Count(ctx, filter); err != nil {
+		return appPage{}, err
+	}
+	if page.Files, err = c.files.ListByTenant(ctx, t.ID, files.Page{Limit: appListLimit}); err != nil {
+		return appPage{}, err
+	}
+	if page.FilesTotal, err = c.files.CountByTenant(ctx, t.ID); err != nil {
+		return appPage{}, err
+	}
+	return page, nil
+}
+
+// loadAll lists the forms and files of every tenant.
+func (c *appController) loadAll(r *http.Request) (appPage, error) {
 	ctx := r.Context()
 	page := appPage{GeneratedAt: time.Now().UTC()}
 	var err error
@@ -181,24 +243,6 @@ func newNonce() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
-}
-
-// basicAuth requires the HTTP Basic credentials of cfg. Both sides are hashed
-// before the constant-time comparison so their lengths are not leaked.
-func basicAuth(cfg config.AppConfig, next http.HandlerFunc) http.HandlerFunc {
-	wantUser, wantPass := sha256.Sum256([]byte(cfg.Username)), sha256.Sum256([]byte(cfg.Password))
-	return func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		gotUser, gotPass := sha256.Sum256([]byte(user)), sha256.Sum256([]byte(pass))
-		userOK := subtle.ConstantTimeCompare(gotUser[:], wantUser[:]) == 1
-		passOK := subtle.ConstantTimeCompare(gotPass[:], wantPass[:]) == 1
-		if !ok || !userOK || !passOK {
-			w.Header().Set("WWW-Authenticate", `Basic realm="app", charset="UTF-8"`)
-			apperrors.WriteHTTP(w, r, apperrors.NewUnauthorized("invalid credentials"))
-			return
-		}
-		next(w, r)
-	}
 }
 
 // formatBytes renders n as a human-readable size (1 KiB = 1024 B).

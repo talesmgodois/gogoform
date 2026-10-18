@@ -127,12 +127,15 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Tags			submissions
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			id		path		int							true	"Form ID"
 //	@Param			offset	query		int							false	"Number of submissions to skip"				minimum(0)	default(0)
 //	@Param			limit	query		int							false	"Maximum number of submissions to return"	minimum(1)	maximum(100)	default(20)
 //	@Success		200		{object}	SubmissionListResponse		"Page of submissions"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
-//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id}/submissions [get]

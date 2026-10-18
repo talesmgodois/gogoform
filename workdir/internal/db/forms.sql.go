@@ -216,6 +216,61 @@ func (q *Queries) GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFo
 	return i, err
 }
 
+const getFormOverviewByID = `-- name: GetFormOverviewByID :one
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
+       (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+FROM forms f
+JOIN tenants t ON t.id = f.tenant_id
+WHERE f.id = $1 AND f.tenant_id = $2
+`
+
+type GetFormOverviewByIDParams struct {
+	ID       int32 `db:"id" json:"id"`
+	TenantID int32 `db:"tenant_id" json:"tenant_id"`
+}
+
+type GetFormOverviewByIDRow struct {
+	ID              int32           `db:"id" json:"id"`
+	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
+	Title           string          `db:"title" json:"title"`
+	Slug            string          `db:"slug" json:"slug"`
+	Description     *string         `db:"description" json:"description"`
+	IsActive        *bool           `db:"is_active" json:"is_active"`
+	StartDate       *time.Time      `db:"start_date" json:"start_date"`
+	EndDate         *time.Time      `db:"end_date" json:"end_date"`
+	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	TenantName      string          `db:"tenant_name" json:"tenant_name"`
+	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+}
+
+// GetAnyFormByID scoped by tenant, for the /app pages of a signed-in user.
+func (q *Queries) GetFormOverviewByID(ctx context.Context, arg GetFormOverviewByIDParams) (GetFormOverviewByIDRow, error) {
+	row := q.db.QueryRow(ctx, getFormOverviewByID, arg.ID, arg.TenantID)
+	var i GetFormOverviewByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Title,
+		&i.Slug,
+		&i.Description,
+		&i.IsActive,
+		&i.StartDate,
+		&i.EndDate,
+		&i.FormContent,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PublicAvailable,
+		&i.AcceptAnonymous,
+		&i.TenantName,
+		&i.SubmissionCount,
+	)
+	return i, err
+}
+
 const getPublicFormBySlug = `-- name: GetPublicFormBySlug :one
 SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous
 FROM forms f

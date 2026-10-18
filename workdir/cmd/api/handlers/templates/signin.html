@@ -15,8 +15,8 @@
       </div>
       <form id="signin-form" class="space-y-4" novalidate>
         <label class="block space-y-1.5">
-          <span class="block text-xs font-medium text-slate-300">Username</span>
-          <input id="username" name="username" type="text" autocomplete="username" required minlength="3" maxlength="50" autofocus
+          <span id="identifier-label" class="block text-xs font-medium text-slate-300">Email or username</span>
+          <input id="identifier" name="username" type="text" autocomplete="username" required maxlength="254" autofocus
             class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none">
         </label>
         <label class="block space-y-1.5">
@@ -28,7 +28,7 @@
         <p id="signin-error" role="alert" class="hidden rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>
         <button id="signin-submit" type="submit" class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50">Sign in</button>
       </form>
-      <p class="mt-6 text-[11px] leading-snug text-slate-500">New accounts get the BASIC role; an admin can grant FORM_CREATOR or ADMIN through <span class="font-mono">PUT /users/{id}/role</span>.</p>
+      <p class="mt-6 text-[11px] leading-snug text-slate-500">New accounts get their own workspace and the BASIC role; an admin can grant FORM_CREATOR or ADMIN through <span class="font-mono">PUT /users/{id}/role</span>.</p>
     </div>
   </main>
 
@@ -51,6 +51,11 @@
           b.className = "rounded-lg px-4 py-1.5 transition " + (active ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white");
         });
         $("signin-submit").textContent = m === "signin" ? "Sign in" : "Create account";
+        // Sign-up takes an email; sign-in also takes the username of accounts
+        // created without one, such as the bootstrap admin.
+        $("identifier-label").textContent = m === "signin" ? "Email or username" : "Email";
+        $("identifier").type = m === "signin" ? "text" : "email";
+        $("identifier").autocomplete = m === "signin" ? "username" : "email";
         $("password").autocomplete = m === "signin" ? "current-password" : "new-password";
         $("password-hint").classList.toggle("hidden", m === "signin");
         showError("");
@@ -69,13 +74,13 @@
       document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
       $("signin-form").addEventListener("submit", (e) => {
         e.preventDefault();
-        const user = $("username").value.trim();
+        const user = $("identifier").value.trim();
         const pass = $("password").value;
-        if (!user || !pass) return showError("Enter your username and password.");
+        if (!user || !pass) return showError(mode === "signin" ? "Enter your email (or username) and password." : "Enter your email and password.");
         $("signin-submit").disabled = true;
         showError("");
         const signUp = mode === "signup"
-          ? request("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user, password: pass }) })
+          ? request("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: user, password: pass }) })
           : Promise.resolve();
         signUp
           .then(() => request("/app/signin", { method: "POST", headers: { Authorization: basic(user, pass) } }))

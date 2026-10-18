@@ -24,3 +24,17 @@ LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountAllFiles :one
 SELECT count(*) FROM files;
+
+-- name: ListFilesByTenant :many
+-- Metadata only, scoped by tenant, for the /app dashboard of a signed-in user.
+SELECT f.id, f.tenant_id, f.name, f.content_type, f.size_bytes, f.checksum_sha256, f.created_at,
+       t.name AS tenant_name
+FROM files f
+JOIN tenants t ON t.id = f.tenant_id
+WHERE f.tenant_id = sqlc.arg(tenant_id)
+ORDER BY f.created_at DESC, f.id DESC
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
+
+-- name: CountFilesByTenant :one
+SELECT count(*) FROM files
+WHERE tenant_id = $1;

@@ -60,26 +60,6 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 }
 
-func TestAppCredentials(t *testing.T) {
-	cfg, err := Load(writeConfig(t, sample))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.App.Enabled() {
-		t.Fatal("app dashboard enabled without credentials")
-	}
-
-	t.Setenv("APP_USERNAME", "admin")
-	t.Setenv("APP_PASSWORD", "s3cret")
-	cfg, err = Load(writeConfig(t, sample))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if !cfg.App.Enabled() || cfg.App.Username != "admin" || cfg.App.Password != "s3cret" {
-		t.Fatalf("app credentials not applied: %+v", cfg.App)
-	}
-}
-
 func TestAuthConfig(t *testing.T) {
 	cfg, err := Load(writeConfig(t, sample))
 	if err != nil {
@@ -104,6 +84,55 @@ func TestAuthConfig(t *testing.T) {
 	}
 }
 
+func TestFeatureDefaults(t *testing.T) {
+	tests := []struct {
+		env  string
+		want bool
+	}{
+		{"development", true},
+		{"production", false},
+		{"staging", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.env, func(t *testing.T) {
+			t.Setenv("SERVER_ENV", tt.env)
+			cfg, err := Load(writeConfig(t, sample))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Features.PublicTenantSignupEnabled(); got != tt.want {
+				t.Errorf("PublicTenantSignupEnabled = %v, want %v", got, tt.want)
+			}
+			if got := cfg.Features.SamplesEnabled(); got != tt.want {
+				t.Errorf("SamplesEnabled = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFeatureOverrides(t *testing.T) {
+	// The file disables the flags in development.
+	cfg, err := Load(writeConfig(t, sample+"\n[features]\npublic_tenant_signup = false\nsamples_enabled = false\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Features.PublicTenantSignupEnabled() || cfg.Features.SamplesEnabled() {
+		t.Fatalf("file overrides not applied: %+v", cfg.Features)
+	}
+
+	// The environment enables them in production, over the file.
+	t.Setenv("SERVER_ENV", "production")
+	t.Setenv("FEATURE_PUBLIC_TENANT_SIGNUP", "true")
+	t.Setenv("FEATURE_SAMPLES", "1")
+	cfg, err = Load(writeConfig(t, sample+"\n[features]\nsamples_enabled = false\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Features.PublicTenantSignupEnabled() || !cfg.Features.SamplesEnabled() {
+		t.Fatalf("env overrides not applied: %+v", cfg.Features)
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -116,12 +145,10 @@ func TestLoadErrors(t *testing.T) {
 		{name: "invalid level", content: sample, env: map[string]string{"LOG_LEVEL": "verbose"}},
 		{name: "missing database uri", content: "[server]\nport = 8080\n"},
 		{name: "unsupported database scheme", content: sample, env: map[string]string{"DATABASE_URL": "mysql://u:p@localhost/db"}},
-		{name: "app username without password", content: sample, env: map[string]string{"APP_USERNAME": "admin"}},
-		{name: "app password without username", content: sample, env: map[string]string{"APP_PASSWORD": "s3cret"}},
-		{name: "app username with colon", content: sample, env: map[string]string{"APP_USERNAME": "a:b", "APP_PASSWORD": "s3cret"}},
 		{name: "short jwt secret", content: sample, env: map[string]string{"AUTH_JWT_SECRET": "too-short"}},
 		{name: "zero token ttl", content: sample, env: map[string]string{"AUTH_TOKEN_TTL_MINUTES": "0"}},
 		{name: "admin username without password", content: sample, env: map[string]string{"AUTH_ADMIN_USERNAME": "admin"}},
+		{name: "invalid feature flag env", content: sample, env: map[string]string{"FEATURE_SAMPLES": "maybe"}},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
 	}
 	for _, tt := range tests {

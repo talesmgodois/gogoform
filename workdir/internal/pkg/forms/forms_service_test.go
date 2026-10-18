@@ -27,6 +27,7 @@ type fakeQuerier struct {
 	listAllForms        func(db.ListAllFormsParams) ([]db.ListAllFormsRow, error)
 	countAllForms       func() (int64, error)
 	getAnyFormByID      func(int32) (db.GetAnyFormByIDRow, error)
+	getFormOverviewByID func(db.GetFormOverviewByIDParams) (db.GetFormOverviewByIDRow, error)
 	updateForm          func(db.UpdateFormParams) (db.Form, error)
 	deleteForm          func(db.DeleteFormParams) (int64, error)
 }
@@ -61,6 +62,10 @@ func (f *fakeQuerier) CountAllForms(context.Context) (int64, error) {
 
 func (f *fakeQuerier) GetAnyFormByID(_ context.Context, id int32) (db.GetAnyFormByIDRow, error) {
 	return f.getAnyFormByID(id)
+}
+
+func (f *fakeQuerier) GetFormOverviewByID(_ context.Context, arg db.GetFormOverviewByIDParams) (db.GetFormOverviewByIDRow, error) {
+	return f.getFormOverviewByID(arg)
 }
 
 func (f *fakeQuerier) UpdateForm(_ context.Context, arg db.UpdateFormParams) (db.Form, error) {
@@ -475,6 +480,40 @@ func TestGetAnyByID(t *testing.T) {
 			}})
 
 			got, err := svc.GetAnyByID(context.Background(), 7)
+
+			assertCode(t, err, tt.wantCode)
+			want := FormOverview{FormSummary: FormSummary{Form: wantForm, SubmissionCount: 12}, TenantName: "Acme"}
+			if err == nil && !reflect.DeepEqual(got, want) {
+				t.Fatalf("form = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestGetOverview(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+	}{
+		{"ok", nil, ""},
+		{"missing or another tenant's", pgx.ErrNoRows, apperrors.CodeNotFound},
+		{"db failure", errDB, apperrors.CodeInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{getFormOverviewByID: func(arg db.GetFormOverviewByIDParams) (db.GetFormOverviewByIDRow, error) {
+				if want := (db.GetFormOverviewByIDParams{ID: 7, TenantID: 3}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				return db.GetFormOverviewByIDRow{
+					ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
+					IsActive: ptr(true), StartDate: &now, FormContent: content,
+					CreatedAt: &now, UpdatedAt: &now, TenantName: "Acme", SubmissionCount: 12,
+				}, tt.err
+			}})
+
+			got, err := svc.GetOverview(context.Background(), 3, 7)
 
 			assertCode(t, err, tt.wantCode)
 			want := FormOverview{FormSummary: FormSummary{Form: wantForm, SubmissionCount: 12}, TenantName: "Acme"}

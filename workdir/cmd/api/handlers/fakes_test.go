@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"app/internal/config"
+	"app/internal/database"
+	"app/internal/db"
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
@@ -23,14 +25,27 @@ import (
 
 const testAPIKey = "test-key"
 
-// testAppConfig enables the /app dashboard with known credentials.
-var testAppConfig = config.AppConfig{Username: "admin", Password: "s3cret"}
+// testFeatures enables the development-only routes, as in development.
+var testFeatures = featureFlags(true)
+
+// featureFlags returns a FeaturesConfig with every flag set to enabled.
+func featureFlags(enabled bool) config.FeaturesConfig {
+	return config.FeaturesConfig{PublicTenantSignup: &enabled, Samples: &enabled}
+}
 
 // testTenant is the tenant owning testAPIKey.
 var testTenant = tenants.Tenant{ID: 7, Name: "Acme", APIKey: testAPIKey, IsActive: true}
 
-// fakeTenants is a tenants.Repository knowing only testTenant.
+// appUser is the user of newTestAuth whose workspace is testTenant in the
+// Services of appServices.
+const appUser = "creator"
+
+// fakeTenants is a tenants.Repository knowing testTenant and the tenants of
+// owned, keyed by owner user ID. Rotated API keys are kept in keys, keyed by
+// tenant ID, and replace the original ones.
 type fakeTenants struct {
+	owned   map[int32]tenants.Tenant
+	keys    map[int32]string
 	created tenants.CreateTenantInput
 	err     error
 }
@@ -43,11 +58,53 @@ func (f *fakeTenants) Create(_ context.Context, in tenants.CreateTenantInput) (t
 	return tenants.Tenant{ID: 1, Name: in.Name, APIKey: in.APIKey, IsActive: true}, nil
 }
 
-func (f *fakeTenants) GetByAPIKey(_ context.Context, key string) (tenants.Tenant, error) {
-	if key != testAPIKey {
-		return tenants.Tenant{}, apperrors.NewNotFound("tenant not found")
+// all returns every known tenant with its current API key.
+func (f *fakeTenants) all() []tenants.Tenant {
+	out := []tenants.Tenant{testTenant}
+	for _, t := range f.owned {
+		out = append(out, t)
 	}
-	return testTenant, nil
+	for i, t := range out {
+		if key, ok := f.keys[t.ID]; ok {
+			out[i].APIKey = key
+		}
+	}
+	return out
+}
+
+func (f *fakeTenants) find(match func(tenants.Tenant) bool) (tenants.Tenant, error) {
+	for _, t := range f.all() {
+		if match(t) {
+			return t, nil
+		}
+	}
+	return tenants.Tenant{}, apperrors.NewNotFound("tenant not found")
+}
+
+func (f *fakeTenants) GetByAPIKey(_ context.Context, key string) (tenants.Tenant, error) {
+	return f.find(func(t tenants.Tenant) bool { return t.APIKey == key })
+}
+
+func (f *fakeTenants) GetByID(_ context.Context, id int32) (tenants.Tenant, error) {
+	return f.find(func(t tenants.Tenant) bool { return t.ID == id })
+}
+
+func (f *fakeTenants) GetByOwner(_ context.Context, userID int32) (tenants.Tenant, error) {
+	return f.find(func(t tenants.Tenant) bool { return t.OwnerUserID != nil && *t.OwnerUserID == userID })
+}
+
+func (f *fakeTenants) RotateAPIKey(ctx context.Context, tenantID int32, newKey string) (tenants.Tenant, error) {
+	if f.err != nil {
+		return tenants.Tenant{}, f.err
+	}
+	if _, err := f.GetByID(ctx, tenantID); err != nil {
+		return tenants.Tenant{}, err
+	}
+	if f.keys == nil {
+		f.keys = map[int32]string{}
+	}
+	f.keys[tenantID] = newKey
+	return f.GetByID(ctx, tenantID)
 }
 
 // fakeForms is a forms.Repository holding forms in a map keyed by ID.
@@ -128,6 +185,14 @@ func (f *fakeForms) CountAll(context.Context) (int64, error) {
 func (f *fakeForms) GetAnyByID(_ context.Context, id int32) (forms.FormOverview, error) {
 	form, ok := f.forms[id]
 	if !ok {
+		return forms.FormOverview{}, apperrors.NewNotFound("form not found")
+	}
+	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: 3}, TenantName: "Acme"}, nil
+}
+
+func (f *fakeForms) GetOverview(_ context.Context, tenantID, id int32) (forms.FormOverview, error) {
+	form, ok := f.forms[id]
+	if !ok || form.TenantID != tenantID {
 		return forms.FormOverview{}, apperrors.NewNotFound("form not found")
 	}
 	return forms.FormOverview{FormSummary: forms.FormSummary{Form: form, SubmissionCount: 3}, TenantName: "Acme"}, nil
@@ -235,6 +300,27 @@ func (f *fakeFiles) CountAll(context.Context) (int64, error) {
 	return int64(len(f.files)), nil
 }
 
+func (f *fakeFiles) ListByTenant(ctx context.Context, tenantID int32, page files.Page) ([]files.FileSummary, error) {
+	all, err := f.ListAll(ctx, page)
+	var out []files.FileSummary
+	for _, file := range all {
+		if file.TenantID == tenantID {
+			out = append(out, file)
+		}
+	}
+	return out, err
+}
+
+func (f *fakeFiles) CountByTenant(ctx context.Context, tenantID int32) (int64, error) {
+	var n int64
+	for _, file := range f.files {
+		if file.TenantID == tenantID {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *fakeFiles) Delete(ctx context.Context, tenantID int32, id string) error {
 	if file, ok := f.files[id]; !ok || file.TenantID != tenantID {
 		return apperrors.NewNotFound("file not found")
@@ -253,11 +339,14 @@ type fakeUsers struct {
 
 func (f *fakeUsers) Create(_ context.Context, in auth.CreateUserInput) (auth.User, error) {
 	for _, u := range f.users {
+		if in.Email != "" && u.Email == in.Email {
+			return auth.User{}, apperrors.NewConflict("email already registered")
+		}
 		if u.Username == in.Username {
 			return auth.User{}, apperrors.NewConflict("username already taken")
 		}
 	}
-	u := auth.StoredUser{User: auth.User{ID: int32(len(f.users) + 1), Username: in.Username, Role: in.Role, IsActive: true}, PasswordHash: in.PasswordHash}
+	u := auth.StoredUser{User: auth.User{ID: int32(len(f.users) + 1), Username: in.Username, Email: in.Email, Role: in.Role, IsActive: true}, PasswordHash: in.PasswordHash}
 	f.users = append(f.users, u)
 	return u.User, nil
 }
@@ -270,6 +359,15 @@ func (f *fakeUsers) CreateIfNotExists(ctx context.Context, in auth.CreateUserInp
 func (f *fakeUsers) GetByUsername(_ context.Context, username string) (auth.StoredUser, error) {
 	for _, u := range f.users {
 		if u.Username == username {
+			return u, nil
+		}
+	}
+	return auth.StoredUser{}, apperrors.NewNotFound("user not found")
+}
+
+func (f *fakeUsers) GetByEmail(_ context.Context, email string) (auth.StoredUser, error) {
+	for _, u := range f.users {
+		if u.Email != "" && u.Email == email {
 			return u, nil
 		}
 	}
@@ -307,7 +405,14 @@ func (f *fakeUsers) UpdateRole(_ context.Context, id int32, role auth.Role) (aut
 // role: "admin" (ID 1), "creator" (ID 2) and "basic" (ID 3), all with
 // testPassword.
 func newTestAuth() *auth.Service {
-	svc, err := auth.NewService(&fakeUsers{}, auth.Options{Secret: []byte(strings.Repeat("k", auth.MinSecretLen)), PasswordCost: bcrypt.MinCost})
+	users := &fakeUsers{}
+	svc, err := auth.NewService(users, auth.Options{
+		Secret:       []byte(strings.Repeat("k", auth.MinSecretLen)),
+		PasswordCost: bcrypt.MinCost,
+		Tx:           &database.FakeTxRunner{},
+		UsersFor:     func(db.Querier) auth.Repository { return users },
+		TenantsFor:   func(db.Querier) tenants.Repository { return &fakeTenants{} },
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -315,7 +420,7 @@ func newTestAuth() *auth.Service {
 		name string
 		role auth.Role
 	}{{"admin", auth.RoleAdmin}, {"creator", auth.RoleFormCreator}, {"basic", auth.RoleBasic}} {
-		if _, err := svc.EnsureUser(context.Background(), u.name, testPassword, u.role); err != nil {
+		if _, err := svc.EnsureUser(context.Background(), u.name, "", testPassword, u.role); err != nil {
 			panic(err)
 		}
 	}
@@ -332,10 +437,10 @@ func tokenFor(t *testing.T, svc Services, username string) string {
 	return tok.AccessToken
 }
 
-// serve sends req through Routes(svc, testAppConfig).
+// serve sends req through Routes(svc, testFeatures).
 func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	Routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testFeatures).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -352,7 +457,17 @@ func testServices(fs ...forms.Form) Services {
 	}
 }
 
-// do sends a request with the given body (if any) through Routes(svc, testAppConfig),
+// appServices is testServices where appUser owns testTenant, so the /app
+// pages of appUser show the forms and files of tenant 7.
+func appServices(fs ...forms.Form) Services {
+	svc := testServices(fs...)
+	owned := testTenant
+	owned.OwnerUserID = ptrTo(int32(2))
+	svc.tenants = &fakeTenants{owned: map[int32]tenants.Tenant{2: owned}}
+	return svc
+}
+
+// do sends a request with the given body (if any) through Routes(svc, testFeatures),
 // authenticated with testAPIKey when auth is true.
 func do(t *testing.T, svc Services, method, path, body string, auth bool) *httptest.ResponseRecorder {
 	t.Helper()
@@ -365,7 +480,7 @@ func do(t *testing.T, svc Services, method, path, body string, auth bool) *httpt
 		req.Header.Set(apiKeyHeader, testAPIKey)
 	}
 	rec := httptest.NewRecorder()
-	Routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testFeatures).ServeHTTP(rec, req)
 	return rec
 }
 

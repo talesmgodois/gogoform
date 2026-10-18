@@ -15,6 +15,9 @@ type appBuilderPage struct {
 	Draft string
 	// SourceTitle is the title of the form the draft was copied from, if any.
 	SourceTitle string
+	// APIKey is the API key of the viewer's tenant, which creates the form
+	// and which the viewer can copy to integrate with the API.
+	APIKey string
 }
 
 // builderDraft is the state the form builder starts from: the parts of a
@@ -29,9 +32,10 @@ type builderDraft struct {
 }
 
 // Builder renders the form builder. With ?form={id} it starts from a copy of
-// that form; the copy gets a new slug since slugs are unique.
+// that form of the viewer's tenant; the copy gets a new slug since slugs are
+// unique.
 func (c *appController) Builder(w http.ResponseWriter, r *http.Request) {
-	page := appBuilderPage{appLayout: appLayout{Active: "builder"}}
+	page := appBuilderPage{appLayout: appLayout{Active: "builder"}, APIKey: tenantFrom(r.Context()).APIKey}
 	if id := r.URL.Query().Get("form"); id != "" {
 		f, err := c.form(r, "form", id)
 		if err != nil {

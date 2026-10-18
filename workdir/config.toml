@@ -8,13 +8,6 @@ level = "debug"
 [database]
 uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
 
-# HTTP Basic credentials of the read-only /app dashboard, which lists every
-# tenant's forms and files. The dashboard is disabled while they are unset.
-# Prefer APP_USERNAME / APP_PASSWORD over committing them here.
-[app]
-# username = "admin"
-# password = "change-me"
-
 # User accounts (JWT and HTTP Basic). Prefer the AUTH_* environment variables
 # for secrets. Without a jwt_secret (at least 32 bytes) a random one is
 # generated at startup, so tokens do not survive a restart.
@@ -24,3 +17,11 @@ token_ttl_minutes = 60
 # Bootstrap ADMIN account, created at startup when the username is free.
 # admin_username = "admin"
 # admin_password = "change-me-now"
+
+# Development-only endpoints: the unauthenticated POST /tenants and the
+# /samples/* policy examples. Unset flags default to true when server.env is
+# "development" and to false otherwise. Overridable with
+# FEATURE_PUBLIC_TENANT_SIGNUP / FEATURE_SAMPLES.
+[features]
+# public_tenant_signup = false
+# samples_enabled = false

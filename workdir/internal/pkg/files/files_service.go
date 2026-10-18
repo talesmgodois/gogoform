@@ -91,6 +91,31 @@ func (s *Service) GetByID(ctx context.Context, id string) (File, error) {
 	}, nil
 }
 
+// ListByTenant returns the tenant's files without their Data, newest first.
+func (s *Service) ListByTenant(ctx context.Context, tenantID int32, page Page) ([]FileSummary, error) {
+	if page.Offset < 0 || page.Limit < 1 {
+		return nil, apperrors.NewBadRequest(msgInvalidPage)
+	}
+	rows, err := s.q.ListFilesByTenant(ctx, db.ListFilesByTenantParams{TenantID: tenantID, PageOffset: page.Offset, PageLimit: page.Limit})
+	if err != nil {
+		return nil, apperrors.NewInternal(err)
+	}
+	files := make([]FileSummary, len(rows))
+	for i, row := range rows {
+		files[i] = toFileSummary(db.ListAllFilesRow(row))
+	}
+	return files, nil
+}
+
+// CountByTenant returns how many files the tenant has.
+func (s *Service) CountByTenant(ctx context.Context, tenantID int32) (int64, error) {
+	n, err := s.q.CountFilesByTenant(ctx, tenantID)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
+}
+
 // ListAll returns the files of every tenant without their Data, newest first.
 func (s *Service) ListAll(ctx context.Context, page Page) ([]FileSummary, error) {
 	if page.Offset < 0 || page.Limit < 1 {
@@ -102,20 +127,25 @@ func (s *Service) ListAll(ctx context.Context, page Page) ([]FileSummary, error)
 	}
 	files := make([]FileSummary, len(rows))
 	for i, row := range rows {
-		files[i] = FileSummary{
-			File: File{
-				ID:          row.ID,
-				TenantID:    row.TenantID,
-				Name:        row.Name,
-				ContentType: row.ContentType,
-				Size:        row.SizeBytes,
-				Checksum:    row.ChecksumSha256,
-				CreatedAt:   row.CreatedAt,
-			},
-			TenantName: row.TenantName,
-		}
+		files[i] = toFileSummary(row)
 	}
 	return files, nil
+}
+
+// toFileSummary maps a file listing row.
+func toFileSummary(row db.ListAllFilesRow) FileSummary {
+	return FileSummary{
+		File: File{
+			ID:          row.ID,
+			TenantID:    row.TenantID,
+			Name:        row.Name,
+			ContentType: row.ContentType,
+			Size:        row.SizeBytes,
+			Checksum:    row.ChecksumSha256,
+			CreatedAt:   row.CreatedAt,
+		},
+		TenantName: row.TenantName,
+	}
 }
 
 // CountAll returns how many files exist across every tenant.

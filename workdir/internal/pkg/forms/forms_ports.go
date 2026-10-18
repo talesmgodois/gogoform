@@ -29,6 +29,9 @@ type Repository interface {
 	// GetAnyByID returns the form with the given ID whatever its tenant. It
 	// is not scoped by tenant: only use it behind operator-level access.
 	GetAnyByID(ctx context.Context, id int32) (FormOverview, error)
+	// GetOverview returns the tenant's form with the given ID as a
+	// FormOverview, for the /app pages.
+	GetOverview(ctx context.Context, tenantID, id int32) (FormOverview, error)
 	// Update replaces the stored state of a form and returns it.
 	Update(ctx context.Context, in UpdateFormInput) (Form, error)
 	// Delete removes the tenant's form with the given ID.

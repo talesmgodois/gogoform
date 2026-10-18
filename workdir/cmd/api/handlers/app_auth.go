@@ -8,6 +8,7 @@ import (
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
+	"app/internal/pkg/tenants"
 )
 
 // sessionCookie holds the JWT of the user signed in to the /app pages. It is
@@ -28,7 +29,9 @@ type appSignInPage struct {
 // appAccountPage is the data rendered by templates/account.html.
 type appAccountPage struct {
 	appLayout
-	Routes []appRouteAccess
+	// Workspace is the viewer's tenant; nil when they have none.
+	Workspace *tenants.Tenant
+	Routes    []appRouteAccess
 }
 
 // appRouteAccess describes an /app route and whether the viewer may open it.
@@ -115,11 +118,19 @@ func (c *appController) SignOut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Account renders the signed-in user and the access of every /app route:
-// a page to try the route policies out.
+// Account renders the signed-in user, their workspace and the access of
+// every /app route: a page to try the route policies out.
 func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	page := appAccountPage{appLayout: appLayout{Active: "account"}}
+	t, err := c.tenants.GetByOwner(r.Context(), u.ID)
+	switch {
+	case err == nil:
+		page.Workspace = &t
+	case !isNotFound(err):
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
 	for _, rt := range c.mounted {
 		page.Routes = append(page.Routes, appRouteAccess{Pattern: rt.Pattern, Access: describeAccess(rt), Allowed: rt.Access.Allows(u)})
 	}

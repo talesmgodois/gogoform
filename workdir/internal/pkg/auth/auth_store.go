@@ -15,8 +15,12 @@ import (
 const (
 	msgUserNotFound  = "user not found"
 	msgUsernameTaken = "username already taken"
+	msgEmailTaken    = "email already registered"
 	msgInvalidPage   = "page offset must be >= 0 and limit must be > 0"
 )
+
+// usersEmailIndex is the unique index on lower(users.email).
+const usersEmailIndex = "users_email_key"
 
 var _ Repository = (*UserStore)(nil)
 
@@ -34,10 +38,13 @@ func NewUserStore(q db.Querier) *UserStore {
 func (s *UserStore) Create(ctx context.Context, in CreateUserInput) (User, error) {
 	row, err := s.q.CreateUser(ctx, db.CreateUserParams{
 		Username:     in.Username,
+		Email:        nullIfEmpty(in.Email),
 		PasswordHash: in.PasswordHash,
 		Role:         db.UserRole(in.Role),
 	})
 	switch {
+	case database.IsUniqueViolationOf(err, usersEmailIndex):
+		return User{}, apperrors.NewConflict(msgEmailTaken)
 	case database.IsUniqueViolation(err):
 		return User{}, apperrors.NewConflict(msgUsernameTaken)
 	case err != nil:
@@ -63,6 +70,16 @@ func (s *UserStore) CreateIfNotExists(ctx context.Context, in CreateUserInput) (
 // password hash.
 func (s *UserStore) GetByUsername(ctx context.Context, username string) (StoredUser, error) {
 	row, err := s.q.GetUserByUsername(ctx, username)
+	if err != nil {
+		return StoredUser{}, mapGetError(err)
+	}
+	return StoredUser{User: toUser(row), PasswordHash: row.PasswordHash}, nil
+}
+
+// GetByEmail returns the active user with the given email and its password
+// hash.
+func (s *UserStore) GetByEmail(ctx context.Context, email string) (StoredUser, error) {
+	row, err := s.q.GetUserByEmail(ctx, email)
 	if err != nil {
 		return StoredUser{}, mapGetError(err)
 	}
@@ -112,12 +129,25 @@ func mapGetError(err error) error {
 }
 
 func toUser(row db.User) User {
-	return User{
-		ID:        row.ID,
-		Username:  row.Username,
-		Role:      Role(row.Role),
-		IsActive:  row.IsActive,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+	u := User{
+		ID:              row.ID,
+		Username:        row.Username,
+		EmailVerifiedAt: row.EmailVerifiedAt,
+		Role:            Role(row.Role),
+		IsActive:        row.IsActive,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
+	if row.Email != nil {
+		u.Email = *row.Email
+	}
+	return u
+}
+
+// nullIfEmpty maps "" to a NULL column value.
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

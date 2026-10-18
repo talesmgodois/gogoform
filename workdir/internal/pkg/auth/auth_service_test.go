@@ -2,13 +2,17 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"app/internal/database"
+	"app/internal/db"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/tenants"
 )
 
 var testSecret = []byte(strings.Repeat("k", MinSecretLen))
@@ -20,11 +24,14 @@ type memUsers struct {
 
 func (m *memUsers) Create(_ context.Context, in CreateUserInput) (User, error) {
 	for _, u := range m.users {
+		if in.Email != "" && u.Email == in.Email {
+			return User{}, apperrors.NewConflict(msgEmailTaken)
+		}
 		if u.Username == in.Username {
 			return User{}, apperrors.NewConflict(msgUsernameTaken)
 		}
 	}
-	u := StoredUser{User: User{ID: int32(len(m.users) + 1), Username: in.Username, Role: in.Role, IsActive: true}, PasswordHash: in.PasswordHash}
+	u := StoredUser{User: User{ID: int32(len(m.users) + 1), Username: in.Username, Email: in.Email, Role: in.Role, IsActive: true}, PasswordHash: in.PasswordHash}
 	m.users = append(m.users, u)
 	return u.User, nil
 }
@@ -39,6 +46,15 @@ func (m *memUsers) CreateIfNotExists(ctx context.Context, in CreateUserInput) (b
 func (m *memUsers) GetByUsername(_ context.Context, username string) (StoredUser, error) {
 	for _, u := range m.users {
 		if u.Username == username && u.IsActive {
+			return u, nil
+		}
+	}
+	return StoredUser{}, apperrors.NewNotFound(msgUserNotFound)
+}
+
+func (m *memUsers) GetByEmail(_ context.Context, email string) (StoredUser, error) {
+	for _, u := range m.users {
+		if u.Email != "" && u.Email == email && u.IsActive {
 			return u, nil
 		}
 	}
@@ -72,15 +88,66 @@ func (m *memUsers) UpdateRole(_ context.Context, id int32, role Role) (User, err
 	return User{}, apperrors.NewNotFound(msgUserNotFound)
 }
 
-// newTestService returns a Service over an empty memUsers whose clock is *now.
-func newTestService(t *testing.T, now *time.Time) (*Service, *memUsers) {
+// memTenants is an in-memory tenants.Repository; only Create is used.
+type memTenants struct {
+	tenants.Repository
+	created []tenants.CreateTenantInput
+	err     error
+}
+
+func (m *memTenants) Create(_ context.Context, in tenants.CreateTenantInput) (tenants.Tenant, error) {
+	if m.err != nil {
+		return tenants.Tenant{}, m.err
+	}
+	m.created = append(m.created, in)
+	return tenants.Tenant{ID: int32(len(m.created)), Name: in.Name, APIKey: in.APIKey, IsActive: true, OwnerUserID: in.OwnerUserID}, nil
+}
+
+// testEnv is a Service over an empty memUsers and memTenants, whose writes go
+// through tx.
+type testEnv struct {
+	svc     *Service
+	users   *memUsers
+	tenants *memTenants
+	tx      *database.FakeTxRunner
+}
+
+// newTestEnv returns a testEnv whose clock is *now.
+func newTestEnv(t *testing.T, now *time.Time) testEnv {
 	t.Helper()
-	users := &memUsers{}
-	svc, err := NewService(users, Options{Secret: testSecret, TokenTTL: time.Hour, PasswordCost: bcrypt.MinCost, Now: func() time.Time { return *now }})
+	env := testEnv{users: &memUsers{}, tenants: &memTenants{}, tx: &database.FakeTxRunner{}}
+	svc, err := NewService(env.users, Options{
+		Secret:       testSecret,
+		TokenTTL:     time.Hour,
+		PasswordCost: bcrypt.MinCost,
+		Now:          func() time.Time { return *now },
+		Tx:           env.tx,
+		UsersFor:     func(db.Querier) Repository { return env.users },
+		TenantsFor:   func(db.Querier) tenants.Repository { return env.tenants },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return svc, users
+	env.svc = svc
+	return env
+}
+
+// newTestService returns the Service and memUsers of a newTestEnv.
+func newTestService(t *testing.T, now *time.Time) (*Service, *memUsers) {
+	t.Helper()
+	env := newTestEnv(t, now)
+	return env.svc, env.users
+}
+
+// signUp signs up email with password and returns the user, failing the
+// test on error.
+func signUp(t *testing.T, svc *Service, email, password string) User {
+	t.Helper()
+	acc, err := svc.SignUp(context.Background(), SignUpInput{Email: email, Password: password})
+	if err != nil {
+		t.Fatalf("SignUp(%q) = %v", email, err)
+	}
+	return acc.User
 }
 
 func assertCode(t *testing.T, err error, want apperrors.Code) {
@@ -99,22 +166,27 @@ func TestNewServiceRejectsShortSecret(t *testing.T) {
 
 func TestSignUpAndSignIn(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	svc, users := newTestService(t, &now)
+	env := newTestEnv(t, &now)
+	svc, users := env.svc, env.users
 	ctx := context.Background()
 
-	u, err := svc.SignUp(ctx, "  Alice ", "correct horse")
+	acc, err := svc.SignUp(ctx, SignUpInput{Email: "  Alice@Example.COM ", Password: "correct horse"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Username != "alice" || u.Role != RoleBasic {
-		t.Fatalf("user = %+v, want alice/BASIC", u)
+	u := acc.User
+	if u.Username != "alice" || u.Email != "alice@example.com" || u.Role != RoleBasic {
+		t.Fatalf("user = %+v, want alice/alice@example.com/BASIC", u)
 	}
 	if users.users[0].PasswordHash == "correct horse" {
 		t.Fatal("password stored in clear")
 	}
-
-	_, err = svc.SignUp(ctx, "alice", "another password")
-	assertCode(t, err, apperrors.CodeConflict)
+	if acc.Tenant.OwnerUserID == nil || *acc.Tenant.OwnerUserID != u.ID || acc.Tenant.Name != "alice@example.com" || len(acc.Tenant.APIKey) != 64 {
+		t.Fatalf("tenant = %+v", acc.Tenant)
+	}
+	if env.tx.Calls != 1 || env.tx.Commits != 1 {
+		t.Fatalf("tx = %+v, want one committed transaction", env.tx)
+	}
 
 	tok, err := svc.SignIn(ctx, "ALICE", "correct horse")
 	if err != nil {
@@ -134,19 +206,122 @@ func TestSignUpAndSignIn(t *testing.T) {
 	assertCode(t, err, apperrors.CodeUnauthorized)
 }
 
+func TestSignUpDuplicateEmail(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	signUp(t, env.svc, "alice@example.com", "correct horse")
+
+	_, err := env.svc.SignUp(context.Background(), SignUpInput{Email: "ALICE@example.com", Password: "another password"})
+	assertCode(t, err, apperrors.CodeConflict)
+	if appErr, _ := apperrors.As(err); appErr.Message != "email already registered" {
+		t.Fatalf("message = %q", appErr.Message)
+	}
+	if len(env.users.users) != 1 || len(env.tenants.created) != 1 {
+		t.Fatalf("users = %d, tenants = %d; want 1 each", len(env.users.users), len(env.tenants.created))
+	}
+}
+
+func TestSignUpDerivesUniqueUsername(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	first := signUp(t, env.svc, "alice@example.com", "correct horse")
+	second := signUp(t, env.svc, "alice@example.org", "correct horse")
+	if first.Username != "alice" || !usernamePattern.MatchString(second.Username) || !strings.HasPrefix(second.Username, "alice-") {
+		t.Fatalf("usernames = %q, %q", first.Username, second.Username)
+	}
+	// The colliding attempt was rolled back before the retry.
+	if env.tx.Calls != 3 || env.tx.Commits != 2 || env.tx.Rollbacks != 1 {
+		t.Fatalf("tx = %+v", env.tx)
+	}
+
+	for email, want := range map[string]string{
+		"a@example.com":                     "a__",
+		"john+news@example.com":             "john-news",
+		strings.Repeat("x", 60) + "@ex.com": strings.Repeat("x", 50),
+		"--@example.com":                    "___",
+	} {
+		if got := usernameFromEmail(email); got != want || !usernamePattern.MatchString(got) {
+			t.Errorf("usernameFromEmail(%q) = %q, want %q", email, got, want)
+		}
+	}
+	long, err := withRandomSuffix(strings.Repeat("x", 50))
+	if err != nil || len(long) != maxUsernameLen || !usernamePattern.MatchString(long) {
+		t.Fatalf("withRandomSuffix = %q, %v", long, err)
+	}
+}
+
+func TestSignUpWithUsername(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	ctx := context.Background()
+	acc, err := env.svc.SignUp(ctx, SignUpInput{Email: "alice@example.com", Username: " Wonder.Land ", Password: "correct horse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.User.Username != "wonder.land" {
+		t.Fatalf("username = %q", acc.User.Username)
+	}
+	// An explicit username is never suffixed: a collision is reported.
+	_, err = env.svc.SignUp(ctx, SignUpInput{Email: "bob@example.com", Username: "wonder.land", Password: "correct horse"})
+	assertCode(t, err, apperrors.CodeConflict)
+	if appErr, _ := apperrors.As(err); appErr.Message != "username already taken" {
+		t.Fatalf("message = %q", appErr.Message)
+	}
+	_, err = env.svc.SignUp(ctx, SignUpInput{Email: "carol@example.com", Username: "x!", Password: "correct horse"})
+	assertCode(t, err, apperrors.CodeInvalidArgument)
+}
+
+func TestSignUpRollsBackWhenTenantCreationFails(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	env.tenants.err = apperrors.NewInternal(errors.New("insert tenant failed"))
+
+	acc, err := env.svc.SignUp(context.Background(), SignUpInput{Email: "alice@example.com", Password: "correct horse"})
+	assertCode(t, err, apperrors.CodeInternal)
+	if acc != (Account{}) {
+		t.Fatalf("account = %+v, want zero", acc)
+	}
+	// The user insert ran inside the transaction, which was rolled back.
+	if len(env.users.users) != 1 || env.tx.Calls != 1 || env.tx.Rollbacks != 1 || env.tx.Commits != 0 {
+		t.Fatalf("users = %d, tx = %+v; want the user insert rolled back", len(env.users.users), env.tx)
+	}
+}
+
+func TestSignUpWithoutTxRunner(t *testing.T) {
+	svc, err := NewService(&memUsers{}, Options{Secret: testSecret, PasswordCost: bcrypt.MinCost})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.SignUp(context.Background(), SignUpInput{Email: "alice@example.com", Password: "correct horse"})
+	assertCode(t, err, apperrors.CodeInternal)
+}
+
 func TestSignUpValidation(t *testing.T) {
 	now := time.Now()
-	svc, _ := newTestService(t, &now)
-	for _, tt := range []struct{ username, password string }{
-		{"ab", "long enough"},
-		{"has:colon", "long enough"},
-		{"has space", "long enough"},
-		{strings.Repeat("a", 51), "long enough"},
-		{"alice", "short"},
-		{"alice", strings.Repeat("p", 73)},
+	env := newTestEnv(t, &now)
+	for _, tt := range []struct{ email, password string }{
+		{"", "long enough"},
+		{"alice", "long enough"},
+		{"alice@", "long enough"},
+		{"@example.com", "long enough"},
+		{"alice@localhost", "long enough"},
+		{"Alice <alice@example.com>", "long enough"},
+		{"al ice@example.com", "long enough"},
+		{strings.Repeat("a", 250) + "@ex.com", "long enough"},
+		{"alice@example.com", "short"},
+		{"alice@example.com", strings.Repeat("p", 73)},
 	} {
-		_, err := svc.SignUp(context.Background(), tt.username, tt.password)
+		_, err := env.svc.SignUp(context.Background(), SignUpInput{Email: tt.email, Password: tt.password})
 		assertCode(t, err, apperrors.CodeInvalidArgument)
+	}
+	if env.tx.Calls != 0 {
+		t.Fatalf("tx calls = %d, want 0 for invalid input", env.tx.Calls)
+	}
+}
+
+func TestNormalizeEmail(t *testing.T) {
+	if got := NormalizeEmail("  Alice@Example.COM\t"); got != "alice@example.com" {
+		t.Fatalf("NormalizeEmail = %q", got)
 	}
 }
 
@@ -154,7 +329,7 @@ func TestCheckTokenRejectsBadTokens(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	svc, users := newTestService(t, &now)
 	ctx := context.Background()
-	u, _ := svc.SignUp(ctx, "alice", "correct horse")
+	u := signUp(t, svc, "alice@example.com", "correct horse")
 	tok, _ := svc.SignIn(ctx, "alice", "correct horse")
 
 	other, _ := NewService(users, Options{Secret: []byte(strings.Repeat("x", MinSecretLen)), PasswordCost: bcrypt.MinCost, Now: func() time.Time { return now }})
@@ -189,7 +364,7 @@ func TestCheckTokenUsesCurrentRole(t *testing.T) {
 	now := time.Now()
 	svc, users := newTestService(t, &now)
 	ctx := context.Background()
-	_, _ = svc.SignUp(ctx, "alice", "correct horse")
+	signUp(t, svc, "alice@example.com", "correct horse")
 	tok, _ := svc.SignIn(ctx, "alice", "correct horse")
 	users.users[0].Role = RoleFormCreator
 
@@ -204,11 +379,11 @@ func TestEnsureUser(t *testing.T) {
 	svc, users := newTestService(t, &now)
 	ctx := context.Background()
 
-	created, err := svc.EnsureUser(ctx, "Admin", "change-me-now", RoleAdmin)
+	created, err := svc.EnsureUser(ctx, "Admin", "", "change-me-now", RoleAdmin)
 	if err != nil || !created {
 		t.Fatalf("EnsureUser = %v, %v", created, err)
 	}
-	created, err = svc.EnsureUser(ctx, "admin", "another-password", RoleAdmin)
+	created, err = svc.EnsureUser(ctx, "admin", "", "another-password", RoleAdmin)
 	if err != nil || created {
 		t.Fatalf("second EnsureUser = %v, %v; want not created", created, err)
 	}
@@ -218,16 +393,76 @@ func TestEnsureUser(t *testing.T) {
 	if users.users[0].Role != RoleAdmin {
 		t.Fatalf("role = %s, want ADMIN", users.users[0].Role)
 	}
-	_, err = svc.EnsureUser(ctx, "root", "change-me-now", Role("ROOT"))
+	_, err = svc.EnsureUser(ctx, "root", "", "change-me-now", Role("ROOT"))
 	assertCode(t, err, apperrors.CodeInvalidArgument)
+
+	// An optional email is normalized, validated and usable to sign in.
+	created, err = svc.EnsureUser(ctx, "ops", " Ops@Example.com ", "change-me-now", RoleAdmin)
+	if err != nil || !created || users.users[1].Email != "ops@example.com" {
+		t.Fatalf("EnsureUser with email = %v, %v; user = %+v", created, err, users.users[1])
+	}
+	if _, err := svc.CheckPassword(ctx, "ops@example.com", "change-me-now"); err != nil {
+		t.Fatalf("CheckPassword by email = %v", err)
+	}
+	_, err = svc.EnsureUser(ctx, "ops2", "not-an-email", "change-me-now", RoleAdmin)
+	assertCode(t, err, apperrors.CodeInvalidArgument)
+}
+
+func TestCheckPasswordIdentifierKinds(t *testing.T) {
+	now := time.Now()
+	svc, users := newTestService(t, &now)
+	ctx := context.Background()
+	alice := signUp(t, svc, "alice@example.com", "correct horse")
+	if _, err := svc.EnsureUser(ctx, "admin", "", "change-me-now", RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name, identifier, password, wantUser string
+	}{
+		{"email", "alice@example.com", "correct horse", "alice"},
+		{"email is case-insensitive and trimmed", "  ALICE@Example.Com ", "correct horse", "alice"},
+		{"username of an email user", "alice", "correct horse", "alice"},
+		{"bootstrap admin by username", "Admin", "change-me-now", "admin"},
+	} {
+		u, err := svc.CheckPassword(ctx, tt.identifier, tt.password)
+		if err != nil || u.Username != tt.wantUser {
+			t.Errorf("%s: CheckPassword(%q) = %+v, %v; want %s", tt.name, tt.identifier, u, err, tt.wantUser)
+		}
+	}
+	tok, err := svc.SignIn(ctx, "alice@example.com", "correct horse")
+	if err != nil || tok.User.ID != alice.ID {
+		t.Fatalf("SignIn by email = %+v, %v", tok, err)
+	}
+
+	for _, tt := range []struct {
+		name, identifier, password string
+	}{
+		{"wrong password by email", "alice@example.com", "wrong password"},
+		{"unknown email", "bob@example.com", "correct horse"},
+		{"email is not a username", "alice@example.com.", "correct horse"},
+		{"username is not an email", "admin@", "change-me-now"},
+		{"unknown username", "bob", "correct horse"},
+	} {
+		_, err := svc.CheckPassword(ctx, tt.identifier, tt.password)
+		assertCode(t, err, apperrors.CodeUnauthorized)
+		if appErr, _ := apperrors.As(err); appErr.Message != msgInvalidCredentials {
+			t.Errorf("%s: message = %q, want %q", tt.name, appErr.Message, msgInvalidCredentials)
+		}
+	}
+
+	// Inactive users cannot sign in by email either.
+	users.users[0].IsActive = false
+	_, err = svc.CheckPassword(ctx, "alice@example.com", "correct horse")
+	assertCode(t, err, apperrors.CodeUnauthorized)
 }
 
 func TestSetRole(t *testing.T) {
 	now := time.Now()
 	svc, _ := newTestService(t, &now)
 	ctx := context.Background()
-	admin, _ := svc.SignUp(ctx, "admin", "correct horse")
-	bob, _ := svc.SignUp(ctx, "bob", "correct horse")
+	admin := signUp(t, svc, "admin@example.com", "correct horse")
+	bob := signUp(t, svc, "bob@example.com", "correct horse")
 
 	u, err := svc.SetRole(ctx, admin, bob.ID, RoleFormCreator)
 	if err != nil || u.Role != RoleFormCreator {

@@ -329,3 +329,33 @@ func deref[T any](p *T) T {
 	}
 	return *p
 }
+
+// GetOverview returns the tenant's form with the given ID, with its submission
+// count and tenant name.
+func (s *Service) GetOverview(ctx context.Context, tenantID, id int32) (FormOverview, error) {
+	row, err := s.q.GetFormOverviewByID(ctx, db.GetFormOverviewByIDParams{ID: id, TenantID: tenantID})
+	if err != nil {
+		return FormOverview{}, mapGetError(err)
+	}
+	return FormOverview{
+		FormSummary: FormSummary{
+			Form: toForm(db.Form{
+				ID:              row.ID,
+				TenantID:        row.TenantID,
+				Title:           row.Title,
+				Slug:            row.Slug,
+				Description:     row.Description,
+				IsActive:        row.IsActive,
+				StartDate:       row.StartDate,
+				EndDate:         row.EndDate,
+				FormContent:     row.FormContent,
+				CreatedAt:       row.CreatedAt,
+				UpdatedAt:       row.UpdatedAt,
+				PublicAvailable: row.PublicAvailable,
+				AcceptAnonymous: row.AcceptAnonymous,
+			}),
+			SubmissionCount: row.SubmissionCount,
+		},
+		TenantName: row.TenantName,
+	}, nil
+}

@@ -52,11 +52,14 @@ type webhooksController struct {
 //	@Accept			json
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			id		path		int							true	"Form ID"
 //	@Param			body	body		CreateWebhookRequest		true	"Webhook to create"
 //	@Success		201		{object}	WebhookResponse				"Webhook created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
-//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id}/webhooks [post]
@@ -104,10 +107,13 @@ func (c *webhooksController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Tags			webhooks
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			id	path		int							true	"Form ID"
 //	@Success		200	{object}	WebhookListResponse			"Webhooks"
 //	@Failure		400	{object}	errors.HTTPErrorResponse	"Invalid form ID"
-//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id}/webhooks [get]

@@ -26,6 +26,7 @@ var submissionMetaColumns = []string{"ip_address", "user_agent", "completion_tim
 // appFormPage is the data rendered by templates/form.html.
 type appFormPage struct {
 	appLayout
+	appView
 	Form forms.FormOverview
 	// Table and JSON show the newest appListLimit submissions.
 	Table submissionTable
@@ -44,9 +45,19 @@ type submissionRow struct {
 	Cells      []string
 }
 
-// Form renders the submissions of a form as a table and as JSON.
+// Form renders the submissions of a form of the viewer's workspace as a
+// table and as JSON.
 func (c *appController) Form(w http.ResponseWriter, r *http.Request) {
-	f, err := c.form(r, "id", r.PathValue("id"))
+	c.renderForm(w, r, workspaceView)
+}
+
+// AdminForm renders the submissions of any tenant's form.
+func (c *appController) AdminForm(w http.ResponseWriter, r *http.Request) {
+	c.renderForm(w, r, adminView)
+}
+
+func (c *appController) renderForm(w http.ResponseWriter, r *http.Request, v appView) {
+	f, err := c.viewForm(r, v, "id", r.PathValue("id"))
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -64,7 +75,8 @@ func (c *appController) Form(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := appFormPage{
-		appLayout: appLayout{Active: "dashboard"},
+		appLayout: appLayout{Active: v.navKey()},
+		appView:   v,
 		Form:      f,
 		Table:     newSubmissionTable(f.Content, subs),
 		JSON:      string(body),
@@ -72,10 +84,19 @@ func (c *appController) Form(w http.ResponseWriter, r *http.Request) {
 	renderAppPage(w, r, appFormTemplate, &page)
 }
 
-// ExportJSON downloads every submission of a form as a JSON array, in the
-// shape of the GET /forms/{id}/submissions items.
+// ExportJSON downloads every submission of a form of the viewer's workspace
+// as a JSON array, in the shape of the GET /forms/{id}/submissions items.
 func (c *appController) ExportJSON(w http.ResponseWriter, r *http.Request) {
-	f, subs, err := c.allSubmissions(r)
+	c.exportJSON(w, r, workspaceView)
+}
+
+// AdminExportJSON is ExportJSON for any tenant's form.
+func (c *appController) AdminExportJSON(w http.ResponseWriter, r *http.Request) {
+	c.exportJSON(w, r, adminView)
+}
+
+func (c *appController) exportJSON(w http.ResponseWriter, r *http.Request, v appView) {
+	f, subs, err := c.allSubmissions(r, v)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -88,10 +109,19 @@ func (c *appController) ExportJSON(w http.ResponseWriter, r *http.Request) {
 	writeAttachment(w, "application/json", f.Slug+"-submissions.json", append(body, '\n'))
 }
 
-// ExportCSV downloads every submission of a form as CSV, with one column per
-// payload key followed by the metadata columns.
+// ExportCSV downloads every submission of a form of the viewer's workspace
+// as CSV, with one column per payload key followed by the metadata columns.
 func (c *appController) ExportCSV(w http.ResponseWriter, r *http.Request) {
-	f, subs, err := c.allSubmissions(r)
+	c.exportCSV(w, r, workspaceView)
+}
+
+// AdminExportCSV is ExportCSV for any tenant's form.
+func (c *appController) AdminExportCSV(w http.ResponseWriter, r *http.Request) {
+	c.exportCSV(w, r, adminView)
+}
+
+func (c *appController) exportCSV(w http.ResponseWriter, r *http.Request, v appView) {
+	f, subs, err := c.allSubmissions(r, v)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -104,20 +134,30 @@ func (c *appController) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	writeAttachment(w, "text/csv; charset=utf-8", f.Slug+"-submissions.csv", body)
 }
 
-// form returns the form whose ID is the value v of the parameter called
-// name, whatever its tenant.
+// form returns the form of the viewer's tenant whose ID is the value v of the
+// parameter called name. Another tenant's form is not found.
 func (c *appController) form(r *http.Request, name, v string) (forms.FormOverview, error) {
-	id, err := parseID(name, v)
+	return c.viewForm(r, workspaceView, name, v)
+}
+
+// viewForm returns the form whose ID is the value s of the parameter called
+// name: any tenant's form in an admin view, else only one of the viewer's
+// tenant.
+func (c *appController) viewForm(r *http.Request, v appView, name, s string) (forms.FormOverview, error) {
+	id, err := parseID(name, s)
 	if err != nil {
 		return forms.FormOverview{}, err
 	}
-	return c.forms.GetAnyByID(r.Context(), id)
+	if v.Admin {
+		return c.forms.GetAnyByID(r.Context(), id)
+	}
+	return c.forms.GetOverview(r.Context(), tenantFrom(r.Context()).ID, id)
 }
 
-// allSubmissions returns the form named by the id path value and every one
-// of its submissions, newest first.
-func (c *appController) allSubmissions(r *http.Request) (forms.FormOverview, []submissions.Submission, error) {
-	f, err := c.form(r, "id", r.PathValue("id"))
+// allSubmissions returns the form of v named by the id path value and every
+// one of its submissions, newest first.
+func (c *appController) allSubmissions(r *http.Request, v appView) (forms.FormOverview, []submissions.Submission, error) {
+	f, err := c.viewForm(r, v, "id", r.PathValue("id"))
 	if err != nil {
 		return forms.FormOverview{}, nil, err
 	}

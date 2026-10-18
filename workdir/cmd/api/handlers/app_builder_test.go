@@ -12,11 +12,11 @@ import (
 )
 
 func TestAppBuilderBlank(t *testing.T) {
-	rec := getAppPath(testServices(), "/app/builder")
+	rec := getAppPath(t, appServices(), "/app/builder")
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{`data-draft=""`, `id="palette"`, `id="canvas"`, `id="inspector"`, `id="code-panel"`, `id="preview-dialog"`, `id="download-code"`, `aria-current="page">Form builder`, `<script nonce="`} {
+	for _, want := range []string{`data-draft=""`, `data-api-key="` + testAPIKey + `"`, `id="palette"`, `id="canvas"`, `id="inspector"`, `id="code-panel"`, `id="preview-dialog"`, `id="download-code"`, `aria-current="page">Form builder`, `<script nonce="`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
 		}
@@ -25,13 +25,13 @@ func TestAppBuilderBlank(t *testing.T) {
 
 func TestAppBuilderFromForm(t *testing.T) {
 	desc := `Say "hi"`
-	svc := testServices(forms.Form{
+	svc := appServices(forms.Form{
 		ID: 1, TenantID: 7, Title: "Survey", Slug: "survey", Description: &desc,
 		Content:         json.RawMessage(`{"version":1,"fields":[{"type":"toggle","name":"ok"}]}`),
 		AcceptAnonymous: true,
 	})
 
-	rec := getAppPath(svc, "/app/builder?form=1")
+	rec := getAppPath(t, svc, "/app/builder?form=1")
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()

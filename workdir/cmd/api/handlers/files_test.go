@@ -41,7 +41,7 @@ func upload(t *testing.T, svc Services, parts ...[4]string) *httptest.ResponseRe
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set(apiKeyHeader, testAPIKey)
 	rec := httptest.NewRecorder()
-	Routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testFeatures).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -111,7 +111,7 @@ func TestGetFile(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/files/"+testFileID, nil)
 	req.Header.Set("Range", "bytes=0-7")
 	rec = httptest.NewRecorder()
-	Routes(svc, testAppConfig).ServeHTTP(rec, req)
+	Routes(svc, testFeatures).ServeHTTP(rec, req)
 	assertStatus(t, rec, http.StatusPartialContent)
 	if rec.Body.String() != "<script>" {
 		t.Fatalf("range body = %q", rec.Body.String())

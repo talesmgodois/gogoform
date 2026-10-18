@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
-{{template "head" "Dashboard"}}
+{{template "head" (or (and .Admin "All tenants") "Dashboard")}}
 </head>
 <body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
 
@@ -10,8 +10,8 @@
   <main class="mx-auto max-w-7xl px-6 py-8 space-y-10">
 
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-xs text-slate-500">Generated {{datetime .GeneratedAt}}</p>
-      <a href="/app/builder" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/25">New form</a>
+      <p class="text-xs text-slate-500">{{if .Admin}}Admin view of every tenant, read-only · {{end}}Generated {{datetime .GeneratedAt}}</p>
+      {{if not .Admin}}<a href="/app/builder" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/25">New form</a>{{end}}
     </div>
 
     <section class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -47,7 +47,7 @@
             {{range .Forms}}
             <tr class="hover:bg-slate-800/40 transition">
               <td class="px-4 py-3 max-w-sm">
-                <a href="/app/forms/{{.ID}}" class="block font-medium text-slate-100 hover:text-indigo-400 truncate" title="View the submissions of {{.Title}}">{{.Title}}</a>
+                <a href="{{$.Base}}/forms/{{.ID}}" class="block font-medium text-slate-100 hover:text-indigo-400 truncate" title="View the submissions of {{.Title}}">{{.Title}}</a>
                 <p class="font-mono text-xs text-indigo-400 truncate">/{{.Slug}}</p>
                 {{with .Description}}<p class="mt-1 text-xs text-slate-400 line-clamp-2">{{.}}</p>{{end}}
               </td>
@@ -64,8 +64,8 @@
               <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{{datetime .CreatedAt}}</td>
               <td class="px-4 py-3 whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1 text-xs font-medium">
-                  <a href="/app/forms/{{.ID}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Submissions</a>
-                  <a href="/app/builder?form={{.ID}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Start a new form from a copy of this one">Duplicate</a>
+                  <a href="{{$.Base}}/forms/{{.ID}}" class="rounded-lg px-2 py-1 text-indigo-300 hover:bg-indigo-500/10">Submissions</a>
+                  {{if not $.Admin}}<a href="/app/builder?form={{.ID}}" class="rounded-lg px-2 py-1 text-slate-300 hover:bg-slate-700/50" title="Start a new form from a copy of this one">Duplicate</a>{{end}}
                 </div>
               </td>
             </tr>

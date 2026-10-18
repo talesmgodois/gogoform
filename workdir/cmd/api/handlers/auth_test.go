@@ -34,16 +34,39 @@ func bearer(token string) string { return "Bearer " + token }
 
 func TestSignUp(t *testing.T) {
 	svc := testServices()
-	rec := serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"username":"Alice","password":"long enough"}`, ""))
+	rec := serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"Alice@Example.com","password":"long enough"}`, ""))
 	assertStatus(t, rec, http.StatusCreated)
-	if u := decode[UserResponse](t, rec); u.Username != "alice" || u.Role != auth.RoleBasic {
+	u := decode[SignUpResponse](t, rec)
+	if u.Username != "alice" || u.Email != "alice@example.com" || u.Role != auth.RoleBasic || u.TenantID == 0 {
 		t.Fatalf("user = %+v", u)
 	}
 
-	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"username":"alice","password":"long enough"}`, "")), http.StatusConflict)
-	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"username":"bob","password":"short"}`, "")), http.StatusBadRequest)
+	// The account signs in with its email.
+	rec = serve(svc, userRequest(http.MethodPost, "/auth/signin", "", basicHeader("ALICE@example.com", "long enough")))
+	assertStatus(t, rec, http.StatusOK)
+	if tok := decode[TokenResponse](t, rec); tok.User.Email != "alice@example.com" {
+		t.Fatalf("token user = %+v", tok.User)
+	}
+
+	rec = serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"alice@example.com","password":"long enough"}`, ""))
+	assertStatus(t, rec, http.StatusConflict)
+	if body := rec.Body.String(); !strings.Contains(body, "email already registered") {
+		t.Fatalf("body = %s", body)
+	}
+
+	// An explicit username is kept as is, and must be free.
+	rec = serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"bob@example.com","username":"Bobby","password":"long enough"}`, ""))
+	assertStatus(t, rec, http.StatusCreated)
+	if u := decode[SignUpResponse](t, rec); u.Username != "bobby" || u.Email != "bob@example.com" {
+		t.Fatalf("user = %+v", u)
+	}
+	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"bob2@example.com","username":"bobby","password":"long enough"}`, "")), http.StatusConflict)
+	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"bob3@example.com","username":"b!","password":"long enough"}`, "")), http.StatusBadRequest)
+
+	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"not-an-email","password":"long enough"}`, "")), http.StatusBadRequest)
+	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"carol@example.com","password":"short"}`, "")), http.StatusBadRequest)
 	// The role cannot be chosen at sign-up.
-	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"username":"eve","password":"long enough","role":"ADMIN"}`, "")), http.StatusBadRequest)
+	assertStatus(t, serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"eve@example.com","password":"long enough","role":"ADMIN"}`, "")), http.StatusBadRequest)
 }
 
 func TestSignIn(t *testing.T) {

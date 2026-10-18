@@ -8,6 +8,8 @@ package auth
 import (
 	"slices"
 	"time"
+
+	"app/internal/pkg/tenants"
 )
 
 // Role is the access level of a user.
@@ -31,14 +33,20 @@ func (r Role) Valid() bool {
 	return slices.Contains(AllRoles, r)
 }
 
-// User is an account that signs in with a username and password.
+// User is an account that signs in with an email (or, for accounts created
+// before emails existed, a username) and a password.
 type User struct {
-	ID        int32
-	Username  string
-	Role      Role
-	IsActive  bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID       int32
+	Username string
+	// Email is normalized (see NormalizeEmail); empty for accounts created
+	// without one, such as the bootstrap admin.
+	Email string
+	// EmailVerifiedAt is when the email was confirmed; nil while unverified.
+	EmailVerifiedAt *time.Time
+	Role            Role
+	IsActive        bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // StoredUser is a User together with its password hash, as needed to check
@@ -51,9 +59,25 @@ type StoredUser struct {
 // CreateUserInput holds the data needed to store a user.
 type CreateUserInput struct {
 	// Username must already be normalized (see NormalizeUsername).
-	Username     string
+	Username string
+	// Email must already be normalized (see NormalizeEmail); empty for none.
+	Email        string
 	PasswordHash string
 	Role         Role
+}
+
+// SignUpInput holds the credentials of a new account.
+type SignUpInput struct {
+	Email string
+	// Username is optional: when empty, one is derived from Email.
+	Username string
+	Password string
+}
+
+// Account is a signed-up user together with the workspace (tenant) it owns.
+type Account struct {
+	User   User
+	Tenant tenants.Tenant
 }
 
 // Token is a signed JWT issued to a user.

@@ -14,13 +14,10 @@ import (
 	"app/internal/pkg/submissions"
 )
 
-// getAppPath requests GET path with the dashboard credentials.
-func getAppPath(svc Services, path string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.SetBasicAuth(testAppConfig.Username, testAppConfig.Password)
-	rec := httptest.NewRecorder()
-	Routes(svc, testAppConfig).ServeHTTP(rec, req)
-	return rec
+// getAppPath requests GET path with the session cookie of appUser.
+func getAppPath(t *testing.T, svc Services, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	return serve(svc, pageRequest(t, svc, path, appUser))
 }
 
 var (
@@ -32,7 +29,7 @@ var (
 // formWithSubmissions returns Services holding a form declaring the email and
 // name fields, and two submissions of it.
 func formWithSubmissions() Services {
-	svc := testServices(forms.Form{
+	svc := appServices(forms.Form{
 		ID: 1, TenantID: 7, Title: "Customer survey", Slug: "customer-survey", IsActive: true,
 		Content: json.RawMessage(`{"version":1,"fields":[{"type":"textfield","name":"email"},{"type":"textfield","name":"name"}]}`),
 	})
@@ -50,7 +47,7 @@ func formWithSubmissions() Services {
 func TestAppFormRendersSubmissions(t *testing.T) {
 	svc := formWithSubmissions()
 
-	rec := getAppPath(svc, "/app/forms/1")
+	rec := getAppPath(t, svc, "/app/forms/1")
 
 	assertStatus(t, rec, http.StatusOK)
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "'nonce-") {
@@ -83,7 +80,7 @@ func TestAppFormRendersSubmissions(t *testing.T) {
 }
 
 func TestAppFormEmpty(t *testing.T) {
-	rec := getAppPath(testServices(forms.Form{ID: 1, TenantID: 7, Title: "Empty", Slug: "empty", Content: json.RawMessage(`{}`)}), "/app/forms/1")
+	rec := getAppPath(t, appServices(forms.Form{ID: 1, TenantID: 7, Title: "Empty", Slug: "empty", Content: json.RawMessage(`{}`)}), "/app/forms/1")
 
 	assertStatus(t, rec, http.StatusOK)
 	if !strings.Contains(rec.Body.String(), "This form has no submissions yet.") {
@@ -91,22 +88,35 @@ func TestAppFormEmpty(t *testing.T) {
 	}
 }
 
+func TestAppFormOfAnotherTenantIsNotFound(t *testing.T) {
+	svc := formWithSubmissions()
+	svc.forms.(*fakeForms).forms[2] = forms.Form{ID: 2, TenantID: 8, Title: "Other", Slug: "other"}
+	for _, path := range []string{"/app/forms/2", "/app/forms/2/submissions.json", "/app/forms/2/submissions.csv", "/app/builder?form=2"} {
+		rec := getAppPath(t, svc, path)
+
+		assertStatus(t, rec, http.StatusNotFound)
+		if strings.Contains(rec.Body.String(), "Other") {
+			t.Errorf("%s: body shows the other tenant's form", path)
+		}
+	}
+}
+
 func TestAppFormErrors(t *testing.T) {
 	for _, path := range []string{"/app/forms/9", "/app/forms/9/submissions.json", "/app/forms/9/submissions.csv", "/app/builder?form=9"} {
-		assertStatus(t, getAppPath(formWithSubmissions(), path), http.StatusNotFound)
+		assertStatus(t, getAppPath(t, formWithSubmissions(), path), http.StatusNotFound)
 	}
 	for _, path := range []string{"/app/forms/abc", "/app/forms/0/submissions.csv", "/app/builder?form=abc"} {
-		assertStatus(t, getAppPath(formWithSubmissions(), path), http.StatusBadRequest)
+		assertStatus(t, getAppPath(t, formWithSubmissions(), path), http.StatusBadRequest)
 	}
 	for _, path := range []string{"/app/forms/1", "/app/forms/1/submissions.json", "/app/forms/1/submissions.csv", "/app/builder"} {
-		assertStatus(t, do(t, formWithSubmissions(), http.MethodGet, path, "", false), http.StatusUnauthorized)
+		assertStatus(t, do(t, formWithSubmissions(), http.MethodGet, path, "", false), http.StatusSeeOther)
 	}
 }
 
 func TestAppExportJSON(t *testing.T) {
 	svc := formWithSubmissions()
 
-	rec := getAppPath(svc, "/app/forms/1/submissions.json")
+	rec := getAppPath(t, svc, "/app/forms/1/submissions.json")
 
 	assertStatus(t, rec, http.StatusOK)
 	assertAttachment(t, rec, "application/json", "customer-survey-submissions.json")
@@ -120,7 +130,7 @@ func TestAppExportJSON(t *testing.T) {
 }
 
 func TestAppExportCSV(t *testing.T) {
-	rec := getAppPath(formWithSubmissions(), "/app/forms/1/submissions.csv")
+	rec := getAppPath(t, formWithSubmissions(), "/app/forms/1/submissions.csv")
 
 	assertStatus(t, rec, http.StatusOK)
 	assertAttachment(t, rec, "text/csv; charset=utf-8", "customer-survey-submissions.csv")

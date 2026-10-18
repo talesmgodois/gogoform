@@ -10,18 +10,19 @@ import (
 )
 
 const createTenant = `-- name: CreateTenant :one
-INSERT INTO tenants (name, api_key)
-VALUES ($1, $2)
-RETURNING id, name, api_key, is_active, created_at
+INSERT INTO tenants (name, api_key, owner_user_id)
+VALUES ($1, $2, $3)
+RETURNING id, name, api_key, is_active, created_at, owner_user_id
 `
 
 type CreateTenantParams struct {
-	Name   string `db:"name" json:"name"`
-	ApiKey string `db:"api_key" json:"api_key"`
+	Name        string `db:"name" json:"name"`
+	ApiKey      string `db:"api_key" json:"api_key"`
+	OwnerUserID *int32 `db:"owner_user_id" json:"owner_user_id"`
 }
 
 func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error) {
-	row := q.db.QueryRow(ctx, createTenant, arg.Name, arg.ApiKey)
+	row := q.db.QueryRow(ctx, createTenant, arg.Name, arg.ApiKey, arg.OwnerUserID)
 	var i Tenant
 	err := row.Scan(
 		&i.ID,
@@ -29,12 +30,13 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Ten
 		&i.ApiKey,
 		&i.IsActive,
 		&i.CreatedAt,
+		&i.OwnerUserID,
 	)
 	return i, err
 }
 
 const getTenantByAPIKey = `-- name: GetTenantByAPIKey :one
-SELECT id, name, api_key, is_active, created_at FROM tenants
+SELECT id, name, api_key, is_active, created_at, owner_user_id FROM tenants
 WHERE api_key = $1 AND is_active
 `
 
@@ -47,6 +49,71 @@ func (q *Queries) GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant,
 		&i.ApiKey,
 		&i.IsActive,
 		&i.CreatedAt,
+		&i.OwnerUserID,
+	)
+	return i, err
+}
+
+const getTenantByID = `-- name: GetTenantByID :one
+SELECT id, name, api_key, is_active, created_at, owner_user_id FROM tenants
+WHERE id = $1 AND is_active
+`
+
+func (q *Queries) GetTenantByID(ctx context.Context, id int32) (Tenant, error) {
+	row := q.db.QueryRow(ctx, getTenantByID, id)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
+	)
+	return i, err
+}
+
+const getTenantByOwner = `-- name: GetTenantByOwner :one
+SELECT id, name, api_key, is_active, created_at, owner_user_id FROM tenants
+WHERE owner_user_id = $1::integer AND is_active
+`
+
+func (q *Queries) GetTenantByOwner(ctx context.Context, ownerUserID int32) (Tenant, error) {
+	row := q.db.QueryRow(ctx, getTenantByOwner, ownerUserID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
+	)
+	return i, err
+}
+
+const rotateTenantAPIKey = `-- name: RotateTenantAPIKey :one
+UPDATE tenants
+SET api_key = $1
+WHERE id = $2 AND is_active
+RETURNING id, name, api_key, is_active, created_at, owner_user_id
+`
+
+type RotateTenantAPIKeyParams struct {
+	NewKey string `db:"new_key" json:"new_key"`
+	ID     int32  `db:"id" json:"id"`
+}
+
+func (q *Queries) RotateTenantAPIKey(ctx context.Context, arg RotateTenantAPIKeyParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, rotateTenantAPIKey, arg.NewKey, arg.ID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
 	)
 	return i, err
 }

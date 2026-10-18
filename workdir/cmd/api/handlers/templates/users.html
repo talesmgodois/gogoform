@@ -18,6 +18,7 @@
           <tr>
             <th class="px-4 py-3 font-semibold">ID</th>
             <th class="px-4 py-3 font-semibold">Username</th>
+            <th class="px-4 py-3 font-semibold">Email</th>
             <th class="px-4 py-3 font-semibold">Role</th>
             <th class="px-4 py-3 font-semibold">Status</th>
             <th class="px-4 py-3 font-semibold">Created</th>
@@ -28,12 +29,13 @@
           <tr>
             <td class="px-4 py-3 text-xs text-slate-400">{{.ID}}</td>
             <td class="px-4 py-3 font-medium">{{.Username}}</td>
+            <td class="px-4 py-3 font-mono text-xs text-slate-300">{{or .Email "—"}}</td>
             <td class="px-4 py-3 font-mono text-xs text-indigo-300">{{.Role}}</td>
             <td class="px-4 py-3 text-xs">{{if .IsActive}}<span class="text-emerald-400">Active</span>{{else}}<span class="text-slate-500">Inactive</span>{{end}}</td>
             <td class="px-4 py-3 text-xs text-slate-400">{{datetime .CreatedAt}}</td>
           </tr>
           {{else}}
-          <tr><td colspan="5" class="px-4 py-10 text-center text-sm text-slate-500">No users yet.</td></tr>
+          <tr><td colspan="6" class="px-4 py-10 text-center text-sm text-slate-500">No users yet.</td></tr>
           {{end}}
         </tbody>
       </table>

@@ -7,12 +7,12 @@
 
 {{template "nav" .}}
 
-  <div id="builder" data-draft="{{.Draft}}" class="flex-1 flex flex-col overflow-hidden">
+  <div id="builder" data-draft="{{.Draft}}" data-api-key="{{.APIKey}}" class="flex-1 flex flex-col overflow-hidden">
 
     <div class="shrink-0 border-b border-slate-800 bg-slate-900/40 px-6 py-3 flex flex-wrap items-center justify-between gap-3">
       <div class="min-w-0">
         <h1 class="text-sm font-semibold tracking-tight">Form builder</h1>
-        <p class="text-xs text-slate-500 truncate">{{with .SourceTitle}}Copy of “{{.}}”. {{end}}Click or drag components onto the form, then create it with a tenant API key.</p>
+        <p class="text-xs text-slate-500 truncate">{{with .SourceTitle}}Copy of “{{.}}”. {{end}}Click or drag components onto the form, then create it in your workspace.</p>
       </div>
       <div class="flex items-center gap-2 text-xs font-medium">
         <button type="button" id="issues-badge" class="rounded-lg px-3 py-2"></button>
@@ -520,7 +520,7 @@
         ];
       };
 
-      const create = { key: "", busy: false, result: null };
+      const create = { key: $("builder").dataset.apiKey || "", busy: false, result: null };
       const canCreate = (problems) => !create.busy && create.key !== "" && !problems.length;
 
       const settingsInspector = () => [
@@ -544,9 +544,9 @@
                 : "Only signed-in users can fill it in; each submission records who sent it.")),
           section("Checks", h("div", { id: "checks" })),
           section("Create form",
-            h("p", { class: "text-xs leading-snug text-slate-500" }, "The form is created for the tenant owning the API key. The key is only sent with this request and is not stored."),
-            row("Tenant API key", text(create.key, (v) => { create.key = v.trim(); renderStatus(issues()); },
-              { type: "password", autocomplete: "off", class: INPUT + " font-mono" })),
+            h("p", { class: "text-xs leading-snug text-slate-500" }, "The form is created in the workspace owning the API key, prefilled with yours. Send it as the X-API-Key header to call the API from your own integrations."),
+            row("Workspace API key", text(create.key, (v) => { create.key = v.trim(); renderStatus(issues()); },
+              { autocomplete: "off", spellcheck: false, class: INPUT + " font-mono" })),
             h("button", {
               type: "button", id: "create-form",
               class: "w-full rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none",

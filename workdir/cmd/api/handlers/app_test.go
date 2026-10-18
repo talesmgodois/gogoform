@@ -9,33 +9,31 @@ import (
 	"testing"
 	"time"
 
-	"app/internal/config"
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 )
 
-// getApp requests GET /app with the given basic credentials (none when user
-// is empty) through Routes(svc, cfg).
-func getApp(svc Services, cfg config.AppConfig, user, pass string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/app", nil)
-	if user != "" {
-		req.SetBasicAuth(user, pass)
-	}
-	rec := httptest.NewRecorder()
-	Routes(svc, cfg).ServeHTTP(rec, req)
-	return rec
+// getApp requests GET /app with the session cookie of username (none when
+// empty).
+func getApp(t *testing.T, svc Services, username string) *httptest.ResponseRecorder {
+	t.Helper()
+	return serve(svc, pageRequest(t, svc, "/app", username))
 }
 
 func TestAppRendersFormsAndFiles(t *testing.T) {
 	desc := "Tell us <everything>"
-	svc := testServices(forms.Form{ID: 1, TenantID: 7, Title: "Customer survey", Slug: "customer-survey", Description: &desc, IsActive: true})
+	svc := appServices(
+		forms.Form{ID: 1, TenantID: 7, Title: "Customer survey", Slug: "customer-survey", Description: &desc, IsActive: true},
+		forms.Form{ID: 2, TenantID: 8, Title: "Other tenant's poll", Slug: "other-poll", IsActive: true},
+	)
 	svc.files.(*fakeFiles).files[testFileID] = files.File{
 		ID: testFileID, TenantID: 7, Name: "logo.png", ContentType: "image/png", Size: 2048,
 		Checksum: strings.Repeat("ab", 32), CreatedAt: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC),
 	}
+	svc.files.(*fakeFiles).files["other-file"] = files.File{ID: "other-file", TenantID: 8, Name: "secret.pdf"}
 
-	rec := getApp(svc, testAppConfig, "admin", "s3cret")
+	rec := getApp(t, svc, appUser)
 
 	assertStatus(t, rec, http.StatusOK)
 	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
@@ -62,6 +60,14 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 			t.Errorf("body does not contain %q", want)
 		}
 	}
+	for _, unwanted := range []string{"Other tenant's poll", "other-poll", "secret.pdf"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("body shows another tenant's %q", unwanted)
+		}
+	}
+	if svc.forms.(*fakeForms).filter.TenantID != 7 {
+		t.Errorf("forms filter = %+v, want tenant 7", svc.forms.(*fakeForms).filter)
+	}
 	if svc.forms.(*fakeForms).page != (forms.Page{Limit: appListLimit}) {
 		t.Errorf("forms page = %+v", svc.forms.(*fakeForms).page)
 	}
@@ -71,15 +77,16 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 }
 
 func TestAppNonceIsPerRequest(t *testing.T) {
-	first := getApp(testServices(), testAppConfig, "admin", "s3cret").Header().Get("Content-Security-Policy")
-	second := getApp(testServices(), testAppConfig, "admin", "s3cret").Header().Get("Content-Security-Policy")
+	svc := appServices()
+	first := getApp(t, svc, appUser).Header().Get("Content-Security-Policy")
+	second := getApp(t, svc, appUser).Header().Get("Content-Security-Policy")
 	if first == second {
 		t.Fatalf("Content-Security-Policy reused across requests: %q", first)
 	}
 }
 
 func TestAppEmpty(t *testing.T) {
-	rec := getApp(testServices(), testAppConfig, "admin", "s3cret")
+	rec := getApp(t, appServices(), appUser)
 
 	assertStatus(t, rec, http.StatusOK)
 	for _, want := range []string{"No forms have been created yet.", "No files have been uploaded yet."} {
@@ -89,30 +96,34 @@ func TestAppEmpty(t *testing.T) {
 	}
 }
 
-func TestAppRequiresCredentials(t *testing.T) {
-	tests := []struct {
-		name, user, pass string
-	}{
-		{"none", "", ""},
-		{"wrong user", "root", "s3cret"},
-		{"wrong password", "admin", "nope"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := getApp(testServices(), testAppConfig, tt.user, tt.pass)
+func TestAppRequiresSignIn(t *testing.T) {
+	rec := getApp(t, appServices(), "")
 
-			assertStatus(t, rec, http.StatusUnauthorized)
-			if got := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(got, "Basic ") {
-				t.Fatalf("WWW-Authenticate = %q", got)
-			}
-		})
+	assertStatus(t, rec, http.StatusSeeOther)
+	if loc := rec.Header().Get("Location"); loc != "/app/signin?next=%2Fapp" {
+		t.Fatalf("Location = %q", loc)
 	}
 }
 
-func TestAppDisabledWithoutCredentials(t *testing.T) {
-	rec := getApp(testServices(), config.AppConfig{}, "", "")
+func TestAppIgnoresBasicCredentials(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/app", nil)
+	req.SetBasicAuth(appUser, testPassword)
 
-	assertStatus(t, rec, http.StatusNotFound)
+	rec := serve(appServices(), req)
+
+	assertStatus(t, rec, http.StatusSeeOther)
+}
+
+func TestAppWorkspacePagesWithoutWorkspace(t *testing.T) {
+	svc := appServices(forms.Form{ID: 1, TenantID: 7, Title: "Survey", Slug: "survey"})
+	for _, path := range []string{"/app", "/app/forms/1", "/app/forms/1/submissions.csv", "/app/builder"} {
+		rec := serve(svc, pageRequest(t, svc, path, "basic"))
+
+		assertStatus(t, rec, http.StatusForbidden)
+		if !strings.Contains(rec.Body.String(), "no workspace") {
+			t.Errorf("%s: body does not explain the missing workspace", path)
+		}
+	}
 }
 
 func TestAppTrailingSlashRedirects(t *testing.T) {
@@ -125,10 +136,10 @@ func TestAppTrailingSlashRedirects(t *testing.T) {
 }
 
 func TestAppRepositoryError(t *testing.T) {
-	svc := testServices()
+	svc := appServices()
 	svc.files.(*fakeFiles).err = apperrors.NewInternal(errors.New("db down"))
 
-	rec := getApp(svc, testAppConfig, "admin", "s3cret")
+	rec := getApp(t, svc, appUser)
 
 	assertStatus(t, rec, http.StatusInternalServerError)
 	if strings.Contains(rec.Body.String(), "db down") {

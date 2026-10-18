@@ -5,7 +5,7 @@ import "context"
 // Repository persists users.
 //
 // Errors are AppErrors from internal/errors: CodeNotFound when no matching
-// active user exists, CodeConflict when a username is taken, CodeInvalidArgument
+// active user exists, CodeConflict when a username or email is taken, CodeInvalidArgument
 // for a bad Page and CodeInternal for anything else.
 type Repository interface {
 	// Create stores a new, active user and returns it.
@@ -16,6 +16,9 @@ type Repository interface {
 	// GetByUsername returns the active user with the given username, along
 	// with its password hash.
 	GetByUsername(ctx context.Context, username string) (StoredUser, error)
+	// GetByEmail returns the active user with the given email, along with
+	// its password hash.
+	GetByEmail(ctx context.Context, email string) (StoredUser, error)
 	// GetByID returns the active user with the given ID.
 	GetByID(ctx context.Context, id int32) (User, error)
 	// List returns every user, active or not, by ID.

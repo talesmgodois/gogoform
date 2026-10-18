@@ -1,6 +1,6 @@
 -- name: CreateUser :one
-INSERT INTO users (username, password_hash, role)
-VALUES ($1, $2, $3)
+INSERT INTO users (username, email, password_hash, role)
+VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 -- name: CreateUserIfNotExists :execrows
@@ -12,6 +12,11 @@ ON CONFLICT (username) DO NOTHING;
 -- name: GetUserByUsername :one
 SELECT * FROM users
 WHERE username = $1 AND is_active;
+
+-- name: GetUserByEmail :one
+-- Emails are stored lowercase; lower() matches the users_email_key index.
+SELECT * FROM users
+WHERE lower(email) = lower(sqlc.arg(email)::text) AND is_active;
 
 -- name: GetUserByID :one
 SELECT * FROM users

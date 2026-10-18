@@ -17,6 +17,7 @@
             {{.Username}}
             <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-xs font-medium text-indigo-300 ring-1 ring-inset ring-indigo-500/20">{{.Role}}</span>
           </h1>
+          {{with .Email}}<p class="mt-1 font-mono text-sm text-slate-300">{{.}}</p>{{end}}
           <p class="mt-1 text-xs text-slate-500">User #{{.ID}} · member since {{datetime .CreatedAt}}</p>
         </div>
         <button type="button" id="signout" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Sign out</button>
@@ -24,6 +25,20 @@
       <p class="mt-4 text-sm text-slate-400">This page only opens for signed-in users: its route is declared with <span class="font-mono text-slate-300">auth.SignedIn()</span> in <span class="font-mono text-slate-300">app_routes.go</span>.</p>
     </section>
     {{end}}
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Workspace</p>
+      {{with .Workspace}}
+      <h2 class="mt-1 flex items-center gap-3 text-lg font-semibold tracking-tight">
+        {{.Name}}
+        {{if .IsActive}}<span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/20">Active</span>{{else}}<span class="rounded-full bg-slate-500/10 px-2 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Inactive</span>{{end}}
+      </h2>
+      <p class="mt-1 text-xs text-slate-500">Tenant #{{.ID}} · created {{datetime .CreatedAt}}</p>
+      <p class="mt-4 text-sm text-slate-400">Your forms and files live here. Find its API key in the <a href="/app/builder" class="text-indigo-400 hover:text-indigo-300">form builder</a>.</p>
+      {{else}}
+      <p class="mt-1 text-sm text-slate-400">Your account has no workspace.</p>
+      {{end}}
+    </section>
 
     <section>
       <div class="mb-4 flex items-end justify-between">

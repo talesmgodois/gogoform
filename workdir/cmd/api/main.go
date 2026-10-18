@@ -80,7 +80,8 @@ func run() error {
 		"host", pool.Config().ConnConfig.Host, "port", pool.Config().ConnConfig.Port, "database", pool.Config().ConnConfig.Database)
 
 	queries := db.New(pool)
-	authSvc, err := newAuthService(ctx, log, queries, cfg.Auth)
+	txRunner := database.NewTxRunner(pool)
+	authSvc, err := newAuthService(ctx, log, queries, txRunner, cfg.Auth)
 	if err != nil {
 		return err
 	}
@@ -90,15 +91,11 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc), cfg.App),
+		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc), cfg.Features),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
-	}
-
-	if !cfg.App.Enabled() {
-		log.Warn("/app dashboard disabled: set APP_USERNAME and APP_PASSWORD to enable it")
 	}
 
 	errCh := make(chan error, 1)
@@ -123,9 +120,10 @@ func run() error {
 }
 
 // newAuthService builds the user authentication service and creates the
-// bootstrap admin of cfg, if any. Without a configured secret, tokens are
-// signed with a random one and do not survive a restart.
-func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, cfg config.AuthConfig) (*auth.Service, error) {
+// bootstrap admin of cfg, if any. tx runs the writes that must be atomic
+// (creating a user together with its tenant). Without a configured secret,
+// tokens are signed with a random one and do not survive a restart.
+func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.AuthConfig) (*auth.Service, error) {
 	secret := []byte(cfg.JWTSecret)
 	if len(secret) == 0 {
 		log.Warn("auth: AUTH_JWT_SECRET is not set; using a random secret, so tokens are invalidated on restart")
@@ -134,12 +132,12 @@ func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, cfg con
 			return nil, fmt.Errorf("auth: generate secret: %w", err)
 		}
 	}
-	svc, err := auth.NewService(auth.NewUserStore(q), auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL()})
+	svc, err := auth.NewService(auth.NewUserStore(q), auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL(), Tx: tx})
 	if err != nil {
 		return nil, err
 	}
 	if cfg.AdminUsername != "" {
-		created, err := svc.EnsureUser(ctx, cfg.AdminUsername, cfg.AdminPassword, auth.RoleAdmin)
+		created, err := svc.EnsureUser(ctx, cfg.AdminUsername, "", cfg.AdminPassword, auth.RoleAdmin)
 		if err != nil {
 			return nil, fmt.Errorf("auth: bootstrap admin: %w", err)
 		}

@@ -12,19 +12,33 @@ import (
 
 // SignUpRequest is the body of POST /auth/signup.
 type SignUpRequest struct {
-	// Username is case-insensitive: 3 to 50 letters, digits, '.', '_' or '-'.
-	Username string `json:"username" example:"alice"`
+	// Email is case-insensitive; the account signs in with it.
+	Email string `json:"email" example:"alice@example.com"`
+	// Username is optional and case-insensitive: 3 to 50 letters, digits,
+	// '.', '_' or '-'. When omitted, one is derived from the email.
+	Username string `json:"username,omitempty" example:"alice"`
 	// Password is 8 to 72 bytes long.
 	Password string `json:"password" example:"correct horse battery"`
 }
 
+// SignUpResponse is the body returned by POST /auth/signup.
+type SignUpResponse struct {
+	UserResponse
+	// TenantID is the workspace created for the account.
+	TenantID int32 `json:"tenant_id" example:"1"`
+}
+
 // UserResponse is a user as returned by the API.
 type UserResponse struct {
-	ID        int32     `json:"id" example:"1"`
-	Username  string    `json:"username" example:"alice"`
-	Role      auth.Role `json:"role" enums:"ADMIN,FORM_CREATOR,BASIC" example:"BASIC"`
-	IsActive  bool      `json:"is_active" example:"true"`
-	CreatedAt time.Time `json:"created_at" example:"2026-01-01T00:00:00Z"`
+	ID       int32  `json:"id" example:"1"`
+	Username string `json:"username" example:"alice"`
+	// Email is empty for accounts created without one, such as the
+	// bootstrap admin.
+	Email           string     `json:"email,omitempty" example:"alice@example.com"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty" example:"2026-01-01T00:00:00Z"`
+	Role            auth.Role  `json:"role" enums:"ADMIN,FORM_CREATOR,BASIC" example:"BASIC"`
+	IsActive        bool       `json:"is_active" example:"true"`
+	CreatedAt       time.Time  `json:"created_at" example:"2026-01-01T00:00:00Z"`
 }
 
 // TokenResponse is the body returned by POST /auth/signin.
@@ -56,14 +70,14 @@ type authController struct {
 // SignUp creates an account.
 //
 //	@Summary		Sign up
-//	@Description	Creates an account with the BASIC role. Usernames are case-insensitive.
+//	@Description	Creates an account with the BASIC role, and its workspace (tenant). Emails are case-insensitive.
 //	@Tags			auth
 //	@Accept			json
 //	@Produce		json
 //	@Param			body	body		SignUpRequest				true	"Credentials of the new account"
-//	@Success		201		{object}	UserResponse				"Account created"
-//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid username or password"
-//	@Failure		409		{object}	errors.HTTPErrorResponse	"Username already taken"
+//	@Success		201		{object}	SignUpResponse				"Account created"
+//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid email, username or password"
+//	@Failure		409		{object}	errors.HTTPErrorResponse	"Email already registered, or username already taken"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/auth/signup [post]
 func (c *authController) SignUp(w http.ResponseWriter, r *http.Request) {
@@ -72,18 +86,18 @@ func (c *authController) SignUp(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	u, err := c.auth.SignUp(r.Context(), req.Username, req.Password)
+	acc, err := c.auth.SignUp(r.Context(), auth.SignUpInput{Email: req.Email, Username: req.Username, Password: req.Password})
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	writeJSON(w, r, http.StatusCreated, toUserResponse(u))
+	writeJSON(w, r, http.StatusCreated, SignUpResponse{UserResponse: toUserResponse(acc.User), TenantID: acc.Tenant.ID})
 }
 
 // SignIn exchanges HTTP Basic credentials for a JWT.
 //
 //	@Summary		Sign in
-//	@Description	Checks the HTTP Basic credentials ("Authorization: Basic " + btoa(username + ":" + password)) and returns a JWT access token to send as "Authorization: Bearer <token>".
+//	@Description	Checks the HTTP Basic credentials ("Authorization: Basic " + btoa(email + ":" + password)) and returns a JWT access token to send as "Authorization: Bearer <token>". The identifier is the email, or the username for accounts without one (such as the bootstrap admin).
 //	@Tags			auth
 //	@Produce		json
 //	@Security		BasicAuth
@@ -92,12 +106,12 @@ func (c *authController) SignUp(w http.ResponseWriter, r *http.Request) {
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/auth/signin [post]
 func (c *authController) SignIn(w http.ResponseWriter, r *http.Request) {
-	username, password, ok := r.BasicAuth()
+	identifier, password, ok := r.BasicAuth()
 	if !ok {
 		apperrors.WriteHTTP(w, r, apperrors.NewUnauthorized("missing Basic credentials"))
 		return
 	}
-	tok, err := c.auth.SignIn(r.Context(), username, password)
+	tok, err := c.auth.SignIn(r.Context(), identifier, password)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -231,8 +245,8 @@ func (c *authController) authenticate(r *http.Request) (*auth.User, error) {
 	var err error
 	if scheme, token, _ := strings.Cut(h, " "); strings.EqualFold(scheme, "Bearer") {
 		u, err = c.auth.CheckToken(r.Context(), strings.TrimSpace(token))
-	} else if username, password, ok := r.BasicAuth(); ok {
-		u, err = c.auth.CheckPassword(r.Context(), username, password)
+	} else if identifier, password, ok := r.BasicAuth(); ok {
+		u, err = c.auth.CheckPassword(r.Context(), identifier, password)
 	} else {
 		err = apperrors.NewUnauthorized("unsupported Authorization header: use Bearer or Basic")
 	}
@@ -267,5 +281,13 @@ func userFrom(ctx context.Context) *auth.User {
 }
 
 func toUserResponse(u auth.User) UserResponse {
-	return UserResponse{ID: u.ID, Username: u.Username, Role: u.Role, IsActive: u.IsActive, CreatedAt: u.CreatedAt}
+	return UserResponse{
+		ID:              u.ID,
+		Username:        u.Username,
+		Email:           u.Email,
+		EmailVerifiedAt: u.EmailVerifiedAt,
+		Role:            u.Role,
+		IsActive:        u.IsActive,
+		CreatedAt:       u.CreatedAt,
+	}
 }

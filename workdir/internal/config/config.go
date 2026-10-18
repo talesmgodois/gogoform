@@ -29,8 +29,39 @@ type Config struct {
 		Level string `toml:"level" env:"LOG_LEVEL"` // "debug", "info", "warn", "error"
 	} `toml:"logger"`
 	Database DatabaseConfig `toml:"database"`
-	App      AppConfig      `toml:"app"`
 	Auth     AuthConfig     `toml:"auth"`
+	Features FeaturesConfig `toml:"features"`
+}
+
+// FeaturesConfig toggles endpoints that are only meant for development. A
+// flag left unset in both the file and the environment defaults to true when
+// server.env is "development" and to false otherwise.
+type FeaturesConfig struct {
+	// PublicTenantSignup mounts the unauthenticated POST /tenants.
+	PublicTenantSignup *bool `toml:"public_tenant_signup" env:"FEATURE_PUBLIC_TENANT_SIGNUP"`
+	// Samples mounts the /samples/* policy examples.
+	Samples *bool `toml:"samples_enabled" env:"FEATURE_SAMPLES"`
+}
+
+// PublicTenantSignupEnabled reports whether POST /tenants is mounted.
+func (c FeaturesConfig) PublicTenantSignupEnabled() bool {
+	return c.PublicTenantSignup != nil && *c.PublicTenantSignup
+}
+
+// SamplesEnabled reports whether the /samples/* routes are mounted.
+func (c FeaturesConfig) SamplesEnabled() bool {
+	return c.Samples != nil && *c.Samples
+}
+
+// resolveDefaults sets every unset flag to whether env is "development".
+func (c *FeaturesConfig) resolveDefaults(env string) {
+	dev := strings.EqualFold(env, "development")
+	for _, f := range []**bool{&c.PublicTenantSignup, &c.Samples} {
+		if *f == nil {
+			v := dev
+			*f = &v
+		}
+	}
 }
 
 // minJWTSecretLen is the minimum length of AuthConfig.JWTSecret: 256 bits,
@@ -53,19 +84,6 @@ type AuthConfig struct {
 // TokenTTL returns TokenTTLMinutes as a duration.
 func (c AuthConfig) TokenTTL() time.Duration {
 	return time.Duration(c.TokenTTLMinutes) * time.Minute
-}
-
-// AppConfig holds the HTTP Basic credentials of the read-only /app
-// dashboard. The dashboard lists every tenant's data, so it is disabled
-// while they are unset.
-type AppConfig struct {
-	Username string `toml:"username" env:"APP_USERNAME"`
-	Password string `toml:"password" env:"APP_PASSWORD"`
-}
-
-// Enabled reports whether the /app dashboard credentials are configured.
-func (c AppConfig) Enabled() bool {
-	return c.Username != "" && c.Password != ""
 }
 
 // DatabaseConfig holds the database connection settings.
@@ -115,6 +133,7 @@ func Load(path string) (*Config, error) {
 	if err := applyEnv(reflect.ValueOf(cfg).Elem()); err != nil {
 		return nil, err
 	}
+	cfg.Features.resolveDefaults(cfg.Server.Env)
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -163,6 +182,15 @@ func applyEnv(v reflect.Value) error {
 				return fmt.Errorf("env %s: invalid integer %q", key, raw)
 			}
 			fv.SetInt(int64(n))
+		case reflect.Pointer:
+			if fv.Type().Elem().Kind() != reflect.Bool {
+				return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Type())
+			}
+			b, err := strconv.ParseBool(strings.TrimSpace(raw))
+			if err != nil {
+				return fmt.Errorf("env %s: invalid boolean %q", key, raw)
+			}
+			fv.Set(reflect.ValueOf(&b))
 		default:
 			return fmt.Errorf("env %s: unsupported field kind %s", key, fv.Kind())
 		}
@@ -181,12 +209,6 @@ func (c *Config) validate() error {
 	}
 	if err := validateDatabaseURI(c.Database.URI); err != nil {
 		return fmt.Errorf("database.uri: %w", err)
-	}
-	if (c.App.Username == "") != (c.App.Password == "") {
-		return fmt.Errorf("app: username and password must be set together")
-	}
-	if strings.Contains(c.App.Username, ":") {
-		return fmt.Errorf("app.username: must not contain ':'")
 	}
 	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < minJWTSecretLen {
 		return fmt.Errorf("auth.jwt_secret: must be at least %d bytes", minJWTSecretLen)

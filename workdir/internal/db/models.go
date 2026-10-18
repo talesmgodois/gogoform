@@ -109,19 +109,22 @@ type SubmissionMetadatum struct {
 }
 
 type Tenant struct {
-	ID        int32      `db:"id" json:"id"`
-	Name      string     `db:"name" json:"name"`
-	ApiKey    string     `db:"api_key" json:"api_key"`
-	IsActive  *bool      `db:"is_active" json:"is_active"`
-	CreatedAt *time.Time `db:"created_at" json:"created_at"`
+	ID          int32      `db:"id" json:"id"`
+	Name        string     `db:"name" json:"name"`
+	ApiKey      string     `db:"api_key" json:"api_key"`
+	IsActive    *bool      `db:"is_active" json:"is_active"`
+	CreatedAt   *time.Time `db:"created_at" json:"created_at"`
+	OwnerUserID *int32     `db:"owner_user_id" json:"owner_user_id"`
 }
 
 type User struct {
-	ID           int32     `db:"id" json:"id"`
-	Username     string    `db:"username" json:"username"`
-	PasswordHash string    `db:"password_hash" json:"password_hash"`
-	Role         UserRole  `db:"role" json:"role"`
-	IsActive     bool      `db:"is_active" json:"is_active"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+	ID              int32      `db:"id" json:"id"`
+	Username        string     `db:"username" json:"username"`
+	PasswordHash    string     `db:"password_hash" json:"password_hash"`
+	Role            UserRole   `db:"role" json:"role"`
+	IsActive        bool       `db:"is_active" json:"is_active"`
+	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
+	Email           *string    `db:"email" json:"email"`
+	EmailVerifiedAt *time.Time `db:"email_verified_at" json:"email_verified_at"`
 }

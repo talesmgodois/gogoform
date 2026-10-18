@@ -102,10 +102,13 @@ type formsController struct {
 //	@Accept			json
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			body	body		FormRequest					true	"Form to create"
 //	@Success		201		{object}	FormResponse				"Form created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
-//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		409		{object}	errors.HTTPErrorResponse	"Slug already exists"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms [post]
@@ -141,13 +144,16 @@ func (c *formsController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Tags			forms
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			is_active	query		bool						false	"Only forms in this state"
 //	@Param			search		query		string						false	"Case-insensitive title substring"
 //	@Param			offset		query		int							false	"Number of forms to skip"			minimum(0)	default(0)
 //	@Param			limit		query		int							false	"Maximum number of forms to return"	minimum(1)	maximum(100)	default(20)
 //	@Success		200			{object}	FormListResponse			"Page of forms"
 //	@Failure		400			{object}	errors.HTTPErrorResponse	"Invalid query parameters"
-//	@Failure		401			{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401			{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403			{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		500			{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms [get]
 func (c *formsController) List(w http.ResponseWriter, r *http.Request) {
@@ -198,10 +204,13 @@ func (c *formsController) List(w http.ResponseWriter, r *http.Request) {
 //	@Tags			forms
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			id	path		int							true	"Form ID"
 //	@Success		200	{object}	FormDetailsResponse			"Form"
 //	@Failure		400	{object}	errors.HTTPErrorResponse	"Invalid form ID"
-//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id} [get]
@@ -227,11 +236,14 @@ func (c *formsController) Get(w http.ResponseWriter, r *http.Request) {
 //	@Accept			json
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			id		path		int							true	"Form ID"
 //	@Param			body	body		FormRequest					true	"New state of the form"
 //	@Success		200		{object}	FormResponse				"Form updated"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
-//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		409		{object}	errors.HTTPErrorResponse	"Slug already exists"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
@@ -275,10 +287,13 @@ func (c *formsController) Update(w http.ResponseWriter, r *http.Request) {
 //	@Tags			forms
 //	@Produce		json
 //	@Security		ApiKeyAuth
+//	@Security		BearerAuth
+//	@Security		BasicAuth
 //	@Param			id	path	int	true	"Form ID"
 //	@Success		204	"Form deleted"
 //	@Failure		400	{object}	errors.HTTPErrorResponse	"Invalid form ID"
-//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key"
+//	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		409	{object}	errors.HTTPErrorResponse	"Form has submissions or webhooks"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
