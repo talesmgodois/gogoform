@@ -63,7 +63,7 @@ type filesController struct {
 //	@Success		201		{object}	FileResponse				"File uploaded"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid, missing, empty or too large file"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
-//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/files [post]
 func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +133,7 @@ func (c *filesController) Get(w http.ResponseWriter, r *http.Request) {
 //	@Param			id	path	string	true	"File ID (UUID)"
 //	@Success		204	"File deleted"
 //	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
-//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"File not found"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/files/{id} [delete]

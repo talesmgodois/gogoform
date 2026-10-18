@@ -59,7 +59,7 @@ type webhooksController struct {
 //	@Success		201		{object}	WebhookResponse				"Webhook created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
-//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id}/webhooks [post]

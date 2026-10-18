@@ -44,9 +44,11 @@ func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 }
 
 // Routes builds the HTTP handler. Tenant-scoped endpoints authenticate with
-// the tenant's API key or a signed-in user's own tenant (auth), user endpoints with a JWT or HTTP Basic
-// credentials guarded by an auth.Policy (guard). The /app pages, listed in
-// app_routes.go, use the session cookie of a signed-in user. The
+// the tenant's API key or resolve the own tenant of a user signed in with a
+// JWT, HTTP Basic credentials or the /app session cookie (auth; see
+// tenantOrUser). User endpoints accept a JWT or HTTP Basic credentials, never
+// the session cookie, guarded by an auth.Policy (guard). The /app pages,
+// listed in app_routes.go, use the session cookie of a signed-in user. The
 // development-only POST /tenants and /samples/* are only mounted when enabled
 // in features.
 func Routes(svc Services, features config.FeaturesConfig) http.Handler {

@@ -87,14 +87,18 @@ func TestAppSignIn(t *testing.T) {
 	assertStatus(t, rec, http.StatusOK)
 
 	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != sessionCookie || !cookies[0].HttpOnly || cookies[0].Path != "/app" || cookies[0].SameSite != http.SameSiteLaxMode {
+	if len(cookies) != 1 || cookies[0].Name != sessionCookie || !cookies[0].HttpOnly || cookies[0].Path != "/" || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookies = %+v", cookies)
 	}
 	page := httptest.NewRequest(http.MethodGet, "/app/account", nil)
 	page.AddCookie(cookies[0])
 	assertStatus(t, serve(svc, page), http.StatusOK)
 
-	// The session cookie is not accepted by the API.
+	// The tenant API accepts the session cookie ("basic" has no workspace
+	// here, hence 403 rather than 401), the Guard routes do not.
+	forms := httptest.NewRequest(http.MethodGet, "/forms", nil)
+	forms.AddCookie(cookies[0])
+	assertStatus(t, serve(svc, forms), http.StatusForbidden)
 	api := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	api.AddCookie(cookies[0])
 	assertStatus(t, serve(svc, api), http.StatusUnauthorized)

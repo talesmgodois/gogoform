@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	apperrors "app/internal/errors"
+	"app/internal/pkg/auth"
 	"app/internal/pkg/tenants"
 )
 
@@ -105,7 +106,7 @@ func (c *tenantsController) Me(w http.ResponseWriter, r *http.Request) {
 //	@Security		BasicAuth
 //	@Success		200	{object}	TenantWithAPIKeyResponse	"Tenant with its new API key"
 //	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
-//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"Tenant no longer active"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/tenants/me/api-key/rotate [post]
@@ -126,9 +127,11 @@ func (c *tenantsController) RotateAPIKey(w http.ResponseWriter, r *http.Request)
 // tenantOrUser returns a middleware that only runs next for requests
 // resolved to an active tenant, which is then available through tenantFrom.
 // An X-API-Key header identifies the tenant directly. Otherwise the user
-// authenticated by the Authorization header (see authController.authenticate)
-// is resolved to the tenant they own, and is also available through userFrom.
-// Missing or invalid credentials give 401, a user without a workspace 403.
+// authenticated by the Authorization header (see authController.authenticate),
+// or else by the session cookie of the /app pages (see sessionCookieUser), is
+// resolved to the tenant they own, and is also available through userFrom.
+// Missing or invalid credentials give 401, a user without a workspace or a
+// cross-origin state-changing request authenticated by the cookie 403.
 func tenantOrUser(ts tenants.Repository, authCtl *authController) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +150,7 @@ func tenantOrUser(ts tenants.Repository, authCtl *authController) func(http.Hand
 			} else {
 				u, authErr := authCtl.authenticate(r)
 				if authErr == nil && u == nil {
-					authErr = apperrors.NewUnauthorized("missing API key or Authorization header")
+					u, authErr = sessionCookieUser(r, authCtl)
 				}
 				if authErr != nil {
 					unauthorized(w, r, authErr)
@@ -166,6 +169,24 @@ func tenantOrUser(ts tenants.Repository, authCtl *authController) func(http.Hand
 			next(w, r.WithContext(withTenant(ctx, t)))
 		}
 	}
+}
+
+// sessionCookieUser returns the user of the session cookie of r. Only
+// GET and HEAD requests may come from another origin: the cookie must not let
+// another site change the user's data.
+func sessionCookieUser(r *http.Request, authCtl *authController) (*auth.User, error) {
+	cookie, err := r.Cookie(sessionCookie)
+	if err != nil || cookie.Value == "" {
+		return nil, apperrors.NewUnauthorized("missing API key, Authorization header or session")
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
+		return nil, apperrors.NewForbidden("cross-origin request")
+	}
+	u, err := authCtl.auth.CheckToken(r.Context(), cookie.Value)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 // isNotFound reports whether err is an apperrors NotFound error.

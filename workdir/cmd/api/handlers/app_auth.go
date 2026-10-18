@@ -12,8 +12,10 @@ import (
 )
 
 // sessionCookie holds the JWT of the user signed in to the /app pages. It is
-// HttpOnly and scoped to /app, and only guardPage reads it: the API never
-// accepts it, so it cannot be used for cross-site requests against the API.
+// HttpOnly, SameSite=Lax and scoped to "/" so the pages' scripts can call the
+// tenant API with it. guardPage reads it for the /app pages and tenantOrUser
+// for the tenant API, which rejects cross-origin state-changing requests
+// authenticated by it; the Guard routes (/auth, /users) never accept it.
 const sessionCookie = "gogoform_session"
 
 // defaultSignInRedirect is where the sign-in page leads without a next page.
@@ -97,7 +99,7 @@ func (c *appController) SignIn(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    tok.AccessToken,
-		Path:     "/app",
+		Path:     "/",
 		Expires:  tok.ExpiresAt,
 		MaxAge:   int(time.Until(tok.ExpiresAt).Seconds()),
 		HttpOnly: true,
@@ -154,7 +156,7 @@ func renderAppMessage(w http.ResponseWriter, r *http.Request, status int, title,
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: "", Path: "/app", MaxAge: -1,
+		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteLaxMode,
 	})
 }

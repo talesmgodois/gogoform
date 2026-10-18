@@ -2,7 +2,7 @@
 //
 //	@title			App API
 //	@version		1.0
-//	@description	REST API of the application.
+//	@description	REST API of the application. Tenant-scoped endpoints also accept the session cookie of the /app pages; state-changing requests authenticated by it must come from the same origin.
 //	@host			localhost:8080
 //	@BasePath		/
 //
