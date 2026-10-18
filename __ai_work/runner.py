@@ -66,19 +66,21 @@ def prompt_user_choice(question, options):
         print(f"\n{question}")
         for key, label in options:
             print(f"  [{key}] {label}")
-        choice = input("Your choice: ").strip().lower()
+        try:
+            choice = input("Your choice: ").strip().lower()
+        except EOFError:
+            print("\n🛑 No interactive terminal to answer; aborting. Re-run from a terminal, or clean the working tree first.")
+            raise SystemExit(1)
         if choice in valid_keys:
             return choice
         print(f"⚠️  Invalid choice '{choice}'. Please pick one of: {', '.join(sorted(valid_keys))}")
 
 
 def handle_dirty_worktree(cwd=PROJECT_ROOT):
-    """Detects uncommitted changes and asks the user how to proceed before switching branches.
+    """Detects uncommitted changes and asks the user how to proceed before a fresh run.
 
-    Runs at the start of every branch preparation step: an interrupted previous
-    run (implementation failures currently leave changes uncommitted) or manual
-    edits could otherwise be silently carried into the wrong branch, or block
-    the upcoming 'git checkout main'.
+    Manual edits left in the working tree would otherwise be silently committed
+    together with the first task's changes.
     """
     status = git_status(cwd)
     if not status:
@@ -89,7 +91,7 @@ def handle_dirty_worktree(cwd=PROJECT_ROOT):
     print(status)
 
     choice = prompt_user_choice(
-        "How would you like to proceed before switching branches?",
+        "How would you like to proceed before running the tasks?",
         [
             ("1", "Stash changes (git stash -u) and continue"),
             ("2", "Commit changes now via the /commits skill, then continue"),
@@ -124,62 +126,33 @@ def handle_dirty_worktree(cwd=PROJECT_ROOT):
         raise SystemExit(0)
 
 
-def task_branch(task_filename):
-    return f"feat/{extract_task_id(task_filename)}"
-
-
 def current_branch(cwd=PROJECT_ROOT):
     return run_command("git rev-parse --abbrev-ref HEAD", cwd=cwd, check=False).stdout.strip()
 
 
-def branch_exists(branch_name, cwd=PROJECT_ROOT):
-    return run_command(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch_name}"], cwd=cwd, check=False).returncode == 0
+def prepare_git(resuming):
+    """Readies the checked-out branch for the run; tasks are committed straight onto it.
 
-
-def prepare_git_branch(task_filename, resume=False):
-    """Syncs main repo and creates a dedicated feat/<task_id> branch.
-
-    With resume=True and an existing branch, the branch is checked out as-is
-    instead of being recreated from main, so an interrupted run's commits and
-    (when already on it) uncommitted changes are kept.
+    With resuming=True the working tree is expected to hold the unfinished task's
+    partial work, so it is kept as-is and nothing is pulled. Otherwise uncommitted
+    changes would end up in the first task's commits, so the user is asked first.
     """
-    branch_name = task_branch(task_filename)
-
-    if resume and branch_exists(branch_name):
-        print(f"\n🔁 Resuming on existing branch '{branch_name}' for task '{task_filename}'...")
-        if current_branch() == branch_name:
-            print("🧩 Already on it; keeping the working tree (it may hold partial work).")
-        else:
-            handle_dirty_worktree()
-            run_command(["git", "checkout", branch_name])
-        return branch_name
-
-    print(f"\n🔄 Preparing Git branch '{branch_name}' for task '{task_filename}'...")
-
-    # Guard against losing in-progress work: ask the user how to proceed
-    # if the working tree has uncommitted changes before switching branches.
-    handle_dirty_worktree()
-
-    # A fresh repo has no commits, so "main" doesn't exist yet and can't be checked out.
-    # Give it an empty root commit to branch from.
-    if run_command("git rev-parse --verify HEAD", check=False).returncode != 0:
+    # A fresh repo has no commits, so there is no branch to commit onto yet.
+    if run_command("git rev-parse --verify HEAD", cwd=PROJECT_ROOT, check=False).returncode != 0:
         print("🌱 Repository has no commits; creating an empty initial commit on 'main'...")
-        run_command("git checkout -B main")
-        run_command(["git", "commit", "--allow-empty", "-m", "chore: initial commit"])
+        run_command("git checkout -B main", cwd=PROJECT_ROOT)
+        run_command(["git", "commit", "--allow-empty", "-m", "chore: initial commit"], cwd=PROJECT_ROOT)
 
-    print("📍 Checking out 'main'...")
-    run_command("git checkout main")
+    branch = current_branch()
+    if resuming:
+        print(f"🧩 Resuming on '{branch}'; keeping the working tree (it may hold partial work).")
+        return
 
-    print("⬇️  Pulling latest 'main' from remote (if any)...")
-    pull_result = run_command("git pull origin main", check=False)
+    handle_dirty_worktree()
+    print(f"⬇️  Pulling latest '{branch}' from remote (if any)...")
+    pull_result = run_command(["git", "pull", "--ff-only", "origin", branch], cwd=PROJECT_ROOT, check=False)
     if pull_result.returncode != 0:
         print(f"ℹ️  Skipped pull (no remote configured yet, or nothing to pull): {pull_result.stderr.strip()}")
-
-    print(f"🌿 Creating/checking out feature branch '{branch_name}'...")
-    run_command(f"git checkout -B {branch_name}")
-    print(f"✅ Now on branch '{branch_name}'.")
-
-    return branch_name
 
 
 # Which CLI drives the agent: "claude" (Claude Code) or "opencode".
@@ -295,35 +268,33 @@ def review_with_fixes(task_filename):
     return False, reason
 
 
-def push_branch(branch_name):
-    """Pushes the branch to the remote, setting upstream with -u."""
-    print(f"\n⬆️  Pushing branch '{branch_name}' to remote...")
-    result = run_command(f"git push -u origin {branch_name}", cwd=PROJECT_ROOT, check=False)
+def push_current_branch():
+    """Pushes the checked-out branch to origin."""
+    branch = current_branch()
+    print(f"\n⬆️  Pushing '{branch}' to remote...")
+    result = run_command(["git", "push", "origin", branch], cwd=PROJECT_ROOT, check=False)
     if result.returncode != 0:
-        print(f"⚠️  Failed to push branch '{branch_name}':\n{result.stderr.strip()}")
+        print(f"⚠️  Failed to push '{branch}':\n{result.stderr.strip()}")
         return False
-    print(f"✅ Pushed '{branch_name}' to remote (upstream set).")
+    print(f"✅ Pushed '{branch}' to remote.")
     return True
 
 
-def merge_to_main(branch_name):
-    """Merges the feature branch into main locally."""
-    print(f"\n🔀 Merging '{branch_name}' into main...")
-    run_command("git checkout main", cwd=PROJECT_ROOT)
-    result = run_command(f"git merge --no-ff {branch_name}", cwd=PROJECT_ROOT, check=False)
-    if result.returncode != 0:
-        print(f"⚠️  Failed to merge '{branch_name}' into main:\n{result.stderr.strip()}")
-        print("↩️  Aborting the in-progress merge to keep 'main' clean...")
-        run_command("git merge --abort", cwd=PROJECT_ROOT, check=False)
-        return False
-    print(f"✅ Merged '{branch_name}' into main.")
-    return True
+# Trailer added to every commit of a task, so `git log --grep "Task: <id>"` finds them all.
+TASK_TRAILER = "Task: {task_id}"
 
 
-def run_grouped_commits():
-    """Triggers the /commits skill to group and commit remaining changes."""
+def run_grouped_commits(task_name=None):
+    """Triggers the /commits skill to group and commit remaining changes.
+
+    With task_name, every commit gets the task's trailer in its footer.
+    """
     print("\n📦 Grouping and committing changes via /commits skill...")
-    ok, output = run_agent(command="commits", cwd=PROJECT_ROOT, capture=True)
+    args = ""
+    if task_name:
+        trailer = TASK_TRAILER.format(task_id=extract_task_id(task_name))
+        args = f'Add the trailer line "{trailer}" as the last line of every commit message footer.'
+    ok, output = run_agent(command="commits", args=args, cwd=PROJECT_ROOT, capture=True)
 
     matches = COMMITS_RESULT_RE.findall(output)
     status = matches[-1][0] if matches else "UNKNOWN"
@@ -343,11 +314,13 @@ def run_grouped_commits():
 # Set RUNNER_RESUME=0 to archive any unfinished progress and start from scratch.
 RESUME = os.environ.get("RUNNER_RESUME", "1") != "0"
 
+# Set RUNNER_PUSH=1 to push the branch once the run has committed at least one task.
+PUSH = os.environ.get("RUNNER_PUSH", "0") == "1"
+
 TRACK_FILE_RE = re.compile(r"^(\d+)_error\.json(\.archive)?$")
 ARCHIVE_SUFFIX = ".archive"
 # Stages after the todos, in pipeline order. "plan" comes before the todos.
-STAGES = ("plan", "review", "commit", "push", "merge")
-WIP_COMMIT_PREFIX = "wip(runner):"
+STAGES = ("plan", "review", "commit")
 
 
 def now_iso():
@@ -359,7 +332,7 @@ class Tracker:
 
     Shape: {"run": {...}, "tasks": {<task file name>: {"file", "status",
     "todos": {"<n>": {"started", "finished"}}, "stages": {<stage>: bool},
-    "last_error", "wip_commit"}}}. Task file names are the keys because task ids
+    "last_error"}}}. Task file names are the keys because task ids
     alone aren't unique (e.g. 000001_scaffold_program and 000001_cleanup).
 
     The file is rewritten atomically after every change, so even a hard kill
@@ -428,7 +401,6 @@ class Tracker:
             "todos": {},
             "stages": {stage: False for stage in STAGES},
             "last_error": None,
-            "wip_commit": None,
         })
         entry["file"] = str(task_path.relative_to(PROJECT_ROOT))
         self.save()
@@ -579,11 +551,11 @@ def render_plan(items, todos, current):
 
 
 # ---------------------------------------------------------------------------
-# Task pipeline: plan -> todos -> review -> commit -> push -> merge.
+# Task pipeline: plan -> todos -> review -> commit, straight onto the checked-out branch.
 # ---------------------------------------------------------------------------
 
 class TaskFailed(Exception):
-    """A pipeline step failed; the task is parked in errors/ and resumed next run."""
+    """A pipeline step failed; the task is parked in errors/, the run stops, and the next run resumes it."""
 
 
 def locate_task(name):
@@ -595,50 +567,14 @@ def locate_task(name):
 
 
 def collect_tasks(tracker):
-    """Returns pending tasks plus unfinished tracked ones, the checked-out branch's task first.
+    """Returns pending tasks plus unfinished tracked ones, the unfinished ones first.
 
-    The branch that is checked out is most likely the one that was interrupted,
-    and resuming it first avoids the dirty-worktree prompt for its partial work.
+    An unfinished task's partial work is still in the working tree, so it must be
+    resumed (and committed) before any other task adds changes on top of it.
     """
     names = {f.name for f in TASKS_DIR.iterdir() if f.is_file() and f.suffix in [".md", ".txt"]}
-    for name, entry in tracker.tasks.items():
-        if entry.get("status") == "complete" or name in names:
-            continue
-        # The file may only exist on the task's own branch, so it's located again after checkout.
-        names.add(name)
-
-    branch = current_branch()
-    return sorted(names, key=lambda name: (task_branch(name) != branch, name))
-
-
-def save_partial_work(tracker, task_name, branch_name):
-    """Commits leftover changes as a WIP commit on the task branch, so they survive
-    the switch to the next task's branch. It is undone again when the task resumes.
-    """
-    if current_branch() != branch_name or not git_status():
-        return
-    run_command("git add -A", cwd=PROJECT_ROOT)
-    run_command(["git", "commit", "--no-verify", "-m", f"{WIP_COMMIT_PREFIX} {task_name} interrupted"], cwd=PROJECT_ROOT)
-    sha = run_command("git rev-parse HEAD", cwd=PROJECT_ROOT).stdout.strip()
-    tracker.tasks[task_name]["wip_commit"] = sha
-    tracker.save()
-    print(f"💾 Partial work saved on '{branch_name}' as WIP commit {sha[:10]}.")
-
-
-def restore_partial_work(tracker, task_name):
-    """Undoes the WIP commit made by save_partial_work, putting its changes back in the working tree."""
-    entry = tracker.tasks[task_name]
-    sha = entry.get("wip_commit")
-    if not sha:
-        return
-    head = run_command("git rev-parse HEAD", cwd=PROJECT_ROOT).stdout.strip()
-    if head == sha:
-        run_command("git reset HEAD~1", cwd=PROJECT_ROOT)
-        print(f"🧩 Restored partial work from WIP commit {sha[:10]} into the working tree.")
-    else:
-        print(f"⚠️  WIP commit {sha[:10]} is no longer HEAD; leaving history as it is.")
-    entry["wip_commit"] = None
-    tracker.save()
+    unfinished = {name for name, entry in tracker.tasks.items() if entry.get("status") != "complete"}
+    return sorted(names | unfinished, key=lambda name: (name not in unfinished, name))
 
 
 def plan_task(tracker, task_path, body):
@@ -693,33 +629,20 @@ def implement_todos(tracker, task_path, body, items):
 
 
 def run_task(tracker, name):
-    """Runs (or resumes) one task through the whole pipeline. Raises TaskFailed on failure."""
-    # Any earlier attempt may have left commits (WIP included) on the branch, so never recreate it then.
-    resuming = name in tracker.tasks
-    task_path = locate_task(name)
-    if task_path is None and not resuming:
-        raise TaskFailed(f"task file '{name}' not found in tasks/, errors/ or finished/")
+    """Runs (or resumes) one task through the whole pipeline.
 
-    # Check for empty tasks before touching Git, so they don't trigger a checkout/pull.
-    if task_path is not None and not task_path.read_text(encoding="utf-8").strip():
-        print(f"⚠️  Empty task {name}. Skipping...")
-        return None
-    if task_path is not None:
-        tracker.entry(task_path)
-
-    # 1. Sync Git & create (or, when resuming, reuse) the feature branch
-    tracker.set_current(name, "branch")
-    branch_name = prepare_git_branch(name, resume=resuming)
-    if resuming:
-        restore_partial_work(tracker, name)
-    # Checking out the branch may have moved the file (e.g. into errors/ by the failed run).
+    Returns True once committed, False for a skipped empty task. Raises TaskFailed on failure.
+    """
     task_path = locate_task(name)
     if task_path is None:
-        raise TaskFailed(f"task file '{name}' not found on branch '{branch_name}'")
+        raise TaskFailed(f"task file '{name}' not found in tasks/, errors/ or finished/")
+    if not task_path.read_text(encoding="utf-8").strip():
+        print(f"⚠️  Empty task {name}. Skipping...")
+        return False
     entry = tracker.entry(task_path)
     entry["status"] = "in_progress"
 
-    # 2. Plan in plan mode, or reuse the plan already in the task file
+    # 1. Plan in plan mode, or reuse the plan already in the task file
     body, items = split_plan(task_path.read_text(encoding="utf-8"))
     if not items:
         items = plan_task(tracker, task_path, body)
@@ -730,10 +653,10 @@ def run_task(tracker, name):
     # The tracker is the source of truth; keep the checkboxes in line with it.
     items = [(number, entry["todos"][str(number)]["finished"], text) for number, _, text in items]
 
-    # 3. Implement the todos one agent call at a time
+    # 2. Implement the todos one agent call at a time
     implement_todos(tracker, task_path, body, items)
 
-    # 4. Code review (with fix rounds)
+    # 3. Code review (with fix rounds)
     if not entry["stages"]["review"]:
         tracker.set_current(name, "review")
         if name.endswith(".ncr.md"):
@@ -744,42 +667,28 @@ def run_task(tracker, name):
                 raise TaskFailed(f"code review failed: {reason}")
         tracker.mark_stage(name, "review")
 
-    # 5. Commit, with the task file (plan fully ticked) moved into finished/ as part of it
+    # 4. Commit, with the task file (plan fully ticked) moved into finished/ as part of it
     if not entry["stages"]["commit"]:
         tracker.set_current(name, "commit")
         write_plan(task_path, body, [(number, True, text) for number, _, text in items])
         if task_path.parent != FINISHED_DIR:
             task_path = move_task(task_path, FINISHED_DIR)
             entry = tracker.entry(task_path)
-        if not run_grouped_commits():
+        if not run_grouped_commits(name):
             raise TaskFailed("commit issues")
         tracker.mark_stage(name, "commit")
 
-    # 6. Push & merge
-    if not entry["stages"]["push"]:
-        tracker.set_current(name, "push")
-        if not push_branch(branch_name):
-            raise TaskFailed("push failed")
-        tracker.mark_stage(name, "push")
-    if not entry["stages"]["merge"]:
-        tracker.set_current(name, "merge")
-        if not merge_to_main(branch_name):
-            raise TaskFailed("merge failed")
-        tracker.mark_stage(name, "merge")
-
     tracker.complete(name)
-    return branch_name
+    return True
 
 
 def park_failed_task(tracker, name, reason):
-    """Records the failure, moves the task file to errors/ and keeps its partial work on its branch."""
+    """Records the failure and moves the task file to errors/; its partial work stays uncommitted."""
     tracker.fail(name, reason)
-    branch_name = task_branch(name)
     task_path = locate_task(name)
-    # Once committed into finished/ the move is part of the branch history; leave it there.
+    # The commit stage may already have moved it into finished/; leave it there.
     if task_path and task_path.parent == TASKS_DIR:
         tracker.entry(move_task(task_path, ERRORS_DIR))
-    save_partial_work(tracker, name, branch_name)
 
 
 def process_tasks(tracker):
@@ -790,6 +699,8 @@ def process_tasks(tracker):
         return
 
     print(f"📋 Found {len(names)} task(s) to process: {', '.join(names)}")
+    resuming = any(entry.get("status") != "complete" for entry in tracker.tasks.values())
+    prepare_git(resuming)
 
     completed, failed = [], []
 
@@ -799,7 +710,7 @@ def process_tasks(tracker):
         print("=" * 60)
 
         try:
-            if run_task(tracker, name) is not None:
+            if run_task(tracker, name):
                 print(f"✅ Completed: {name}")
                 completed.append(name)
         except TaskFailed as exc:
@@ -813,13 +724,22 @@ def process_tasks(tracker):
                 tracker.record_error(exc)
                 park_failed_task(tracker, name, f"{type(exc).__name__}: {exc}")
             failed.append(name)
+        if failed:
+            # Later tasks may build on this one, and its partial work is still uncommitted.
+            print("🛑 Stopping the run; fix or end the failed task, then re-run to resume it.")
+            break
 
+    skipped = names[names.index(failed[0]) + 1:] if failed else []
     print("\n" + "=" * 60)
-    print(f"🏁 Run finished: {len(completed)} completed, {len(failed)} failed.")
+    print(f"🏁 Run finished: {len(completed)} completed, {len(failed)} failed, {len(skipped)} not started.")
     if completed:
         print(f"   ✅ {', '.join(completed)}")
     if failed:
         print(f"   ❌ {', '.join(failed)}")
+    if skipped:
+        print(f"   ⏸️  {', '.join(skipped)}")
+    if completed and PUSH:
+        push_current_branch()
     if not tracker.archive_if_complete():
         print(f"   💾 Progress saved to {tracker.path.relative_to(PROJECT_ROOT)}; re-run to resume.")
     print("=" * 60)
@@ -849,12 +769,6 @@ def main():
             print(f"\n💥 Run stopped: {type(exc).__name__}: {exc}")
         if tracker.tasks:
             tracker.record_error(exc)
-            current = tracker.run.get("current")
-            if current:
-                try:
-                    save_partial_work(tracker, current["task"], task_branch(current["task"]))
-                except Exception as save_exc:
-                    print(f"⚠️  Could not save partial work: {save_exc}")
             print(f"💾 Progress saved to {tracker.path.relative_to(PROJECT_ROOT)}; re-run to resume.")
         raise SystemExit(exit_code)
 
