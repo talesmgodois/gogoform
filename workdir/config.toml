@@ -5,6 +5,12 @@ env = "development"
 [logger]
 level = "debug"
 
+# Public origin of the application, used for absolute links (Stripe return
+# URLs, links in emails). Required when Stripe or SMTP is configured.
+# Overridable with APP_BASE_URL.
+[app]
+base_url = "http://localhost:8080"
+
 [database]
 uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
 
@@ -26,14 +32,23 @@ token_ttl_minutes = 60
 # public_tenant_signup = false
 # samples_enabled = false
 
-# Stripe billing for the pro plan. Prefer the STRIPE_* / APP_BASE_URL
-# environment variables for secrets. Billing routes are mounted only when
-# secret_key, webhook_secret and price_id are all set; app_base_url must then
-# be the absolute http(s) origin used for the Checkout/Portal return URLs.
+# Stripe billing for the pro plan. Prefer the STRIPE_* environment variables
+# for secrets. Billing routes are mounted only when secret_key, webhook_secret
+# and price_id are all set; app.base_url builds the Checkout/Portal return URLs.
 # Pin the Stripe webhook endpoint (POST /webhooks/stripe) to the API version
 # of the pinned stripe-go SDK (2025-08-27.basil) so payloads decode as expected.
 [stripe]
 # secret_key = ""
 # webhook_secret = ""
 # price_id = ""
-app_base_url = "http://localhost:8080"
+
+# Transactional email over SMTP (works with Resend, Postmark, SES, ...).
+# Prefer the SMTP_* / MAIL_FROM environment variables for secrets. Without
+# smtp_host, emails are only written to the log. Port 465 uses implicit TLS;
+# other ports (587, 25) use STARTTLS. from must then be a valid address.
+[mail]
+# smtp_host = ""
+smtp_port = 587
+# smtp_user = ""
+# smtp_password = ""
+# from = "GoGoForm <no-reply@example.com>"

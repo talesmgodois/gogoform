@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"reflect"
@@ -28,10 +29,58 @@ type Config struct {
 	Logger struct {
 		Level string `toml:"level" env:"LOG_LEVEL"` // "debug", "info", "warn", "error"
 	} `toml:"logger"`
+	App      AppConfig      `toml:"app"`
 	Database DatabaseConfig `toml:"database"`
 	Auth     AuthConfig     `toml:"auth"`
 	Features FeaturesConfig `toml:"features"`
 	Stripe   StripeConfig   `toml:"stripe"`
+	Mail     MailConfig     `toml:"mail"`
+}
+
+// AppConfig holds settings shared by the features that build absolute links
+// back to the application (Stripe return URLs, links in emails).
+type AppConfig struct {
+	// BaseURL is the public origin of the application, e.g.
+	// "https://forms.example.com". It is required when Stripe or mail is
+	// enabled.
+	BaseURL string `toml:"base_url" env:"APP_BASE_URL"`
+}
+
+func (c AppConfig) validate() error {
+	u, err := url.Parse(c.BaseURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("base_url: must be an absolute http(s) URL (or provide APP_BASE_URL)")
+	}
+	return nil
+}
+
+// MailConfig holds the SMTP settings of transactional email. Email is sent
+// through SMTP only when Host is set; otherwise messages are only logged.
+type MailConfig struct {
+	Host     string `toml:"smtp_host"     env:"SMTP_HOST"`
+	Port     int    `toml:"smtp_port"     env:"SMTP_PORT"`
+	User     string `toml:"smtp_user"     env:"SMTP_USER"`
+	Password string `toml:"smtp_password" env:"SMTP_PASSWORD"`
+	// From is the sender address, e.g. "GoGoForm <no-reply@example.com>".
+	From string `toml:"from" env:"MAIL_FROM"`
+}
+
+// Enabled reports whether email is sent through SMTP.
+func (c MailConfig) Enabled() bool {
+	return c.Host != ""
+}
+
+func (c MailConfig) validate() error {
+	if !c.Enabled() {
+		return nil
+	}
+	if c.Port < 1 || c.Port > 65535 {
+		return fmt.Errorf("smtp_port: %d out of range 1-65535", c.Port)
+	}
+	if _, err := mail.ParseAddress(c.From); err != nil {
+		return fmt.Errorf("from: must be a valid address (or provide MAIL_FROM)")
+	}
+	return nil
 }
 
 // StripeConfig holds the Stripe billing settings. Billing is enabled only
@@ -41,9 +90,6 @@ type StripeConfig struct {
 	WebhookSecret string `toml:"webhook_secret" env:"STRIPE_WEBHOOK_SECRET"`
 	// PriceID is the recurring price of the pro plan.
 	PriceID string `toml:"price_id" env:"STRIPE_PRICE_ID"`
-	// AppBaseURL is the public origin used to build the Checkout and
-	// Customer Portal return URLs, e.g. "https://forms.example.com".
-	AppBaseURL string `toml:"app_base_url" env:"APP_BASE_URL"`
 }
 
 // Enabled reports whether the billing routes are mounted.
@@ -63,10 +109,6 @@ func (c StripeConfig) validate() error {
 	}
 	if set != 3 {
 		return fmt.Errorf("secret_key, webhook_secret and price_id must be set together")
-	}
-	u, err := url.Parse(c.AppBaseURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("app_base_url: must be an absolute http(s) URL (or provide APP_BASE_URL)")
 	}
 	return nil
 }
@@ -185,6 +227,7 @@ func defaults() *Config {
 	cfg.Server.Env = "development"
 	cfg.Logger.Level = "info"
 	cfg.Auth.TokenTTLMinutes = 60
+	cfg.Mail.Port = 587
 	return cfg
 }
 
@@ -259,6 +302,15 @@ func (c *Config) validate() error {
 	}
 	if err := c.Stripe.validate(); err != nil {
 		return fmt.Errorf("stripe: %w", err)
+	}
+	if err := c.Mail.validate(); err != nil {
+		return fmt.Errorf("mail: %w", err)
+	}
+	// The Checkout/Portal return URLs and the links in emails are absolute.
+	if c.Stripe.Enabled() || c.Mail.Enabled() {
+		if err := c.App.validate(); err != nil {
+			return fmt.Errorf("app: %w", err)
+		}
 	}
 	return nil
 }

@@ -145,13 +145,47 @@ func TestStripeConfig(t *testing.T) {
 	// The file sets part of the section and the environment completes it.
 	t.Setenv("STRIPE_SECRET_KEY", "sk_test_123")
 	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_123")
-	cfg, err = Load(writeConfig(t, sample+"\n[stripe]\nprice_id = \"price_123\"\napp_base_url = \"https://forms.example.com\"\n"))
+	cfg, err = Load(writeConfig(t, sample+"\n[app]\nbase_url = \"https://forms.example.com\"\n[stripe]\nprice_id = \"price_123\"\n"))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !cfg.Stripe.Enabled() || cfg.Stripe.SecretKey != "sk_test_123" || cfg.Stripe.WebhookSecret != "whsec_123" ||
-		cfg.Stripe.PriceID != "price_123" || cfg.Stripe.AppBaseURL != "https://forms.example.com" {
-		t.Fatalf("stripe config not applied: %+v", cfg.Stripe)
+		cfg.Stripe.PriceID != "price_123" || cfg.App.BaseURL != "https://forms.example.com" {
+		t.Fatalf("stripe config not applied: %+v %+v", cfg.Stripe, cfg.App)
+	}
+}
+
+func TestMailConfig(t *testing.T) {
+	// Without a host, mail is disabled and nothing else is required, not
+	// even the base URL.
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Mail.Enabled() || cfg.Mail.Port != 587 {
+		t.Fatalf("unexpected mail defaults: %+v", cfg.Mail)
+	}
+
+	// The file sets part of the section and the environment completes it.
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_PORT", "465")
+	t.Setenv("SMTP_PASSWORD", "secret")
+	t.Setenv("APP_BASE_URL", "https://forms.example.com")
+	cfg, err = Load(writeConfig(t, sample+"\n[mail]\nsmtp_user = \"apikey\"\nfrom = \"GoGoForm <no-reply@example.com>\"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Mail.Enabled() || cfg.Mail.Host != "smtp.example.com" || cfg.Mail.Port != 465 ||
+		cfg.Mail.User != "apikey" || cfg.Mail.Password != "secret" ||
+		cfg.Mail.From != "GoGoForm <no-reply@example.com>" || cfg.App.BaseURL != "https://forms.example.com" {
+		t.Fatalf("mail config not applied: %+v %+v", cfg.Mail, cfg.App)
+	}
+}
+
+func TestAppBaseURLOptionalWithoutStripeOrMail(t *testing.T) {
+	t.Setenv("APP_BASE_URL", "not a url")
+	if _, err := Load(writeConfig(t, sample)); err != nil {
+		t.Fatalf("Load: %v", err)
 	}
 }
 
@@ -175,6 +209,14 @@ func TestLoadErrors(t *testing.T) {
 		{name: "stripe without app base url", content: sample, env: stripeEnv("")},
 		{name: "stripe with relative app base url", content: sample, env: stripeEnv("/app")},
 		{name: "stripe with non-http app base url", content: sample, env: stripeEnv("ftp://forms.example.com")},
+		{name: "mail without from", content: sample, env: mailEnv("", "https://forms.example.com")},
+		{name: "mail with invalid from", content: sample, env: mailEnv("not an address", "https://forms.example.com")},
+		{name: "mail without app base url", content: sample, env: mailEnv("no-reply@example.com", "")},
+		{name: "mail with relative app base url", content: sample, env: mailEnv("no-reply@example.com", "/app")},
+		{name: "mail port out of range", content: sample, env: map[string]string{
+			"SMTP_HOST": "smtp.example.com", "SMTP_PORT": "0", "MAIL_FROM": "no-reply@example.com", "APP_BASE_URL": "https://forms.example.com",
+		}},
+		{name: "invalid smtp port env", content: sample, env: map[string]string{"SMTP_PORT": "abc"}},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
 	}
 	for _, tt := range tests {
@@ -196,6 +238,16 @@ func stripeEnv(baseURL string) map[string]string {
 		"STRIPE_WEBHOOK_SECRET": "whsec_123",
 		"STRIPE_PRICE_ID":       "price_123",
 		"APP_BASE_URL":          baseURL,
+	}
+}
+
+// mailEnv returns an SMTP environment with the given MAIL_FROM and
+// APP_BASE_URL.
+func mailEnv(from, baseURL string) map[string]string {
+	return map[string]string{
+		"SMTP_HOST":    "smtp.example.com",
+		"MAIL_FROM":    from,
+		"APP_BASE_URL": baseURL,
 	}
 }
 
