@@ -16,6 +16,12 @@ const (
 	CodeNotFound        Code = "not_found"
 	CodeConflict        Code = "conflict"
 	CodeInternal        Code = "internal"
+	// CodePlanLimitReached means the tenant's plan does not allow more of a
+	// resource (forms, submissions, storage).
+	CodePlanLimitReached Code = "plan_limit_reached"
+	// CodePlanFeatureUnavailable means the tenant's plan does not include the
+	// requested feature.
+	CodePlanFeatureUnavailable Code = "plan_feature_unavailable"
 )
 
 // AppError is an error carrying a Code, a message safe to show to clients and

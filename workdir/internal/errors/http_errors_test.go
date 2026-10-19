@@ -21,6 +21,8 @@ func TestHTTPStatus(t *testing.T) {
 		{"forbidden", NewForbidden("no"), http.StatusForbidden},
 		{"not found", NewNotFound("missing"), http.StatusNotFound},
 		{"conflict", NewConflict("dup"), http.StatusConflict},
+		{"plan limit reached", NewPlanLimitReached("limit"), http.StatusPaymentRequired},
+		{"plan feature unavailable", NewPlanFeatureUnavailable("pro only"), http.StatusForbidden},
 		{"internal", NewInternal(stderrors.New("db down")), http.StatusInternalServerError},
 		{"unknown code", New(Code("weird"), "?"), http.StatusInternalServerError},
 		{"plain error", stderrors.New("boom"), http.StatusInternalServerError},
@@ -59,6 +61,30 @@ func TestWriteHTTPClientError(t *testing.T) {
 	}
 	if body.Code != CodeNotFound || body.Message != "form not found" {
 		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestWriteHTTPPlanErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   Code
+		wantMsg    string
+	}{
+		{"limit reached", NewPlanLimitReached("form limit reached"), http.StatusPaymentRequired, CodePlanLimitReached, "form limit reached"},
+		{"feature unavailable", NewPlanFeatureUnavailable("webhooks require pro"), http.StatusForbidden, CodePlanFeatureUnavailable, "webhooks require pro"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, _, body := writeAndDecode(t, tt.err)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if body.Code != tt.wantCode || body.Message != tt.wantMsg {
+				t.Fatalf("body = %+v", body)
+			}
+		})
 	}
 }
 

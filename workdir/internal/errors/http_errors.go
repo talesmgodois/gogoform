@@ -49,6 +49,16 @@ func NewConflict(message string) *AppError {
 	return New(CodeConflict, message)
 }
 
+// NewPlanLimitReached returns an AppError that maps to 402 Payment Required.
+func NewPlanLimitReached(message string) *AppError {
+	return New(CodePlanLimitReached, message)
+}
+
+// NewPlanFeatureUnavailable returns an AppError that maps to 403 Forbidden.
+func NewPlanFeatureUnavailable(message string) *AppError {
+	return New(CodePlanFeatureUnavailable, message)
+}
+
 // NewInternal returns an AppError that wraps err and maps to 500 Internal Server Error.
 func NewInternal(err error) *AppError {
 	return Wrap(err, CodeInternal, internalMessage)
@@ -66,12 +76,14 @@ func HTTPStatus(err error) int {
 		return http.StatusBadRequest
 	case CodeUnauthorized:
 		return http.StatusUnauthorized
-	case CodeForbidden:
+	case CodeForbidden, CodePlanFeatureUnavailable:
 		return http.StatusForbidden
 	case CodeNotFound:
 		return http.StatusNotFound
 	case CodeConflict:
 		return http.StatusConflict
+	case CodePlanLimitReached:
+		return http.StatusPaymentRequired
 	default:
 		return http.StatusInternalServerError
 	}
