@@ -1,0 +1,7 @@
+New submission on {{.FormTitle}}
+
+Your form "{{.FormTitle}}" received a new submission on {{.SubmittedAt}}.
+
+View it here:
+
+{{.FormURL}}

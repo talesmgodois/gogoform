@@ -1,0 +1,5 @@
+We couldn't process your payment
+
+Your most recent payment for your subscription failed. Please update your billing details to avoid losing access to pro features:
+
+{{.BillingURL}}
