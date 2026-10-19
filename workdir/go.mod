@@ -5,6 +5,7 @@ go 1.22.4
 require (
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/pelletier/go-toml/v2 v2.2.3
+	github.com/stripe/stripe-go/v82 v82.5.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.3
 	golang.org/x/crypto v0.27.0
