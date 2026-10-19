@@ -10,3 +10,6 @@ No email exists today. Add an `internal/pkg/mailer` with an SMTP implementation 
 
 ## Tests
 - Token lifecycle tests (expired, reused, wrong purpose) and handler tests using the log mailer.
+
+## Note from 000025 (plan limits)
+- The per-form submission notification toggle is a pro feature. When enabling it (and before sending), check `plans.For(tenant.Plan).EmailNotifications` (`internal/pkg/plans`); reject free tenants with `apperrors.NewPlanFeatureUnavailable(...)` (`plan_feature_unavailable`, HTTP 403), mirroring the webhooks gate in `cmd/api/handlers/webhooks.go`.
