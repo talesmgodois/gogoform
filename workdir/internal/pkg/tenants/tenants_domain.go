@@ -19,6 +19,43 @@ type Tenant struct {
 	// OwnerUserID is the user owning this workspace; nil for API-key-only
 	// tenants created before accounts existed.
 	OwnerUserID *int32
+	// Plan is the billing plan the tenant is on.
+	Plan Plan
+	// StripeCustomerID is the tenant's Stripe customer; empty until the
+	// first checkout.
+	StripeCustomerID string
+	// StripeSubscriptionID is the tenant's current Stripe subscription;
+	// empty when it never subscribed.
+	StripeSubscriptionID string
+	// SubscriptionStatus is the Stripe subscription status (active,
+	// past_due, canceled, ...); empty when it never subscribed.
+	SubscriptionStatus string
+	// CurrentPeriodEnd is when the current billing period ends; nil when
+	// unknown.
+	CurrentPeriodEnd *time.Time
+}
+
+// Plan is a billing plan.
+type Plan string
+
+// Billing plans.
+const (
+	PlanFree Plan = "free"
+	PlanPro  Plan = "pro"
+)
+
+// SubscriptionUpdate holds the Stripe subscription state to store on the
+// tenant owning CustomerID. Empty strings and a nil CurrentPeriodEnd clear
+// the matching columns. EventAt is when the provider created the event
+// carrying this state; an update about the stored subscription older than
+// the last one applied is dropped.
+type SubscriptionUpdate struct {
+	CustomerID       string
+	SubscriptionID   string
+	Status           string
+	CurrentPeriodEnd *time.Time
+	Plan             Plan
+	EventAt          time.Time
 }
 
 // CreateTenantInput holds the data needed to create a tenant.

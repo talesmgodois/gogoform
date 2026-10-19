@@ -23,6 +23,10 @@ type fakeQuerier struct {
 	getTenantByID     func(int32) (db.Tenant, error)
 	getTenantByOwner  func(int32) (db.Tenant, error)
 	rotateAPIKey      func(db.RotateTenantAPIKeyParams) (db.Tenant, error)
+	getByCustomer     func(string) (db.Tenant, error)
+	setCustomer       func(db.SetTenantStripeCustomerParams) (db.Tenant, error)
+	updateSub         func(db.UpdateTenantSubscriptionByCustomerParams) (db.Tenant, error)
+	linkSub           func(db.LinkTenantSubscriptionParams) (db.Tenant, error)
 }
 
 func (f *fakeQuerier) CreateTenant(_ context.Context, arg db.CreateTenantParams) (db.Tenant, error) {
@@ -45,6 +49,22 @@ func (f *fakeQuerier) RotateTenantAPIKey(_ context.Context, arg db.RotateTenantA
 	return f.rotateAPIKey(arg)
 }
 
+func (f *fakeQuerier) GetTenantByStripeCustomerID(_ context.Context, customerID string) (db.Tenant, error) {
+	return f.getByCustomer(customerID)
+}
+
+func (f *fakeQuerier) SetTenantStripeCustomer(_ context.Context, arg db.SetTenantStripeCustomerParams) (db.Tenant, error) {
+	return f.setCustomer(arg)
+}
+
+func (f *fakeQuerier) LinkTenantSubscription(_ context.Context, arg db.LinkTenantSubscriptionParams) (db.Tenant, error) {
+	return f.linkSub(arg)
+}
+
+func (f *fakeQuerier) UpdateTenantSubscriptionByCustomer(_ context.Context, arg db.UpdateTenantSubscriptionByCustomerParams) (db.Tenant, error) {
+	return f.updateSub(arg)
+}
+
 var (
 	errDB     = stderrors.New("connection reset")
 	errUnique = &pgconn.PgError{Code: "23505"}
@@ -58,6 +78,21 @@ var (
 	ownerID       int32 = 9
 	dbOwnedTenant       = db.Tenant{ID: 3, Name: "Acme", ApiKey: "key-1", IsActive: &active, CreatedAt: &now, OwnerUserID: &ownerID}
 	ownedTenant         = Tenant{ID: 3, Name: "Acme", APIKey: "key-1", IsActive: true, CreatedAt: now, OwnerUserID: &ownerID}
+
+	customerID     = "cus_123"
+	subscriptionID = "sub_456"
+	statusActive   = "active"
+	periodEnd      = time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	dbBilledTenant = db.Tenant{
+		ID: 3, Name: "Acme", ApiKey: "key-1", IsActive: &active, CreatedAt: &now, OwnerUserID: &ownerID,
+		Plan: db.TenantPlanPro, StripeCustomerID: &customerID, StripeSubscriptionID: &subscriptionID,
+		SubscriptionStatus: &statusActive, CurrentPeriodEnd: &periodEnd,
+	}
+	billedTenant = Tenant{
+		ID: 3, Name: "Acme", APIKey: "key-1", IsActive: true, CreatedAt: now, OwnerUserID: &ownerID,
+		Plan: PlanPro, StripeCustomerID: customerID, StripeSubscriptionID: subscriptionID,
+		SubscriptionStatus: statusActive, CurrentPeriodEnd: &periodEnd,
+	}
 )
 
 // assertCode fails unless err is an AppError with the given code; a zero code
@@ -232,6 +267,190 @@ func TestRotateAPIKey(t *testing.T) {
 			}})
 
 			got, err := svc.RotateAPIKey(context.Background(), 3, "key-2")
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("tenant = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetByStripeCustomerID(t *testing.T) {
+	tests := []struct {
+		name     string
+		row      db.Tenant
+		err      error
+		wantCode apperrors.Code
+		want     Tenant
+	}{
+		{"ok", dbBilledTenant, nil, "", billedTenant},
+		{"free tenant", db.Tenant{ID: 3, Name: "Acme", ApiKey: "key-1", Plan: db.TenantPlanFree, StripeCustomerID: &customerID}, nil, "",
+			Tenant{ID: 3, Name: "Acme", APIKey: "key-1", Plan: PlanFree, StripeCustomerID: customerID}},
+		{"unknown or inactive", db.Tenant{}, pgx.ErrNoRows, apperrors.CodeNotFound, Tenant{}},
+		{"db failure", db.Tenant{}, errDB, apperrors.CodeInternal, Tenant{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{getByCustomer: func(id string) (db.Tenant, error) {
+				if id != customerID {
+					t.Fatalf("customerID = %q", id)
+				}
+				return tt.row, tt.err
+			}})
+
+			got, err := svc.GetByStripeCustomerID(context.Background(), customerID)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("tenant = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetStripeCustomer(t *testing.T) {
+	linkedRow := dbOwnedTenant
+	linkedRow.Plan = db.TenantPlanFree
+	linkedRow.StripeCustomerID = &customerID
+	linked := ownedTenant
+	linked.Plan = PlanFree
+	linked.StripeCustomerID = customerID
+
+	tests := []struct {
+		name     string
+		row      db.Tenant
+		err      error
+		wantCode apperrors.Code
+		wantMsg  string
+		want     Tenant
+	}{
+		{"ok", linkedRow, nil, "", "", linked},
+		{"unknown or inactive", db.Tenant{}, pgx.ErrNoRows, apperrors.CodeNotFound, "", Tenant{}},
+		{"customer taken", db.Tenant{}, errUnique, apperrors.CodeConflict, msgCustomer, Tenant{}},
+		{"db failure", db.Tenant{}, errDB, apperrors.CodeInternal, "", Tenant{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{setCustomer: func(arg db.SetTenantStripeCustomerParams) (db.Tenant, error) {
+				if want := (db.SetTenantStripeCustomerParams{ID: 3, StripeCustomerID: customerID}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				return tt.row, tt.err
+			}})
+
+			got, err := svc.SetStripeCustomer(context.Background(), 3, customerID)
+
+			assertCode(t, err, tt.wantCode)
+			if tt.wantMsg != "" {
+				if appErr, _ := apperrors.As(err); appErr.Message != tt.wantMsg {
+					t.Fatalf("message = %q, want %q", appErr.Message, tt.wantMsg)
+				}
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("tenant = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpdateSubscription(t *testing.T) {
+	canceled := "canceled"
+	canceledRow := dbBilledTenant
+	canceledRow.Plan = db.TenantPlanFree
+	canceledRow.SubscriptionStatus = &canceled
+	canceledTenant := billedTenant
+	canceledTenant.Plan = PlanFree
+	canceledTenant.SubscriptionStatus = canceled
+
+	clearedRow := dbBilledTenant
+	clearedRow.Plan = db.TenantPlanFree
+	clearedRow.StripeSubscriptionID, clearedRow.SubscriptionStatus, clearedRow.CurrentPeriodEnd = nil, nil, nil
+	clearedTenant := billedTenant
+	clearedTenant.Plan = PlanFree
+	clearedTenant.StripeSubscriptionID, clearedTenant.SubscriptionStatus, clearedTenant.CurrentPeriodEnd = "", "", nil
+
+	tests := []struct {
+		name       string
+		in         SubscriptionUpdate
+		wantParams db.UpdateTenantSubscriptionByCustomerParams
+		row        db.Tenant
+		err        error
+		wantCode   apperrors.Code
+		want       Tenant
+	}{
+		{
+			"active",
+			SubscriptionUpdate{CustomerID: customerID, SubscriptionID: subscriptionID, Status: statusActive, CurrentPeriodEnd: &periodEnd, Plan: PlanPro, EventAt: now},
+			db.UpdateTenantSubscriptionByCustomerParams{StripeCustomerID: customerID, StripeSubscriptionID: &subscriptionID, SubscriptionStatus: &statusActive, CurrentPeriodEnd: &periodEnd, EventAt: now, Plan: db.TenantPlanPro},
+			dbBilledTenant, nil, "", billedTenant,
+		},
+		{
+			"canceled",
+			SubscriptionUpdate{CustomerID: customerID, SubscriptionID: subscriptionID, Status: canceled, CurrentPeriodEnd: &periodEnd, Plan: PlanFree},
+			db.UpdateTenantSubscriptionByCustomerParams{StripeCustomerID: customerID, StripeSubscriptionID: &subscriptionID, SubscriptionStatus: &canceled, CurrentPeriodEnd: &periodEnd, Plan: db.TenantPlanFree},
+			canceledRow, nil, "", canceledTenant,
+		},
+		{
+			"empty fields clear columns",
+			SubscriptionUpdate{CustomerID: customerID, Plan: PlanFree},
+			db.UpdateTenantSubscriptionByCustomerParams{StripeCustomerID: customerID, Plan: db.TenantPlanFree},
+			clearedRow, nil, "", clearedTenant,
+		},
+		{
+			"unknown customer or stale update",
+			SubscriptionUpdate{CustomerID: customerID, Plan: PlanFree},
+			db.UpdateTenantSubscriptionByCustomerParams{StripeCustomerID: customerID, Plan: db.TenantPlanFree},
+			db.Tenant{}, pgx.ErrNoRows, apperrors.CodeNotFound, Tenant{},
+		},
+		{
+			"db failure",
+			SubscriptionUpdate{CustomerID: customerID, Plan: PlanFree},
+			db.UpdateTenantSubscriptionByCustomerParams{StripeCustomerID: customerID, Plan: db.TenantPlanFree},
+			db.Tenant{}, errDB, apperrors.CodeInternal, Tenant{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{updateSub: func(arg db.UpdateTenantSubscriptionByCustomerParams) (db.Tenant, error) {
+				if !reflect.DeepEqual(arg, tt.wantParams) {
+					t.Fatalf("params = %+v, want %+v", arg, tt.wantParams)
+				}
+				return tt.row, tt.err
+			}})
+
+			got, err := svc.UpdateSubscription(context.Background(), tt.in)
+
+			assertCode(t, err, tt.wantCode)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("tenant = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLinkSubscription(t *testing.T) {
+	tests := []struct {
+		name     string
+		row      db.Tenant
+		err      error
+		wantCode apperrors.Code
+		want     Tenant
+	}{
+		{"ok", dbBilledTenant, nil, "", billedTenant},
+		{"unknown customer", db.Tenant{}, pgx.ErrNoRows, apperrors.CodeNotFound, Tenant{}},
+		{"db failure", db.Tenant{}, errDB, apperrors.CodeInternal, Tenant{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{linkSub: func(arg db.LinkTenantSubscriptionParams) (db.Tenant, error) {
+				if want := (db.LinkTenantSubscriptionParams{StripeCustomerID: customerID, StripeSubscriptionID: subscriptionID}); arg != want {
+					t.Fatalf("params = %+v, want %+v", arg, want)
+				}
+				return tt.row, tt.err
+			}})
+
+			got, err := svc.LinkSubscription(context.Background(), customerID, subscriptionID)
 
 			assertCode(t, err, tt.wantCode)
 			if !reflect.DeepEqual(got, tt.want) {

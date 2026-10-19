@@ -42,7 +42,8 @@ const appUser = "creator"
 
 // fakeTenants is a tenants.Repository knowing testTenant and the tenants of
 // owned, keyed by owner user ID. Rotated API keys are kept in keys, keyed by
-// tenant ID, and replace the original ones.
+// tenant ID, and replace the original ones; owned tenants are updated in
+// place by the billing methods.
 type fakeTenants struct {
 	owned   map[int32]tenants.Tenant
 	keys    map[int32]string
@@ -50,6 +51,8 @@ type fakeTenants struct {
 	err     error
 	// ownerErr, when set, is returned by GetByOwner.
 	ownerErr error
+	// subscriptions records every UpdateSubscription call, in order.
+	subscriptions []tenants.SubscriptionUpdate
 }
 
 func (f *fakeTenants) Create(_ context.Context, in tenants.CreateTenantInput) (tenants.Tenant, error) {
@@ -110,6 +113,58 @@ func (f *fakeTenants) RotateAPIKey(ctx context.Context, tenantID int32, newKey s
 	}
 	f.keys[tenantID] = newKey
 	return f.GetByID(ctx, tenantID)
+}
+
+func (f *fakeTenants) GetByStripeCustomerID(_ context.Context, customerID string) (tenants.Tenant, error) {
+	return f.find(func(t tenants.Tenant) bool { return customerID != "" && t.StripeCustomerID == customerID })
+}
+
+// updateOwned applies change to the owned tenant matching match and returns
+// it; testTenant cannot be changed.
+func (f *fakeTenants) updateOwned(match func(tenants.Tenant) bool, change func(*tenants.Tenant)) (tenants.Tenant, error) {
+	if f.err != nil {
+		return tenants.Tenant{}, f.err
+	}
+	for owner, t := range f.owned {
+		if match(t) {
+			change(&t)
+			f.owned[owner] = t
+			return f.find(func(c tenants.Tenant) bool { return c.ID == t.ID })
+		}
+	}
+	return tenants.Tenant{}, apperrors.NewNotFound("tenant not found")
+}
+
+func (f *fakeTenants) SetStripeCustomer(_ context.Context, tenantID int32, customerID string) (tenants.Tenant, error) {
+	return f.updateOwned(
+		func(t tenants.Tenant) bool { return t.ID == tenantID },
+		func(t *tenants.Tenant) { t.StripeCustomerID = customerID },
+	)
+}
+
+func (f *fakeTenants) LinkSubscription(_ context.Context, customerID, subscriptionID string) (tenants.Tenant, error) {
+	return f.updateOwned(
+		func(t tenants.Tenant) bool { return customerID != "" && t.StripeCustomerID == customerID },
+		func(t *tenants.Tenant) {
+			if t.StripeSubscriptionID != subscriptionID {
+				t.SubscriptionStatus, t.CurrentPeriodEnd = "", nil
+			}
+			t.StripeSubscriptionID = subscriptionID
+		},
+	)
+}
+
+func (f *fakeTenants) UpdateSubscription(_ context.Context, in tenants.SubscriptionUpdate) (tenants.Tenant, error) {
+	f.subscriptions = append(f.subscriptions, in)
+	return f.updateOwned(
+		func(t tenants.Tenant) bool { return in.CustomerID != "" && t.StripeCustomerID == in.CustomerID },
+		func(t *tenants.Tenant) {
+			t.StripeSubscriptionID = in.SubscriptionID
+			t.SubscriptionStatus = in.Status
+			t.CurrentPeriodEnd = in.CurrentPeriodEnd
+			t.Plan = in.Plan
+		},
+	)
 }
 
 // fakeForms is a forms.Repository holding forms in a map keyed by ID.
