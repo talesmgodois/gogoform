@@ -120,6 +120,24 @@ func (s *UserStore) UpdateRole(ctx context.Context, id int32, role Role) (User, 
 	return toUser(row), nil
 }
 
+// MarkEmailVerified sets the email_verified_at of a user to now.
+func (s *UserStore) MarkEmailVerified(ctx context.Context, id int32) (User, error) {
+	row, err := s.q.MarkUserEmailVerified(ctx, id)
+	if err != nil {
+		return User{}, mapGetError(err)
+	}
+	return toUser(row), nil
+}
+
+// UpdatePassword replaces the password hash of a user.
+func (s *UserStore) UpdatePassword(ctx context.Context, id int32, passwordHash string) (User, error) {
+	row, err := s.q.UpdateUserPassword(ctx, db.UpdateUserPasswordParams{ID: id, PasswordHash: passwordHash})
+	if err != nil {
+		return User{}, mapGetError(err)
+	}
+	return toUser(row), nil
+}
+
 // mapGetError translates the error of a single-row user query.
 func mapGetError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {

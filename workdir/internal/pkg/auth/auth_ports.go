@@ -25,4 +25,21 @@ type Repository interface {
 	List(ctx context.Context, page Page) ([]User, error)
 	// UpdateRole changes the role of a user and returns it.
 	UpdateRole(ctx context.Context, id int32, role Role) (User, error)
+	// MarkEmailVerified sets the email_verified_at of a user to now and
+	// returns it.
+	MarkEmailVerified(ctx context.Context, id int32) (User, error)
+	// UpdatePassword replaces the password hash of a user and returns it.
+	UpdatePassword(ctx context.Context, id int32, passwordHash string) (User, error)
+}
+
+// Notifier sends the transactional emails issued by the auth flows. Sending
+// is expected to be asynchronous (see internal/pkg/mailer.Async), so a slow
+// or failing delivery never blocks or fails the caller.
+type Notifier interface {
+	// SendEmailVerification sends the link redeeming token at
+	// GET /app/verify?token=.
+	SendEmailVerification(ctx context.Context, user User, token string) error
+	// SendPasswordReset sends the link redeeming token at
+	// GET /app/reset-password?token=.
+	SendPasswordReset(ctx context.Context, user User, token string) error
 }

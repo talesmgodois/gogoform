@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -83,25 +84,43 @@ type Options struct {
 	// TenantsFor returns the tenants.Repository to use inside a Tx
 	// transaction; tenants.NewService when nil.
 	TenantsFor func(q db.Querier) tenants.Repository
+	// TokensFor returns the TokenRepository to use inside a Tx transaction;
+	// NewUserTokenStore when nil.
+	TokensFor func(q db.Querier) TokenRepository
+	// Notifier sends the verification and password-reset emails; a no-op
+	// when nil.
+	Notifier Notifier
 }
+
+// noopNotifier discards every notification; the default when Options.Notifier
+// is unset, so services that do not configure email still work.
+type noopNotifier struct{}
+
+func (noopNotifier) SendEmailVerification(context.Context, User, string) error { return nil }
+func (noopNotifier) SendPasswordReset(context.Context, User, string) error     { return nil }
 
 // Service authenticates users with a password (sign in, HTTP Basic) or a
 // token (JWT bearer) and manages their accounts.
 type Service struct {
-	users  Repository
-	tokens tokenSigner
-	cost   int
-	// tx, usersFor and tenantsFor create accounts atomically.
+	users      Repository
+	userTokens TokenRepository
+	tokens     tokenSigner
+	cost       int
+	notifier   Notifier
+	// tx, usersFor, tenantsFor and tokensFor create accounts atomically.
 	tx         database.TxRunner
 	usersFor   func(q db.Querier) Repository
 	tenantsFor func(q db.Querier) tenants.Repository
+	tokensFor  func(q db.Querier) TokenRepository
 	// dummyHash is compared against when the user is unknown, so a failed
 	// sign-in takes as long whether or not the user exists.
 	dummyHash []byte
+	now       func() time.Time
 }
 
-// NewService returns a Service storing users in users.
-func NewService(users Repository, opts Options) (*Service, error) {
+// NewService returns a Service storing users in users and their email
+// verification and password reset tokens in userTokens.
+func NewService(users Repository, userTokens TokenRepository, opts Options) (*Service, error) {
 	if len(opts.Secret) < MinSecretLen {
 		return nil, fmt.Errorf("auth: secret must be at least %d bytes", MinSecretLen)
 	}
@@ -123,18 +142,28 @@ func NewService(users Repository, opts Options) (*Service, error) {
 	if opts.TenantsFor == nil {
 		opts.TenantsFor = func(q db.Querier) tenants.Repository { return tenants.NewService(q) }
 	}
+	if opts.TokensFor == nil {
+		opts.TokensFor = func(q db.Querier) TokenRepository { return NewUserTokenStore(q) }
+	}
+	if opts.Notifier == nil {
+		opts.Notifier = noopNotifier{}
+	}
 	dummy, err := bcrypt.GenerateFromPassword([]byte("dummy-password"), opts.PasswordCost)
 	if err != nil {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 	return &Service{
 		users:      users,
+		userTokens: userTokens,
 		tokens:     tokenSigner{secret: opts.Secret, ttl: opts.TokenTTL, now: opts.Now},
 		cost:       opts.PasswordCost,
+		notifier:   opts.Notifier,
 		dummyHash:  dummy,
 		tx:         opts.Tx,
 		usersFor:   opts.UsersFor,
 		tenantsFor: opts.TenantsFor,
+		tokensFor:  opts.TokensFor,
+		now:        opts.Now,
 	}, nil
 }
 
@@ -189,13 +218,16 @@ func (s *Service) SignUp(ctx context.Context, in SignUpInput) (Account, error) {
 	}
 }
 
-// createAccount stores the user and its tenant in one transaction.
+// createAccount stores the user, its tenant and a fresh email verification
+// token in one transaction, then notifies the user once it commits: a
+// failure to send never rolls the account creation back.
 func (s *Service) createAccount(ctx context.Context, in CreateUserInput) (Account, error) {
 	apiKey, err := tenants.GenerateAPIKey()
 	if err != nil {
 		return Account{}, apperrors.NewInternal(err)
 	}
 	var acc Account
+	var verificationToken string
 	err = s.tx.InTx(ctx, func(q db.Querier) error {
 		u, err := s.usersFor(q).Create(ctx, in)
 		if err != nil {
@@ -209,6 +241,10 @@ func (s *Service) createAccount(ctx context.Context, in CreateUserInput) (Accoun
 		if err != nil {
 			return err
 		}
+		verificationToken, err = issueToken(ctx, s.tokensFor(q), u.ID, TokenPurposeEmailVerification, EmailVerificationTokenTTL, s.now())
+		if err != nil {
+			return err
+		}
 		acc = Account{User: u, Tenant: t}
 		return nil
 	})
@@ -218,7 +254,18 @@ func (s *Service) createAccount(ctx context.Context, in CreateUserInput) (Accoun
 		}
 		return Account{}, err
 	}
+	if acc.User.Email != "" {
+		s.notify(ctx, func() error { return s.notifier.SendEmailVerification(ctx, acc.User, verificationToken) })
+	}
 	return acc, nil
+}
+
+// notify runs send, logging rather than propagating a failure: notifications
+// must never fail or delay the caller's request.
+func (s *Service) notify(ctx context.Context, send func() error) {
+	if err := send(); err != nil {
+		slog.ErrorContext(ctx, "auth: notification failed", slog.Any("error", err))
+	}
 }
 
 // EnsureUser creates the user with the given role unless the username is
@@ -303,6 +350,11 @@ func (s *Service) ListUsers(ctx context.Context, page Page) ([]User, error) {
 	return s.users.List(ctx, page)
 }
 
+// GetUser returns the active user with the given ID.
+func (s *Service) GetUser(ctx context.Context, id int32) (User, error) {
+	return s.users.GetByID(ctx, id)
+}
+
 // SetRole changes the role of the user with the given ID on behalf of actor.
 // Actors cannot change their own role, so the last admin cannot demote
 // themselves by mistake.
@@ -314,6 +366,91 @@ func (s *Service) SetRole(ctx context.Context, actor User, id int32, role Role) 
 		return User{}, apperrors.NewBadRequest(msgOwnRole)
 	}
 	return s.users.UpdateRole(ctx, id, role)
+}
+
+// ResendVerification issues a fresh email verification token for userID and
+// sends it; a no-op when the email is already verified.
+func (s *Service) ResendVerification(ctx context.Context, userID int32) error {
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u.EmailVerified() || u.Email == "" {
+		return nil
+	}
+	token, err := issueToken(ctx, s.userTokens, u.ID, TokenPurposeEmailVerification, EmailVerificationTokenTTL, s.now())
+	if err != nil {
+		return err
+	}
+	s.notify(ctx, func() error { return s.notifier.SendEmailVerification(ctx, u, token) })
+	return nil
+}
+
+// VerifyEmail redeems an email verification token and marks the owning
+// user's email verified.
+func (s *Service) VerifyEmail(ctx context.Context, token string) (User, error) {
+	ut, reason, err := consumeToken(ctx, s.userTokens, token, TokenPurposeEmailVerification, s.now())
+	if err != nil {
+		s.logTokenFailure(ctx, "email verification", reason)
+		return User{}, err
+	}
+	return s.users.MarkEmailVerified(ctx, ut.UserID)
+}
+
+// RequestPasswordReset issues a 1h password-reset token for email and sends
+// it, invalidating any earlier reset tokens of the same account. It returns
+// nil whether or not an account with that email exists, and does
+// comparable work either way, so callers cannot use it to probe which
+// emails are registered.
+func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
+	su, err := s.users.GetByEmail(ctx, NormalizeEmail(email))
+	if err != nil {
+		if isNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	token, err := issueToken(ctx, s.userTokens, su.ID, TokenPurposePasswordReset, PasswordResetTokenTTL, s.now())
+	if err != nil {
+		return err
+	}
+	s.notify(ctx, func() error { return s.notifier.SendPasswordReset(ctx, su.User, token) })
+	return nil
+}
+
+// ResetPassword redeems a password-reset token, single use, and sets
+// newPassword on the user it was issued to, invalidating any remaining
+// reset tokens and marking the email verified: only the owner of the inbox
+// could have received the token.
+func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
+	if len(newPassword) < minPasswordLen || len(newPassword) > maxPasswordLen {
+		return apperrors.NewBadRequest(msgInvalidPassword)
+	}
+	ut, reason, err := consumeToken(ctx, s.userTokens, token, TokenPurposePasswordReset, s.now())
+	if err != nil {
+		s.logTokenFailure(ctx, "password reset", reason)
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.cost)
+	if err != nil {
+		return apperrors.NewInternal(err)
+	}
+	if _, err := s.users.UpdatePassword(ctx, ut.UserID, string(hash)); err != nil {
+		return err
+	}
+	if err := s.userTokens.Invalidate(ctx, ut.UserID, TokenPurposePasswordReset); err != nil {
+		return err
+	}
+	_, err = s.users.MarkEmailVerified(ctx, ut.UserID)
+	return err
+}
+
+// logTokenFailure logs the internal reason a token redemption was rejected;
+// the client only ever sees msgInvalidToken.
+func (s *Service) logTokenFailure(ctx context.Context, flow string, reason tokenFailureReason) {
+	if reason != reasonNone {
+		slog.WarnContext(ctx, "auth: token redemption failed", slog.String("flow", flow), slog.String("reason", string(reason)))
+	}
 }
 
 // newUser validates the credentials and hashes the password.

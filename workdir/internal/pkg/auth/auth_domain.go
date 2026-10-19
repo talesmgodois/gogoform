@@ -49,6 +49,12 @@ type User struct {
 	UpdatedAt       time.Time
 }
 
+// EmailVerified reports whether the user's email address has been confirmed.
+// Accounts without an email (such as the bootstrap admin) report false.
+func (u User) EmailVerified() bool {
+	return u.EmailVerifiedAt != nil
+}
+
 // StoredUser is a User together with its password hash, as needed to check
 // credentials. Never expose the hash outside this package.
 type StoredUser struct {

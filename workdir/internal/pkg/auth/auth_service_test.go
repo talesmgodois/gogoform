@@ -88,6 +88,48 @@ func (m *memUsers) UpdateRole(_ context.Context, id int32, role Role) (User, err
 	return User{}, apperrors.NewNotFound(msgUserNotFound)
 }
 
+func (m *memUsers) MarkEmailVerified(_ context.Context, id int32) (User, error) {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			now := time.Now()
+			m.users[i].EmailVerifiedAt = &now
+			return m.users[i].User, nil
+		}
+	}
+	return User{}, apperrors.NewNotFound(msgUserNotFound)
+}
+
+func (m *memUsers) UpdatePassword(_ context.Context, id int32, passwordHash string) (User, error) {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			m.users[i].PasswordHash = passwordHash
+			return m.users[i].User, nil
+		}
+	}
+	return User{}, apperrors.NewNotFound(msgUserNotFound)
+}
+
+// fakeNotifier is a recording Notifier.
+type fakeNotifier struct {
+	verifications []notifierCall
+	resets        []notifierCall
+}
+
+type notifierCall struct {
+	user  User
+	token string
+}
+
+func (f *fakeNotifier) SendEmailVerification(_ context.Context, u User, token string) error {
+	f.verifications = append(f.verifications, notifierCall{u, token})
+	return nil
+}
+
+func (f *fakeNotifier) SendPasswordReset(_ context.Context, u User, token string) error {
+	f.resets = append(f.resets, notifierCall{u, token})
+	return nil
+}
+
 // memTenants is an in-memory tenants.Repository; only Create is used.
 type memTenants struct {
 	tenants.Repository
@@ -106,17 +148,25 @@ func (m *memTenants) Create(_ context.Context, in tenants.CreateTenantInput) (te
 // testEnv is a Service over an empty memUsers and memTenants, whose writes go
 // through tx.
 type testEnv struct {
-	svc     *Service
-	users   *memUsers
-	tenants *memTenants
-	tx      *database.FakeTxRunner
+	svc      *Service
+	users    *memUsers
+	tenants  *memTenants
+	tokens   *memTokens
+	notifier *fakeNotifier
+	tx       *database.FakeTxRunner
 }
 
 // newTestEnv returns a testEnv whose clock is *now.
 func newTestEnv(t *testing.T, now *time.Time) testEnv {
 	t.Helper()
-	env := testEnv{users: &memUsers{}, tenants: &memTenants{}, tx: &database.FakeTxRunner{}}
-	svc, err := NewService(env.users, Options{
+	env := testEnv{
+		users:    &memUsers{},
+		tenants:  &memTenants{},
+		tokens:   newMemTokens(func() time.Time { return *now }),
+		notifier: &fakeNotifier{},
+		tx:       &database.FakeTxRunner{},
+	}
+	svc, err := NewService(env.users, env.tokens, Options{
 		Secret:       testSecret,
 		TokenTTL:     time.Hour,
 		PasswordCost: bcrypt.MinCost,
@@ -124,6 +174,8 @@ func newTestEnv(t *testing.T, now *time.Time) testEnv {
 		Tx:           env.tx,
 		UsersFor:     func(db.Querier) Repository { return env.users },
 		TenantsFor:   func(db.Querier) tenants.Repository { return env.tenants },
+		TokensFor:    func(db.Querier) TokenRepository { return env.tokens },
+		Notifier:     env.notifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +211,7 @@ func assertCode(t *testing.T, err error, want apperrors.Code) {
 }
 
 func TestNewServiceRejectsShortSecret(t *testing.T) {
-	if _, err := NewService(&memUsers{}, Options{Secret: []byte("short")}); err == nil {
+	if _, err := NewService(&memUsers{}, nil, Options{Secret: []byte("short")}); err == nil {
 		t.Fatal("want error for a short secret")
 	}
 }
@@ -288,7 +340,7 @@ func TestSignUpRollsBackWhenTenantCreationFails(t *testing.T) {
 }
 
 func TestSignUpWithoutTxRunner(t *testing.T) {
-	svc, err := NewService(&memUsers{}, Options{Secret: testSecret, PasswordCost: bcrypt.MinCost})
+	svc, err := NewService(&memUsers{}, nil, Options{Secret: testSecret, PasswordCost: bcrypt.MinCost})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +384,7 @@ func TestCheckTokenRejectsBadTokens(t *testing.T) {
 	u := signUp(t, svc, "alice@example.com", "correct horse")
 	tok, _ := svc.SignIn(ctx, "alice", "correct horse")
 
-	other, _ := NewService(users, Options{Secret: []byte(strings.Repeat("x", MinSecretLen)), PasswordCost: bcrypt.MinCost, Now: func() time.Time { return now }})
+	other, _ := NewService(users, nil, Options{Secret: []byte(strings.Repeat("x", MinSecretLen)), PasswordCost: bcrypt.MinCost, Now: func() time.Time { return now }})
 	forged, _ := other.SignIn(ctx, "alice", "correct horse")
 	parts := strings.Split(tok.AccessToken, ".")
 
@@ -454,6 +506,155 @@ func TestCheckPasswordIdentifierKinds(t *testing.T) {
 	// Inactive users cannot sign in by email either.
 	users.users[0].IsActive = false
 	_, err = svc.CheckPassword(ctx, "alice@example.com", "correct horse")
+	assertCode(t, err, apperrors.CodeUnauthorized)
+}
+
+func TestSignUpSendsEmailVerification(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	ctx := context.Background()
+
+	acc, err := env.svc.SignUp(ctx, SignUpInput{Email: "alice@example.com", Password: "correct horse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.verifications) != 1 || env.notifier.verifications[0].user.ID != acc.User.ID {
+		t.Fatalf("verifications = %+v, want one for %d", env.notifier.verifications, acc.User.ID)
+	}
+	if acc.User.EmailVerified() {
+		t.Fatal("new user should not start out verified")
+	}
+
+	got, err := env.svc.VerifyEmail(ctx, env.notifier.verifications[0].token)
+	if err != nil || !got.EmailVerified() {
+		t.Fatalf("VerifyEmail = %+v, %v", got, err)
+	}
+}
+
+func TestResendVerification(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	ctx := context.Background()
+	u := signUp(t, env.svc, "alice@example.com", "correct horse")
+	firstToken := env.notifier.verifications[0].token
+
+	if err := env.svc.ResendVerification(ctx, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.verifications) != 2 {
+		t.Fatalf("verifications = %d, want 2", len(env.notifier.verifications))
+	}
+	secondToken := env.notifier.verifications[1].token
+	if firstToken == secondToken {
+		t.Fatal("ResendVerification reused the sign-up token")
+	}
+
+	// The sign-up token was invalidated by the resend.
+	_, err := env.svc.VerifyEmail(ctx, firstToken)
+	assertCode(t, err, apperrors.CodeUnauthorized)
+
+	// The latest token still verifies.
+	if _, err := env.svc.VerifyEmail(ctx, secondToken); err != nil {
+		t.Fatal(err)
+	}
+
+	// Once verified, resending is a no-op.
+	if err := env.svc.ResendVerification(ctx, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.verifications) != 2 {
+		t.Fatalf("verifications = %d, want still 2 after verification", len(env.notifier.verifications))
+	}
+}
+
+func TestVerifyEmailRejectsReusedAndExpiredTokens(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	ctx := context.Background()
+	signUp(t, env.svc, "alice@example.com", "correct horse")
+	token := env.notifier.verifications[0].token
+
+	if _, err := env.svc.VerifyEmail(ctx, token); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.svc.VerifyEmail(ctx, token)
+	assertCode(t, err, apperrors.CodeUnauthorized)
+
+	signUp(t, env.svc, "bob@example.com", "correct horse")
+	expired := env.notifier.verifications[1].token
+	now = now.Add(EmailVerificationTokenTTL + time.Minute)
+	_, err = env.svc.VerifyEmail(ctx, expired)
+	assertCode(t, err, apperrors.CodeUnauthorized)
+
+	_, err = env.svc.VerifyEmail(ctx, "does-not-exist")
+	assertCode(t, err, apperrors.CodeUnauthorized)
+}
+
+func TestRequestPasswordReset(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	ctx := context.Background()
+	u := signUp(t, env.svc, "alice@example.com", "correct horse")
+
+	// Unknown email: same nil result, no email sent.
+	if err := env.svc.RequestPasswordReset(ctx, "nobody@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.resets) != 0 {
+		t.Fatalf("resets = %d, want 0 for an unknown email", len(env.notifier.resets))
+	}
+
+	if err := env.svc.RequestPasswordReset(ctx, "ALICE@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.resets) != 1 || env.notifier.resets[0].user.ID != u.ID {
+		t.Fatalf("resets = %+v, want one for %d", env.notifier.resets, u.ID)
+	}
+	firstToken := env.notifier.resets[0].token
+
+	// A second request invalidates the first token.
+	if err := env.svc.RequestPasswordReset(ctx, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	secondToken := env.notifier.resets[1].token
+	if firstToken == secondToken {
+		t.Fatal("RequestPasswordReset reused the token")
+	}
+	if err := env.svc.ResetPassword(ctx, firstToken, "a whole new password"); err == nil {
+		t.Fatal("the invalidated first token should no longer reset the password")
+	}
+}
+
+func TestResetPassword(t *testing.T) {
+	now := time.Now()
+	env := newTestEnv(t, &now)
+	ctx := context.Background()
+	signUp(t, env.svc, "alice@example.com", "correct horse")
+
+	if err := env.svc.RequestPasswordReset(ctx, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	token := env.notifier.resets[0].token
+
+	// An invalid password is rejected without burning the token.
+	err := env.svc.ResetPassword(ctx, token, "short")
+	assertCode(t, err, apperrors.CodeInvalidArgument)
+
+	if err := env.svc.ResetPassword(ctx, token, "a whole new password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.svc.CheckPassword(ctx, "alice@example.com", "correct horse"); err == nil {
+		t.Fatal("old password should no longer work")
+	}
+	if _, err := env.svc.CheckPassword(ctx, "alice@example.com", "a whole new password"); err != nil {
+		t.Fatalf("new password should work: %v", err)
+	}
+	if !env.users.users[0].EmailVerified() {
+		t.Fatal("ResetPassword should mark the email verified")
+	}
+
+	// Single use: the same token cannot reset the password again.
+	err = env.svc.ResetPassword(ctx, token, "yet another password")
 	assertCode(t, err, apperrors.CodeUnauthorized)
 }
 
