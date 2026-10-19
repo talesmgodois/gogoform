@@ -5,6 +5,7 @@ import shutil
 import signal
 import subprocess
 import traceback
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -106,7 +107,7 @@ def handle_dirty_worktree(cwd=PROJECT_ROOT):
         print("✅ Changes stashed. They can be restored later with 'git stash pop'.")
     elif choice == "2":
         print("📦 Committing changes now via /commits skill...")
-        if run_grouped_commits():
+        if run_grouped_commits()[0]:
             print("✅ Changes committed.")
         else:
             if git_status(cwd):
@@ -166,53 +167,141 @@ COMMITS_RESULT_RE = re.compile(r"^RESULT:\s*(OK|PARTIAL|NOTHING_TO_COMMIT)\b:?\s
 FIX_RESULT_RE = re.compile(r"^FIX_RESULT:\s*(FIXED|PARTIAL|NOTHING_TO_FIX|FAILED)\b:?\s*(.*)$", re.MULTILINE)
 
 # How many /code-review-fixer rounds to run on a failing review before giving up.
-MAX_FIX_ATTEMPTS = int(os.environ.get("MAX_FIX_ATTEMPTS", "2"))
+MAX_FIX_ATTEMPTS = int(os.environ.get("MAX_FIX_ATTEMPTS", "1"))
+
+# Optional guardrails for every claude call; unset means no limit.
+MAX_TURNS = os.environ.get("MAX_TURNS") or None
+MAX_BUDGET_USD = os.environ.get("MAX_BUDGET_USD") or None
+
+# Per-stage model/effort overrides; unset means the CLI default. Models are claude
+# aliases/ids (sonnet, opus, claude-haiku-5-5) or opencode provider/model ids;
+# effort only applies to claude. Commits default to sonnet on claude.
+MODEL_PLAN = os.environ.get("MODEL_PLAN") or None
+MODEL_IMPLEMENT = os.environ.get("MODEL_IMPLEMENT") or None
+MODEL_REVIEW = os.environ.get("MODEL_REVIEW") or None
+MODEL_COMMITS = os.environ.get("MODEL_COMMITS", "sonnet" if AGENT_CLI == "claude" else "") or None
+EFFORT_PLAN = os.environ.get("EFFORT_PLAN") or None
+EFFORT_IMPLEMENT = os.environ.get("EFFORT_IMPLEMENT") or None
+EFFORT_REVIEW = os.environ.get("EFFORT_REVIEW") or None
+EFFORT_COMMITS = os.environ.get("EFFORT_COMMITS") or None
+
+# Number of consecutive todos grouped into one implement call.
+TODOS_PER_SESSION = max(1, int(os.environ.get("TODOS_PER_SESSION", "1")))
 
 
-def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, plan=False):
+def claude_session_exists(session_id, cwd=WORKDIR):
+    """Whether claude has a stored session with this id for cwd, so it can be resumed."""
+    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    project = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+    return (config_dir / "projects" / project / f"{session_id}.jsonl").is_file()
+
+
+def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, plan=False,
+              session_id=None, resume=None, fork=False, model=None, effort=None):
     """Runs the agent CLI headlessly with a free-form prompt or a skill/command.
 
-    plan=True runs it in the CLI's read-only plan mode. Returns (success, stdout).
-    stdout is only captured when capture=True. The CLI's stdout is only shown
-    when AGENT_CLI_STDOUT=1; stderr is always shown, except when capture=True,
-    where it is shown only if AGENT_CLI_STDOUT=1 or the command failed.
+    plan=True runs it in the CLI's read-only plan mode. Returns (success, output, usage).
+    For claude, output is the final result text and usage holds cost/token/turn/session
+    info; the CLI streams JSON events so AGENT_CLI_STDOUT=1 can show its messages live.
+    For opencode, output is captured only when capture=True and usage is None.
+    stderr is shown when AGENT_CLI_STDOUT=1 or the command failed.
     """
     if AGENT_CLI == "opencode":
         cmd = ["opencode", "run"]
         if plan:
             cmd += ["--agent", "plan"]
+        if model:
+            cmd += ["--model", model]
         if command:
             cmd += ["--command", command]
             if args:
                 cmd.append(args)
         else:
             cmd.append(prompt)
-    else:
-        text = f"/{command} {args}".strip() if command else prompt
-        mode = ["--permission-mode", "plan"] if plan else ["--dangerously-skip-permissions"]
-        cmd = ["claude", "-p", text, *mode]
-
-    if capture:
-        result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
-        if AGENT_CLI_STDOUT:
-            print(result.stdout)
-        if result.stderr and (AGENT_CLI_STDOUT or result.returncode != 0):
-            print(result.stderr)
-    else:
+        if capture:
+            result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+            if AGENT_CLI_STDOUT:
+                print(result.stdout)
+            if result.stderr and (AGENT_CLI_STDOUT or result.returncode != 0):
+                print(result.stderr)
+            return result.returncode == 0, result.stdout or "", None
         stdout = None if AGENT_CLI_STDOUT else subprocess.DEVNULL
         result = subprocess.run(cmd, cwd=cwd, text=True, stdout=stdout)
-    return result.returncode == 0, result.stdout or ""
+        return result.returncode == 0, "", None
+
+    text = f"/{command} {args}".strip() if command else prompt
+    mode = ["--permission-mode", "plan"] if plan else ["--dangerously-skip-permissions"]
+    cmd = ["claude", "-p", text, *mode, "--output-format", "stream-json", "--verbose"]
+    if session_id:
+        cmd += ["--session-id", session_id]
+    if resume:
+        cmd += ["--resume", resume]
+        if fork:
+            cmd += ["--fork-session"]
+    if model:
+        cmd += ["--model", model]
+    if effort:
+        cmd += ["--effort", effort]
+    if MAX_TURNS:
+        cmd += ["--max-turns", MAX_TURNS]
+    if MAX_BUDGET_USD:
+        cmd += ["--max-budget-usd", MAX_BUDGET_USD]
+
+    proc = subprocess.Popen(cmd, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    final = {}
+    for line in proc.stdout:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "assistant" and AGENT_CLI_STDOUT:
+            for block in event.get("message", {}).get("content", []):
+                if block.get("type") == "text" and block.get("text"):
+                    print(block["text"], flush=True)
+        elif event.get("type") == "result":
+            final = event
+    stderr = proc.stderr.read()
+    proc.wait()
+
+    ok = proc.returncode == 0 and bool(final) and not final.get("is_error")
+    if not ok and final.get("subtype") not in (None, "success"):
+        print(f"⚠️  Agent stopped: {final['subtype']}")
+    if stderr and (AGENT_CLI_STDOUT or not ok):
+        print(stderr)
+    u = final.get("usage") or {}
+    usage = {
+        "model": model,
+        "cost_usd": final.get("total_cost_usd"),
+        "duration_s": round((final.get("duration_ms") or 0) / 1000, 1),
+        "num_turns": final.get("num_turns"),
+        "session_id": final.get("session_id"),
+        "input_tokens": u.get("input_tokens", 0),
+        "output_tokens": u.get("output_tokens", 0),
+        "cache_creation_input_tokens": u.get("cache_creation_input_tokens", 0),
+        "cache_read_input_tokens": u.get("cache_read_input_tokens", 0),
+    } if final else None
+    return ok, final.get("result") or "", usage
 
 
-def run_code_review(task_filename, attempt=0):
+def run_code_review(task_filename, attempt=0, recheck_report=None):
     """Runs the /code-review skill and gates on its VERDICT line.
 
-    Returns (passed, reason, report_path). Every report is saved to reviews/ so
+    Returns (passed, reason, report_path, usage). Every report is saved to reviews/ so
     /code-review-fixer can read it; reviews/ is gitignored so the next review
-    doesn't pick up its own previous report as a change.
+    doesn't pick up its own previous report as a change. With recheck_report, the
+    review first checks whether that previous report's findings were fixed.
     """
     print(f"\n🔍 Running automated Code Review agent (round {attempt + 1})...")
-    ok, output = run_agent(command="code-review", cwd=PROJECT_ROOT, capture=True)
+    args = ""
+    if recheck_report is not None:
+        rel = recheck_report
+        try:
+            rel = recheck_report.relative_to(PROJECT_ROOT)
+        except (ValueError, AttributeError):
+            pass
+        args = f"--recheck {rel}"
+    ok, output, usage = run_agent(command="code-review", args=args, cwd=PROJECT_ROOT, capture=True,
+                                  model=MODEL_REVIEW, effort=EFFORT_REVIEW)
 
     # Use the last VERDICT line, in case the report quotes the format earlier.
     matches = VERDICT_RE.findall(output)
@@ -226,40 +315,49 @@ def run_code_review(task_filename, attempt=0):
     report_path = REVIEWS_DIR / f"{Path(task_filename).stem}.review.{attempt + 1}.md"
     report_path.write_text(output, encoding="utf-8")
     print(f"📝 Review report saved to {report_path}")
-    return verdict == "PASS", reason, report_path
+    return verdict == "PASS", reason, report_path, usage
 
 
 def run_code_review_fixer(report_path):
     """Runs the /code-review-fixer skill on a review report.
 
-    Returns True when the fixer changed something worth re-reviewing (FIXED or PARTIAL).
+    Returns (changed, usage); changed is True when the fixer changed something worth
+    re-reviewing (FIXED or PARTIAL).
     """
     print("\n🛠️  Applying review findings via /code-review-fixer skill...")
     rel_report = report_path.relative_to(PROJECT_ROOT)
-    ok, output = run_agent(command="code-review-fixer", args=str(rel_report), cwd=PROJECT_ROOT, capture=True)
+    ok, output, usage = run_agent(command="code-review-fixer", args=str(rel_report), cwd=PROJECT_ROOT, capture=True,
+                                  model=MODEL_IMPLEMENT, effort=EFFORT_IMPLEMENT)
 
     matches = FIX_RESULT_RE.findall(output)
     status, reason = matches[-1] if matches else ("UNKNOWN", "fixer produced no FIX_RESULT line")
     print(f"🧾 Fixer result: {status}" + (f" — {reason}" if reason else ""))
-    return ok and status in ("FIXED", "PARTIAL")
+    return ok and status in ("FIXED", "PARTIAL"), usage
 
 
-def review_with_fixes(task_filename):
+def review_with_fixes(tracker, task_name, task_filename):
     """Reviews the change, running /code-review-fixer and re-reviewing on FAIL.
 
     Returns (passed, reason). The last failing report is copied next to the task in errors/.
     """
     attempt = 0
+    previous_report = None
     while True:
-        passed, reason, report_path = run_code_review(task_filename, attempt)
+        passed, reason, report_path, usage = run_code_review(task_filename, attempt, recheck_report=previous_report)
+        if tracker is not None and task_name is not None:
+            tracker.add_usage(task_name, {"stage": "review", "todo": None, "attempt": attempt + 1, **{k: v for k, v in (usage or {}).items()}})
         if passed:
             return True, ""
         if attempt >= MAX_FIX_ATTEMPTS:
             print(f"🛑 Review still failing after {MAX_FIX_ATTEMPTS} fix round(s).")
             break
-        if not run_code_review_fixer(report_path):
+        changed, fix_usage = run_code_review_fixer(report_path)
+        if tracker is not None and task_name is not None:
+            tracker.add_usage(task_name, {"stage": "fixer", "todo": None, "attempt": attempt + 1, **{k: v for k, v in (fix_usage or {}).items()}})
+        if not changed:
             print("🛑 Fixer made no progress; not re-reviewing.")
             break
+        previous_report = report_path
         attempt += 1
 
     error_report = ERRORS_DIR / f"{Path(task_filename).stem}.review.md"
@@ -284,17 +382,24 @@ def push_current_branch():
 TASK_TRAILER = "Task: {task_id}"
 
 
-def run_grouped_commits(task_name=None):
+def run_grouped_commits(task_name=None, plan=None):
     """Triggers the /commits skill to group and commit remaining changes.
 
     With task_name, every commit gets the task's trailer in its footer.
+    plan (list of (number, done, text)) is passed so commits group by todo.
+    Returns (success, usage).
     """
     print("\n📦 Grouping and committing changes via /commits skill...")
-    args = ""
+    args_parts = []
     if task_name:
         trailer = TASK_TRAILER.format(task_id=extract_task_id(task_name))
-        args = f'Add the trailer line "{trailer}" as the last line of every commit message footer.'
-    ok, output = run_agent(command="commits", args=args, cwd=PROJECT_ROOT, capture=True)
+        args_parts.append(f'Add the trailer line "{trailer}" as the last line of every commit message footer.')
+    if plan:
+        plan_text = "; ".join(f"{number}. {text}" for number, _, text in plan)
+        args_parts.append(f"Group commits by these todos (one commit per todo where possible): {plan_text}")
+    args = " ".join(args_parts)
+    ok, output, usage = run_agent(command="commits", args=args, cwd=PROJECT_ROOT, capture=True,
+                                  model=MODEL_COMMITS, effort=EFFORT_COMMITS)
 
     matches = COMMITS_RESULT_RE.findall(output)
     status = matches[-1][0] if matches else "UNKNOWN"
@@ -302,10 +407,7 @@ def run_grouped_commits(task_name=None):
     leftover = git_status()
     if leftover:
         print(f"⚠️  Uncommitted changes remain after /commits:\n{leftover}")
-    return ok and status in ("OK", "NOTHING_TO_COMMIT")
-
-
-
+    return ok and status in ("OK", "NOTHING_TO_COMMIT"), usage
 
 # ---------------------------------------------------------------------------
 # Progress tracking: lets an interrupted or failed run be resumed where it stopped.
@@ -401,7 +503,11 @@ class Tracker:
             "todos": {},
             "stages": {stage: False for stage in STAGES},
             "last_error": None,
+            "session_id": None,
+            "usage": [],
         })
+        entry.setdefault("session_id", None)
+        entry.setdefault("usage", [])
         entry["file"] = str(task_path.relative_to(PROJECT_ROOT))
         self.save()
         return entry
@@ -426,6 +532,13 @@ class Tracker:
 
     def mark_stage(self, task_name, stage):
         self.tasks[task_name]["stages"][stage] = True
+        self.save()
+
+    def add_usage(self, task_name, record):
+        entry = self.tasks.get(task_name)
+        if entry is None:
+            return
+        entry.setdefault("usage", []).append(record)
         self.save()
 
     def fail(self, task_name, reason):
@@ -477,7 +590,7 @@ PLAN_FILE_ITEM_RE = re.compile(r"^(\d+)\.\s+\[( |x|X)\]\s+(.+?)\s*$")
 
 PLAN_PROMPT = """You are PLANNING a task, not implementing it. Explore the repository as needed, but do not modify any files.
 
-Break the task below into small todos, in execution order. Each todo must be implementable (and checkable) on its own in a single agent session, and together they must cover the whole task.
+Break the task below into 3-6 todos, in execution order. Each todo should cover a coherent slice of the work (for example data layer, handlers, templates, tests, docs) and be implementable on its own, and together they must cover the whole task. Avoid many tiny todos.
 
 Finish by printing the plan between a line containing only PLAN_BEGIN and a line containing only PLAN_END, one todo per line formatted as "<n>. <todo>". Put nothing else between the markers.
 
@@ -485,7 +598,7 @@ Finish by printing the plan between a line containing only PLAN_BEGIN and a line
 {task}
 """
 
-IMPLEMENT_PROMPT = """You are implementing ONE step of a multi-step task that a runner drives step by step. Implement only the current todo below, then stop. Do not commit, and do not edit the task file; the runner tracks progress itself.
+IMPLEMENT_PROMPT = """You are implementing one or more steps of a multi-step task that a runner drives step by step. Implement only the current todo(s) below, then stop. Do not commit, and do not edit the task file; the runner tracks progress itself.
 
 --- TASK (file: {task_file}) ---
 {task}
@@ -493,8 +606,8 @@ IMPLEMENT_PROMPT = """You are implementing ONE step of a multi-step task that a 
 --- PLAN ---
 {plan}
 
---- CURRENT TODO ---
-#{number}: {text}
+--- CURRENT TODO(S) ---
+{current_todos}
 {resume_note}"""
 
 RESUME_NOTE = """
@@ -535,12 +648,16 @@ def write_plan(task_path, body, items):
 
 def render_plan(items, todos, current):
     """Renders the plan with each todo's status, for the implementation prompt."""
+    if isinstance(current, int):
+        current_set = {current}
+    else:
+        current_set = set(current or [])
     lines = []
     for number, _, text in items:
         todo = todos[str(number)]
         if todo["finished"]:
             status = "done"
-        elif number == current:
+        elif number in current_set:
             status = "CURRENT"
         elif todo["started"]:
             status = "interrupted"
@@ -580,11 +697,22 @@ def collect_tasks(tracker):
 def plan_task(tracker, task_path, body):
     print(f"\n🧭 Planning '{task_path.name}' in plan mode...")
     tracker.set_current(task_path.name, "plan")
-    ok, output = run_agent(
+    entry = tracker.tasks[task_path.name]
+    if not entry.get("session_id"):
+        sid = str(uuid.uuid4())
+        entry["session_id"] = sid
+        tracker.save()
+    else:
+        sid = entry["session_id"]
+    ok, output, usage = run_agent(
         prompt=PLAN_PROMPT.format(task_file=task_path.relative_to(PROJECT_ROOT), task=body),
         capture=True,
         plan=True,
+        session_id=sid,
+        model=MODEL_PLAN,
+        effort=EFFORT_PLAN,
     )
+    tracker.add_usage(task_path.name, {"stage": "plan", "todo": None, **{k: v for k, v in (usage or {}).items()}})
     items = parse_plan_output(output)
     if not ok or not items:
         raise TaskFailed("planning failed: agent crashed or printed no PLAN_BEGIN/PLAN_END todo list")
@@ -597,35 +725,54 @@ def plan_task(tracker, task_path, body):
 def implement_todos(tracker, task_path, body, items):
     name = task_path.name
     entry = tracker.tasks[name]
-    for index, (number, _, text) in enumerate(items):
-        todo = entry["todos"][str(number)]
-        if todo["finished"]:
-            continue
-
-        print(f"\n🤖 Todo {number}/{len(items)} of '{name}': {text}")
+    # Each implement call forks the planning session, so it starts with the plan's exploration.
+    session_id = entry.get("session_id")
+    if session_id and (AGENT_CLI != "claude" or not claude_session_exists(session_id)):
+        if AGENT_CLI == "claude":
+            print(f"ℹ️  Planning session {session_id} not found; implementing without it.")
+        session_id = None
+    # Build list of pending todos in order.
+    pending = [(number, text) for (number, done, text) in items
+               if not entry["todos"][str(number)]["finished"]]
+    # Group into chunks of TODOS_PER_SESSION.
+    chunks = [pending[i:i + TODOS_PER_SESSION] for i in range(0, len(pending), TODOS_PER_SESSION)]
+    for chunk in chunks:
+        numbers = [n for n, _ in chunk]
+        texts = [t for _, t in chunk]
         resume_note = ""
-        if todo["started"]:
+        if any(entry["todos"][str(n)]["started"] for n in numbers):
             error = f" (last error: {entry['last_error']})" if entry.get("last_error") else ""
             resume_note = RESUME_NOTE.format(error=error)
+        current_todos_block = "\n".join(f"#{n}: {t}" for n, t in chunk)
         prompt = IMPLEMENT_PROMPT.format(
             task_file=task_path.relative_to(PROJECT_ROOT),
             task=body,
-            plan=render_plan(items, entry["todos"], number),
-            number=number,
-            text=text,
+            plan=render_plan(items, entry["todos"], numbers),
+            current_todos=current_todos_block,
             resume_note=resume_note,
         )
-
-        tracker.set_current(name, "implement", number)
-        tracker.mark_todo(name, number, started=True)
-        success, _ = run_agent(prompt=prompt)
+        for n in numbers:
+            tracker.set_current(name, "implement", n)
+            tracker.mark_todo(name, n, started=True)
+        success, _, usage = run_agent(
+            prompt=prompt,
+            resume=session_id,
+            fork=True if session_id else False,
+            model=MODEL_IMPLEMENT,
+            effort=EFFORT_IMPLEMENT,
+        )
+        tracker.add_usage(name, {"stage": "implement", "todo": numbers if len(numbers) > 1 else numbers[0],
+                                **{k: v for k, v in (usage or {}).items()}})
         if not success:
-            raise TaskFailed(f"implementation of todo #{number} failed")
+            raise TaskFailed(f"implementation of todo(s) {numbers} failed")
 
-        tracker.mark_todo(name, number, finished=True)
-        items[index] = (number, True, text)
+        for n in numbers:
+            tracker.mark_todo(name, n, finished=True)
+        for index, (number, _, text) in enumerate(items):
+            if number in numbers:
+                items[index] = (number, True, text)
         write_plan(task_path, body, items)
-        print(f"✅ Todo {number} done.")
+        print(f"✅ Todo(s) {numbers} done.")
 
 
 def run_task(tracker, name):
@@ -662,7 +809,7 @@ def run_task(tracker, name):
         if name.endswith(".ncr.md"):
             print(f"⏭️  Skipping code review for {name} (.ncr.md)")
         else:
-            review_passed, reason = review_with_fixes(name)
+            review_passed, reason = review_with_fixes(tracker, name, name)
             if not review_passed:
                 raise TaskFailed(f"code review failed: {reason}")
         tracker.mark_stage(name, "review")
@@ -674,7 +821,9 @@ def run_task(tracker, name):
         if task_path.parent != FINISHED_DIR:
             task_path = move_task(task_path, FINISHED_DIR)
             entry = tracker.entry(task_path)
-        if not run_grouped_commits(name):
+        committed, commit_usage = run_grouped_commits(name, items)
+        tracker.add_usage(name, {"stage": "commits", "todo": None, **{k: v for k, v in (commit_usage or {}).items()}})
+        if not committed:
             raise TaskFailed("commit issues")
         tracker.mark_stage(name, "commit")
 
@@ -689,6 +838,20 @@ def park_failed_task(tracker, name, reason):
     # The commit stage may already have moved it into finished/; leave it there.
     if task_path and task_path.parent == TASKS_DIR:
         tracker.entry(move_task(task_path, ERRORS_DIR))
+
+
+def print_task_cost(tracker, name):
+    entry = tracker.tasks.get(name) or {}
+    usage = entry.get("usage") or []
+    if not usage:
+        return
+    cost = sum((u.get("cost_usd") or 0) for u in usage)
+    inp = sum((u.get("input_tokens") or 0) for u in usage)
+    out = sum((u.get("output_tokens") or 0) for u in usage)
+    cache = sum((u.get("cache_read_input_tokens") or 0) for u in usage)
+    turns = sum((u.get("num_turns") or 0) for u in usage)
+    print(f"💰 {name}: ${cost:.4f}, {len(usage)} session(s), {turns} turn(s), "
+          f"in={inp} out={out} cache_read={cache}")
 
 
 def process_tasks(tracker):
@@ -724,6 +887,8 @@ def process_tasks(tracker):
                 tracker.record_error(exc)
                 park_failed_task(tracker, name, f"{type(exc).__name__}: {exc}")
             failed.append(name)
+        if name in tracker.tasks:
+            print_task_cost(tracker, name)
         if failed:
             # Later tasks may build on this one, and its partial work is still uncommitted.
             print("🛑 Stopping the run; fix or end the failed task, then re-run to resume it.")
@@ -740,6 +905,15 @@ def process_tasks(tracker):
         print(f"   ⏸️  {', '.join(skipped)}")
     if completed and PUSH:
         push_current_branch()
+    # Overall cost summary.
+    total_cost = 0.0
+    total_sessions = 0
+    for entry in tracker.tasks.values():
+        for u in (entry.get("usage") or []):
+            total_cost += (u.get("cost_usd") or 0)
+            total_sessions += 1
+    if total_sessions:
+        print(f"💰 Run total: ${total_cost:.4f} across {total_sessions} session(s).")
     if not tracker.archive_if_complete():
         print(f"   💾 Progress saved to {tracker.path.relative_to(PROJECT_ROOT)}; re-run to resume.")
     print("=" * 60)

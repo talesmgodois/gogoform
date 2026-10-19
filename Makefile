@@ -15,7 +15,7 @@ new-task: ## Create the next task file in __ai_work/tasks: make new-task NAME=my
 	@test -n "$(NAME)" || { echo "usage: make new-task NAME=<task_name>"; exit 1; }
 	@python3 __ai_work/new_task.py "$(NAME)"
 
-run-tasks: ## Run (or resume) the pending tasks in __ai_work/tasks (optional: AGENT_CLI=opencode MAX_FIX_ATTEMPTS=3 RUNNER_RESUME=0 AGENT_CLI_STDOUT=1 RUNNER_PUSH=1)
+run-tasks: ## Run (or resume) the pending tasks in __ai_work/tasks (optional: AGENT_CLI=opencode MAX_FIX_ATTEMPTS=1 RUNNER_RESUME=0 AGENT_CLI_STDOUT=1 RUNNER_PUSH=1 MODEL_PLAN|MODEL_IMPLEMENT|MODEL_REVIEW|MODEL_COMMITS=sonnet EFFORT_PLAN|EFFORT_IMPLEMENT|EFFORT_REVIEW|EFFORT_COMMITS=high TODOS_PER_SESSION=1 MAX_TURNS=150 MAX_BUDGET_USD=5)
 	$(if $(AGENT_CLI),AGENT_CLI=$(AGENT_CLI)) $(if $(MAX_FIX_ATTEMPTS),MAX_FIX_ATTEMPTS=$(MAX_FIX_ATTEMPTS)) $(if $(RUNNER_RESUME),RUNNER_RESUME=$(RUNNER_RESUME)) $(if $(AGENT_CLI_STDOUT),AGENT_CLI_STDOUT=$(AGENT_CLI_STDOUT)) $(if $(RUNNER_PUSH),RUNNER_PUSH=$(RUNNER_PUSH)) python3 __ai_work/runner.py
 
 $(WORKDIR_TARGETS):

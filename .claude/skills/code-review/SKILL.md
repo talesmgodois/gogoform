@@ -15,6 +15,14 @@ Caller arguments (may be empty): $ARGUMENTS
 
 ## 1. Determine what to review
 
+If `$ARGUMENTS` contains `--recheck <report>`, read that report file first. Treat its
+CRITICAL and WARNING findings as the checklist: verify each is fixed in the current
+diff, and review only the hunks changed since that report (the fixer's changes).
+Do not re-scan the whole diff; report any of the earlier findings still present plus
+any new CRITICAL/WARNING introduced by the fix. Then continue to the normal output
+format.
+
+Otherwise:
 1. If `$ARGUMENTS` names a git ref, review `git diff <ref>...HEAD` plus any uncommitted changes.
 2. Otherwise, if there are uncommitted changes (`git status --porcelain -uall` is non-empty), review them:
    - `git diff HEAD` (or `git diff` + `git diff --cached` on a repo with no commits yet)
