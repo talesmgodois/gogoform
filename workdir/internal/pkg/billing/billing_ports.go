@@ -1,7 +1,11 @@
 // Package billing manages tenant subscriptions through Stripe.
 package billing
 
-import "context"
+import (
+	"context"
+
+	"app/internal/pkg/auth"
+)
 
 // Gateway talks to the payment provider.
 //
@@ -29,4 +33,22 @@ type EventLog interface {
 	// whether this is the first time it was seen; false means the event was
 	// already processed and must be skipped.
 	MarkProcessed(ctx context.Context, id, eventType string) (firstTime bool, err error)
+}
+
+// Users looks up the user owning a tenant, to notify them of billing events.
+//
+// Errors are AppErrors from internal/errors with CodeNotFound when no such
+// user exists.
+type Users interface {
+	// GetByID returns the active user with the given ID.
+	GetByID(ctx context.Context, id int32) (auth.User, error)
+}
+
+// Notifier sends the transactional emails issued by the billing webhooks.
+// Sending is expected to be asynchronous (see internal/pkg/mailer.Async), so
+// a slow or failing delivery never blocks event processing.
+type Notifier interface {
+	// SendPaymentFailed notifies owner that invoice.payment_failed left
+	// their subscription past_due.
+	SendPaymentFailed(ctx context.Context, owner auth.User) error
 }

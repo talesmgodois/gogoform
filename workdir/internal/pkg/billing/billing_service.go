@@ -37,7 +37,18 @@ type Options struct {
 	// EventsFor returns the EventLog to use inside a Tx transaction;
 	// NewEventStore when nil.
 	EventsFor func(q db.Querier) EventLog
+	// UsersFor returns the Users to use inside a Tx transaction, to look up
+	// a tenant's owner; auth.NewUserStore when nil.
+	UsersFor func(q db.Querier) Users
+	// Notifier sends the payment-failed email; a no-op Notifier when nil.
+	Notifier Notifier
 }
+
+// noopNotifier discards every notification; the default when
+// Options.Notifier is nil.
+type noopNotifier struct{}
+
+func (noopNotifier) SendPaymentFailed(context.Context, auth.User) error { return nil }
 
 // CheckoutURLs are the pages Stripe sends the user back to after checkout.
 type CheckoutURLs struct {
@@ -54,6 +65,8 @@ type Service struct {
 	tx         database.TxRunner
 	tenantsFor func(q db.Querier) tenants.Repository
 	eventsFor  func(q db.Querier) EventLog
+	usersFor   func(q db.Querier) Users
+	notifier   Notifier
 }
 
 // NewService returns a Service calling Stripe through gateway and storing
@@ -71,6 +84,12 @@ func NewService(gateway Gateway, repo tenants.Repository, opts Options) (*Servic
 	if opts.EventsFor == nil {
 		opts.EventsFor = func(q db.Querier) EventLog { return NewEventStore(q) }
 	}
+	if opts.UsersFor == nil {
+		opts.UsersFor = func(q db.Querier) Users { return auth.NewUserStore(q) }
+	}
+	if opts.Notifier == nil {
+		opts.Notifier = noopNotifier{}
+	}
 	return &Service{
 		gateway:    gateway,
 		tenants:    repo,
@@ -78,6 +97,8 @@ func NewService(gateway Gateway, repo tenants.Repository, opts Options) (*Servic
 		tx:         opts.Tx,
 		tenantsFor: opts.TenantsFor,
 		eventsFor:  opts.EventsFor,
+		usersFor:   opts.UsersFor,
+		notifier:   opts.Notifier,
 	}, nil
 }
 
@@ -140,7 +161,7 @@ func (s *Service) HandleEvent(ctx context.Context, event stripe.Event) error {
 			stripe.EventTypeCustomerSubscriptionDeleted:
 			return handleSubscription(ctx, repo, event)
 		case stripe.EventTypeInvoicePaymentFailed:
-			return handlePaymentFailed(ctx, repo, event)
+			return s.handlePaymentFailed(ctx, repo, q, event)
 		default:
 			return nil
 		}
@@ -241,8 +262,9 @@ func handleSubscription(ctx context.Context, repo tenants.Repository, event stri
 // plan; terminal statuses are left to customer.subscription.updated, as
 // Stripe may keep the subscription past_due after the last retry. Invoices
 // of another subscription than the tenant's current one, or of one already
-// ended, are ignored.
-func handlePaymentFailed(ctx context.Context, repo tenants.Repository, event stripe.Event) error {
+// ended, are ignored. The tenant's owner is emailed only once the update is
+// applied; the dedup in HandleEvent keeps a retried webhook from resending.
+func (s *Service) handlePaymentFailed(ctx context.Context, repo tenants.Repository, q db.Querier, event stripe.Event) error {
 	var inv stripe.Invoice
 	if err := decodeEvent(event, &inv); err != nil {
 		return err
@@ -276,7 +298,29 @@ func handlePaymentFailed(ctx context.Context, repo tenants.Repository, event str
 	if isNotFound(err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	s.notifyPaymentFailed(ctx, q, tenant)
+	return nil
+}
+
+// notifyPaymentFailed emails tenant's owner that its subscription is now
+// past_due, when the tenant has an owner with an email address. Failures are
+// logged, never returned: the caller's transaction must not depend on email
+// delivery, and the notifier (normally mailer.Async) already sends without
+// blocking.
+func (s *Service) notifyPaymentFailed(ctx context.Context, q db.Querier, tenant tenants.Tenant) {
+	if tenant.OwnerUserID == nil {
+		return
+	}
+	owner, err := s.usersFor(q).GetByID(ctx, *tenant.OwnerUserID)
+	if err != nil || owner.Email == "" {
+		return
+	}
+	if err := s.notifier.SendPaymentFailed(ctx, owner); err != nil {
+		slog.ErrorContext(ctx, "send payment failed notification", "tenant_id", tenant.ID, "error", err)
+	}
 }
 
 // eventTime returns when Stripe created event, in UTC.

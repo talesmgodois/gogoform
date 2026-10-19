@@ -157,26 +157,60 @@ func (m *memEvents) MarkProcessed(_ context.Context, id, eventType string) (bool
 }
 
 type testEnv struct {
-	svc     *Service
-	gateway *fakeGateway
-	tenants *memTenants
-	events  *memEvents
-	tx      *database.FakeTxRunner
+	svc      *Service
+	gateway  *fakeGateway
+	tenants  *memTenants
+	events   *memEvents
+	users    *memUsers
+	notifier *fakeNotifier
+	tx       *database.FakeTxRunner
+}
+
+// memUsers is an in-memory Users keyed by user ID.
+type memUsers struct {
+	byID map[int32]auth.User
+}
+
+func (m *memUsers) GetByID(_ context.Context, id int32) (auth.User, error) {
+	u, ok := m.byID[id]
+	if !ok {
+		return auth.User{}, apperrors.NewNotFound("user not found")
+	}
+	return u, nil
+}
+
+// fakeNotifier records the owners it was asked to notify of a failed
+// payment, or returns err when set.
+type fakeNotifier struct {
+	paymentFailed []auth.User
+	err           error
+}
+
+func (f *fakeNotifier) SendPaymentFailed(_ context.Context, owner auth.User) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.paymentFailed = append(f.paymentFailed, owner)
+	return nil
 }
 
 func newTestEnv(t *testing.T, ts ...tenants.Tenant) testEnv {
 	t.Helper()
 	env := testEnv{
-		gateway: &fakeGateway{},
-		tenants: newMemTenants(ts...),
-		events:  &memEvents{seen: map[string]string{}},
-		tx:      &database.FakeTxRunner{},
+		gateway:  &fakeGateway{},
+		tenants:  newMemTenants(ts...),
+		events:   &memEvents{seen: map[string]string{}},
+		users:    &memUsers{byID: map[int32]auth.User{}},
+		notifier: &fakeNotifier{},
+		tx:       &database.FakeTxRunner{},
 	}
 	svc, err := NewService(env.gateway, env.tenants, Options{
 		PriceID:    "price_pro",
 		Tx:         env.tx,
 		TenantsFor: func(db.Querier) tenants.Repository { return env.tenants },
 		EventsFor:  func(db.Querier) EventLog { return env.events },
+		UsersFor:   func(db.Querier) Users { return env.users },
+		Notifier:   env.notifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -544,8 +578,10 @@ func TestHandleEventAppliesNewerSubscriptionEvent(t *testing.T) {
 }
 
 func TestHandleEventPaymentFailedIgnoresEndedSubscription(t *testing.T) {
+	ownerID := int32(42)
 	env := newTestEnv(t, tenants.Tenant{ID: 1, StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_1",
-		SubscriptionStatus: "canceled", Plan: tenants.PlanFree})
+		SubscriptionStatus: "canceled", Plan: tenants.PlanFree, OwnerUserID: &ownerID})
+	env.users.byID[ownerID] = auth.User{ID: ownerID, Email: "owner@example.com"}
 
 	err := env.svc.HandleEvent(context.Background(), newEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
 		invoiceObject("cus_1", "sub_1", 0)))
@@ -554,6 +590,9 @@ func TestHandleEventPaymentFailedIgnoresEndedSubscription(t *testing.T) {
 	}
 	if got := env.tenants.byID[1]; got.SubscriptionStatus != "canceled" || env.tenants.updates != 0 {
 		t.Fatalf("tenant = %+v, updates = %d; want canceled untouched", got, env.tenants.updates)
+	}
+	if len(env.notifier.paymentFailed) != 0 {
+		t.Fatalf("paymentFailed = %+v, want none: the update was skipped", env.notifier.paymentFailed)
 	}
 }
 
@@ -569,8 +608,10 @@ func TestHandleEventPaymentFailed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ownerID := int32(42)
 			env := newTestEnv(t, tenants.Tenant{ID: 1, StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_1",
-				SubscriptionStatus: "active", Plan: tenants.PlanPro})
+				SubscriptionStatus: "active", Plan: tenants.PlanPro, OwnerUserID: &ownerID})
+			env.users.byID[ownerID] = auth.User{ID: ownerID, Email: "owner@example.com"}
 
 			err := env.svc.HandleEvent(context.Background(), newEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
 				invoiceObject("cus_1", "sub_1", tt.nextAttempt)))
@@ -581,7 +622,75 @@ func TestHandleEventPaymentFailed(t *testing.T) {
 			if got.SubscriptionStatus != tt.wantStatus || got.Plan != tt.wantPlan || got.StripeSubscriptionID != "sub_1" {
 				t.Fatalf("tenant = %+v, want %s on %s", got, tt.wantStatus, tt.wantPlan)
 			}
+			if len(env.notifier.paymentFailed) != 1 || env.notifier.paymentFailed[0].Email != "owner@example.com" {
+				t.Fatalf("paymentFailed = %+v, want one notification to owner@example.com", env.notifier.paymentFailed)
+			}
 		})
+	}
+}
+
+func TestHandleEventPaymentFailedNoNotificationWithoutOwner(t *testing.T) {
+	env := newTestEnv(t, tenants.Tenant{ID: 1, StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_1",
+		SubscriptionStatus: "active", Plan: tenants.PlanPro})
+
+	err := env.svc.HandleEvent(context.Background(), newEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
+		invoiceObject("cus_1", "sub_1", 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.paymentFailed) != 0 {
+		t.Fatalf("paymentFailed = %+v, want none: tenant has no owner", env.notifier.paymentFailed)
+	}
+}
+
+func TestHandleEventPaymentFailedNoNotificationWithoutOwnerEmail(t *testing.T) {
+	ownerID := int32(42)
+	env := newTestEnv(t, tenants.Tenant{ID: 1, StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_1",
+		SubscriptionStatus: "active", Plan: tenants.PlanPro, OwnerUserID: &ownerID})
+	env.users.byID[ownerID] = auth.User{ID: ownerID}
+
+	err := env.svc.HandleEvent(context.Background(), newEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
+		invoiceObject("cus_1", "sub_1", 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.notifier.paymentFailed) != 0 {
+		t.Fatalf("paymentFailed = %+v, want none: owner has no email", env.notifier.paymentFailed)
+	}
+}
+
+func TestHandleEventPaymentFailedNotifiesOnceOnRetry(t *testing.T) {
+	ownerID := int32(42)
+	env := newTestEnv(t, tenants.Tenant{ID: 1, StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_1",
+		SubscriptionStatus: "active", Plan: tenants.PlanPro, OwnerUserID: &ownerID})
+	env.users.byID[ownerID] = auth.User{ID: ownerID, Email: "owner@example.com"}
+	ctx := context.Background()
+	ev := newEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed, invoiceObject("cus_1", "sub_1", 0))
+
+	for range 2 {
+		if err := env.svc.HandleEvent(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(env.notifier.paymentFailed) != 1 {
+		t.Fatalf("paymentFailed = %+v, want exactly one: the event is deduped on retry", env.notifier.paymentFailed)
+	}
+}
+
+func TestHandleEventPaymentFailedNotifierErrorDoesNotFailEvent(t *testing.T) {
+	ownerID := int32(42)
+	env := newTestEnv(t, tenants.Tenant{ID: 1, StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_1",
+		SubscriptionStatus: "active", Plan: tenants.PlanPro, OwnerUserID: &ownerID})
+	env.users.byID[ownerID] = auth.User{ID: ownerID, Email: "owner@example.com"}
+	env.notifier.err = stderrors.New("smtp down")
+
+	err := env.svc.HandleEvent(context.Background(), newEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
+		invoiceObject("cus_1", "sub_1", 0)))
+	if err != nil {
+		t.Fatalf("HandleEvent() error = %v, want nil: a notification failure must not fail the webhook", err)
+	}
+	if got := env.tenants.byID[1]; got.SubscriptionStatus != "past_due" {
+		t.Fatalf("tenant = %+v, want past_due despite the notification failure", got)
 	}
 }
 
