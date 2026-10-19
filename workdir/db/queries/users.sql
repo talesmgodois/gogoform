@@ -33,3 +33,17 @@ SET role = $2,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: MarkUserEmailVerified :one
+UPDATE users
+SET email_verified_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: UpdateUserPassword :one
+UPDATE users
+SET password_hash = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;

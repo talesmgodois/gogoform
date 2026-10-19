@@ -96,6 +96,48 @@ func (ns NullUserRole) Value() (driver.Value, error) {
 	return string(ns.UserRole), nil
 }
 
+type UserTokenPurpose string
+
+const (
+	UserTokenPurposeEmailVerification UserTokenPurpose = "email_verification"
+	UserTokenPurposePasswordReset     UserTokenPurpose = "password_reset"
+)
+
+func (e *UserTokenPurpose) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserTokenPurpose(s)
+	case string:
+		*e = UserTokenPurpose(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserTokenPurpose: %T", src)
+	}
+	return nil
+}
+
+type NullUserTokenPurpose struct {
+	UserTokenPurpose UserTokenPurpose `json:"user_token_purpose"`
+	Valid            bool             `json:"valid"` // Valid is true if UserTokenPurpose is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserTokenPurpose) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserTokenPurpose, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserTokenPurpose.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserTokenPurpose) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserTokenPurpose), nil
+}
+
 type File struct {
 	ID             string    `db:"id" json:"id"`
 	TenantID       int32     `db:"tenant_id" json:"tenant_id"`
@@ -108,19 +150,20 @@ type File struct {
 }
 
 type Form struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
 }
 
 type FormSubmission struct {
@@ -181,4 +224,14 @@ type User struct {
 	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
 	Email           *string    `db:"email" json:"email"`
 	EmailVerifiedAt *time.Time `db:"email_verified_at" json:"email_verified_at"`
+}
+
+type UserToken struct {
+	ID        int32            `db:"id" json:"id"`
+	UserID    int32            `db:"user_id" json:"user_id"`
+	Purpose   UserTokenPurpose `db:"purpose" json:"purpose"`
+	TokenHash []byte           `db:"token_hash" json:"token_hash"`
+	ExpiresAt time.Time        `db:"expires_at" json:"expires_at"`
+	UsedAt    *time.Time       `db:"used_at" json:"used_at"`
+	CreatedAt time.Time        `db:"created_at" json:"created_at"`
 }

@@ -9,6 +9,10 @@ import (
 )
 
 type Querier interface {
+	// Atomically marks a token used, but only if it is still valid for the
+	// given purpose; returns no row for an unknown, expired, already-used or
+	// wrong-purpose token.
+	ConsumeUserToken(ctx context.Context, arg ConsumeUserTokenParams) (UserToken, error)
 	CountAllFiles(ctx context.Context) (int64, error)
 	CountAllForms(ctx context.Context) (int64, error)
 	CountFilesByTenant(ctx context.Context, tenantID int32) (int64, error)
@@ -27,6 +31,7 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	// For bootstrapping accounts: an existing user is left untouched.
 	CreateUserIfNotExists(ctx context.Context, arg CreateUserIfNotExistsParams) (int64, error)
+	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) (UserToken, error)
 	// Scoped by tenant so one tenant can never remove another tenant's file.
 	DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error)
 	DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, error)
@@ -55,8 +60,12 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int32) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetUserTokenByHash(ctx context.Context, tokenHash []byte) (UserToken, error)
 	// InsertStripeEvent affects 0 rows when the event id was already recorded.
 	InsertStripeEvent(ctx context.Context, arg InsertStripeEventParams) (int64, error)
+	// Run before issuing a new token so older ones for the same purpose can no
+	// longer be redeemed.
+	InvalidateUserTokens(ctx context.Context, arg InvalidateUserTokensParams) error
 	// Links the tenant of a completed checkout to its subscription. Status,
 	// period end and event time are kept when that subscription is already
 	// stored, so a subscription event applied first is not overwritten, and
@@ -76,6 +85,7 @@ type Querier interface {
 	// Scoped by tenant through the owning form; metadata is optional (LEFT JOIN).
 	ListSubmissionsByForm(ctx context.Context, arg ListSubmissionsByFormParams) ([]ListSubmissionsByFormRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	MarkUserEmailVerified(ctx context.Context, id int32) (User, error)
 	RotateTenantAPIKey(ctx context.Context, arg RotateTenantAPIKeyParams) (Tenant, error)
 	SetTenantStripeCustomer(ctx context.Context, arg SetTenantStripeCustomerParams) (Tenant, error)
 	// Storage used by the tenant's files, for the plan storage limit.
@@ -84,6 +94,7 @@ type Querier interface {
 	// An update about the stored subscription created before the last one
 	// applied matches no row, so events delivered out of order are dropped.
 	UpdateTenantSubscriptionByCustomer(ctx context.Context, arg UpdateTenantSubscriptionByCustomerParams) (Tenant, error)
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error)
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error)
 }
 

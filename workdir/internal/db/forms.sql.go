@@ -46,22 +46,23 @@ func (q *Queries) CountFormsByTenant(ctx context.Context, arg CountFormsByTenant
 
 const createForm = `-- name: CreateForm :one
 INSERT INTO forms (tenant_id, title, slug, description, is_active, start_date, end_date, form_content,
-                   public_available, accept_anonymous)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous
+                   public_available, accept_anonymous, notify_on_submission)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous, notify_on_submission
 `
 
 type CreateFormParams struct {
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
 }
 
 func (q *Queries) CreateForm(ctx context.Context, arg CreateFormParams) (Form, error) {
@@ -76,6 +77,7 @@ func (q *Queries) CreateForm(ctx context.Context, arg CreateFormParams) (Form, e
 		arg.FormContent,
 		arg.PublicAvailable,
 		arg.AcceptAnonymous,
+		arg.NotifyOnSubmission,
 	)
 	var i Form
 	err := row.Scan(
@@ -92,6 +94,7 @@ func (q *Queries) CreateForm(ctx context.Context, arg CreateFormParams) (Form, e
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 	)
 	return i, err
 }
@@ -115,7 +118,7 @@ func (q *Queries) DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, 
 }
 
 const getAnyFormByID = `-- name: GetAnyFormByID :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission, t.name AS tenant_name,
        (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
@@ -123,21 +126,22 @@ WHERE f.id = $1
 `
 
 type GetAnyFormByIDRow struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
-	TenantName      string          `db:"tenant_name" json:"tenant_name"`
-	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
+	TenantName         string          `db:"tenant_name" json:"tenant_name"`
+	SubmissionCount    int64           `db:"submission_count" json:"submission_count"`
 }
 
 // Across every tenant, for the read-only /app dashboard.
@@ -158,6 +162,7 @@ func (q *Queries) GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDR
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 		&i.TenantName,
 		&i.SubmissionCount,
 	)
@@ -165,7 +170,7 @@ func (q *Queries) GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDR
 }
 
 const getFormByID = `-- name: GetFormByID :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission, t.name AS tenant_name
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.id = $1 AND f.tenant_id = $2
@@ -177,20 +182,21 @@ type GetFormByIDParams struct {
 }
 
 type GetFormByIDRow struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
-	TenantName      string          `db:"tenant_name" json:"tenant_name"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
+	TenantName         string          `db:"tenant_name" json:"tenant_name"`
 }
 
 // Scoped by tenant so one tenant can never read another tenant's form.
@@ -211,35 +217,37 @@ func (q *Queries) GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFo
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 		&i.TenantName,
 	)
 	return i, err
 }
 
 const getFormBySlug = `-- name: GetFormBySlug :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name, t.is_active AS tenant_is_active, t.plan AS tenant_plan
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission, t.name AS tenant_name, t.is_active AS tenant_is_active, t.plan AS tenant_plan
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.slug = $1
 `
 
 type GetFormBySlugRow struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
-	TenantName      string          `db:"tenant_name" json:"tenant_name"`
-	TenantIsActive  *bool           `db:"tenant_is_active" json:"tenant_is_active"`
-	TenantPlan      TenantPlan      `db:"tenant_plan" json:"tenant_plan"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
+	TenantName         string          `db:"tenant_name" json:"tenant_name"`
+	TenantIsActive     *bool           `db:"tenant_is_active" json:"tenant_is_active"`
+	TenantPlan         TenantPlan      `db:"tenant_plan" json:"tenant_plan"`
 }
 
 // Any state, for the respondent pages that explain why a form is closed. The
@@ -262,6 +270,7 @@ func (q *Queries) GetFormBySlug(ctx context.Context, slug string) (GetFormBySlug
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 		&i.TenantName,
 		&i.TenantIsActive,
 		&i.TenantPlan,
@@ -270,7 +279,7 @@ func (q *Queries) GetFormBySlug(ctx context.Context, slug string) (GetFormBySlug
 }
 
 const getFormOverviewByID = `-- name: GetFormOverviewByID :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission, t.name AS tenant_name,
        (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
@@ -283,21 +292,22 @@ type GetFormOverviewByIDParams struct {
 }
 
 type GetFormOverviewByIDRow struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
-	TenantName      string          `db:"tenant_name" json:"tenant_name"`
-	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
+	TenantName         string          `db:"tenant_name" json:"tenant_name"`
+	SubmissionCount    int64           `db:"submission_count" json:"submission_count"`
 }
 
 // GetAnyFormByID scoped by tenant, for the /app pages of a signed-in user.
@@ -318,6 +328,7 @@ func (q *Queries) GetFormOverviewByID(ctx context.Context, arg GetFormOverviewBy
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 		&i.TenantName,
 		&i.SubmissionCount,
 	)
@@ -325,7 +336,7 @@ func (q *Queries) GetFormOverviewByID(ctx context.Context, arg GetFormOverviewBy
 }
 
 const getPublicFormBySlug = `-- name: GetPublicFormBySlug :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.slug = $1
@@ -355,12 +366,13 @@ func (q *Queries) GetPublicFormBySlug(ctx context.Context, slug string) (Form, e
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 	)
 	return i, err
 }
 
 const listAllForms = `-- name: ListAllForms :many
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name,
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission, t.name AS tenant_name,
        (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
@@ -374,21 +386,22 @@ type ListAllFormsParams struct {
 }
 
 type ListAllFormsRow struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
-	TenantName      string          `db:"tenant_name" json:"tenant_name"`
-	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
+	TenantName         string          `db:"tenant_name" json:"tenant_name"`
+	SubmissionCount    int64           `db:"submission_count" json:"submission_count"`
 }
 
 // Across every tenant, for the read-only /app dashboard.
@@ -415,6 +428,7 @@ func (q *Queries) ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]L
 			&i.UpdatedAt,
 			&i.PublicAvailable,
 			&i.AcceptAnonymous,
+			&i.NotifyOnSubmission,
 			&i.TenantName,
 			&i.SubmissionCount,
 		); err != nil {
@@ -429,7 +443,7 @@ func (q *Queries) ListAllForms(ctx context.Context, arg ListAllFormsParams) ([]L
 }
 
 const listFormsByTenant = `-- name: ListFormsByTenant :many
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, f.notify_on_submission, (SELECT count(*) FROM form_submissions s WHERE s.form_id = f.id) AS submission_count
 FROM forms f
 WHERE f.tenant_id = $1
   AND ($2::boolean IS NULL OR f.is_active = $2)
@@ -447,20 +461,21 @@ type ListFormsByTenantParams struct {
 }
 
 type ListFormsByTenantRow struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	CreatedAt       *time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time      `db:"updated_at" json:"updated_at"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
-	SubmissionCount int64           `db:"submission_count" json:"submission_count"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	CreatedAt          *time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          *time.Time      `db:"updated_at" json:"updated_at"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
+	SubmissionCount    int64           `db:"submission_count" json:"submission_count"`
 }
 
 // Optional filters: is_active (nil = any) and search (case-insensitive title match).
@@ -493,6 +508,7 @@ func (q *Queries) ListFormsByTenant(ctx context.Context, arg ListFormsByTenantPa
 			&i.UpdatedAt,
 			&i.PublicAvailable,
 			&i.AcceptAnonymous,
+			&i.NotifyOnSubmission,
 			&i.SubmissionCount,
 		); err != nil {
 			return nil, err
@@ -516,23 +532,25 @@ SET title = $3,
     form_content = $9,
     public_available = $10,
     accept_anonymous = $11,
+    notify_on_submission = $12,
     updated_at = now()
 WHERE id = $1 AND tenant_id = $2
-RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous
+RETURNING id, tenant_id, title, slug, description, is_active, start_date, end_date, form_content, created_at, updated_at, public_available, accept_anonymous, notify_on_submission
 `
 
 type UpdateFormParams struct {
-	ID              int32           `db:"id" json:"id"`
-	TenantID        int32           `db:"tenant_id" json:"tenant_id"`
-	Title           string          `db:"title" json:"title"`
-	Slug            string          `db:"slug" json:"slug"`
-	Description     *string         `db:"description" json:"description"`
-	IsActive        *bool           `db:"is_active" json:"is_active"`
-	StartDate       *time.Time      `db:"start_date" json:"start_date"`
-	EndDate         *time.Time      `db:"end_date" json:"end_date"`
-	FormContent     json.RawMessage `db:"form_content" json:"form_content"`
-	PublicAvailable bool            `db:"public_available" json:"public_available"`
-	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	ID                 int32           `db:"id" json:"id"`
+	TenantID           int32           `db:"tenant_id" json:"tenant_id"`
+	Title              string          `db:"title" json:"title"`
+	Slug               string          `db:"slug" json:"slug"`
+	Description        *string         `db:"description" json:"description"`
+	IsActive           *bool           `db:"is_active" json:"is_active"`
+	StartDate          *time.Time      `db:"start_date" json:"start_date"`
+	EndDate            *time.Time      `db:"end_date" json:"end_date"`
+	FormContent        json.RawMessage `db:"form_content" json:"form_content"`
+	PublicAvailable    bool            `db:"public_available" json:"public_available"`
+	AcceptAnonymous    bool            `db:"accept_anonymous" json:"accept_anonymous"`
+	NotifyOnSubmission bool            `db:"notify_on_submission" json:"notify_on_submission"`
 }
 
 func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error) {
@@ -548,6 +566,7 @@ func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, e
 		arg.FormContent,
 		arg.PublicAvailable,
 		arg.AcceptAnonymous,
+		arg.NotifyOnSubmission,
 	)
 	var i Form
 	err := row.Scan(
@@ -564,6 +583,7 @@ func (q *Queries) UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, e
 		&i.UpdatedAt,
 		&i.PublicAvailable,
 		&i.AcceptAnonymous,
+		&i.NotifyOnSubmission,
 	)
 	return i, err
 }

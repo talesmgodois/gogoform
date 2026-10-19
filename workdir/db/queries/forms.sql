@@ -1,7 +1,7 @@
 -- name: CreateForm :one
 INSERT INTO forms (tenant_id, title, slug, description, is_active, start_date, end_date, form_content,
-                   public_available, accept_anonymous)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                   public_available, accept_anonymous, notify_on_submission)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING *;
 
 -- name: GetFormByID :one
@@ -62,6 +62,7 @@ SET title = $3,
     form_content = $9,
     public_available = $10,
     accept_anonymous = $11,
+    notify_on_submission = $12,
     updated_at = now()
 WHERE id = $1 AND tenant_id = $2
 RETURNING *;

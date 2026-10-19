@@ -173,6 +173,61 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 	return items, nil
 }
 
+const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
+UPDATE users
+SET email_verified_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at
+`
+
+func (q *Queries) MarkUserEmailVerified(ctx context.Context, id int32) (User, error) {
+	row := q.db.QueryRow(ctx, markUserEmailVerified, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :one
+UPDATE users
+SET password_hash = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at
+`
+
+type UpdateUserPasswordParams struct {
+	ID           int32  `db:"id" json:"id"`
+	PasswordHash string `db:"password_hash" json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
 const updateUserRole = `-- name: UpdateUserRole :one
 UPDATE users
 SET role = $2,
