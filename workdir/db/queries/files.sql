@@ -44,3 +44,8 @@ LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 -- name: CountFilesByTenant :one
 SELECT count(*) FROM files
 WHERE tenant_id = $1;
+
+-- name: SumFileSizeByTenant :one
+-- Storage used by the tenant's files, for the plan storage limit.
+SELECT COALESCE(sum(size_bytes), 0)::bigint AS used_bytes FROM files
+WHERE tenant_id = $1;

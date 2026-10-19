@@ -2,6 +2,7 @@ package submissions
 
 import (
 	"context"
+	"time"
 
 	"app/internal/database"
 	"app/internal/db"
@@ -110,6 +111,19 @@ func (s *Service) ListAllByForm(ctx context.Context, filter ListSubmissionsFilte
 		subs[i] = toSubmission(db.ListSubmissionsByFormRow(row))
 	}
 	return subs, nil
+}
+
+// CountByTenantSince returns how many submissions every form of the tenant
+// received at or after since.
+func (s *Service) CountByTenantSince(ctx context.Context, tenantID int32, since time.Time) (int64, error) {
+	n, err := s.q.CountSubmissionsByTenantSince(ctx, db.CountSubmissionsByTenantSinceParams{
+		TenantID: tenantID,
+		Since:    &since,
+	})
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
 }
 
 // toSubmission maps a submission row LEFT JOINed with its metadata.

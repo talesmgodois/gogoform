@@ -20,6 +20,9 @@ type Repository interface {
 	ListByTenant(ctx context.Context, tenantID int32, page Page) ([]FileSummary, error)
 	// CountByTenant returns how many files the tenant has.
 	CountByTenant(ctx context.Context, tenantID int32) (int64, error)
+	// StorageUsedByTenant returns the total size in bytes of the tenant's
+	// files.
+	StorageUsedByTenant(ctx context.Context, tenantID int32) (int64, error)
 	// ListAll returns the files of every tenant without their Data, newest
 	// first. It is not scoped by tenant: only use it behind operator-level
 	// access.

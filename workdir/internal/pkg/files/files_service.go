@@ -140,6 +140,15 @@ func (s *Service) CountByTenant(ctx context.Context, tenantID int32) (int64, err
 	return n, nil
 }
 
+// StorageUsedByTenant returns the total size in bytes of the tenant's files.
+func (s *Service) StorageUsedByTenant(ctx context.Context, tenantID int32) (int64, error) {
+	n, err := s.q.SumFileSizeByTenant(ctx, tenantID)
+	if err != nil {
+		return 0, apperrors.NewInternal(err)
+	}
+	return n, nil
+}
+
 // ListAll returns the files of every tenant without their Data, newest first.
 func (s *Service) ListAll(ctx context.Context, page Page) ([]FileSummary, error) {
 	if page.Offset < 0 || page.Limit < 1 {

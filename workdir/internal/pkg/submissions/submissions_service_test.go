@@ -22,6 +22,11 @@ type fakeQuerier struct {
 	createSubmissionMetadata func(db.CreateSubmissionMetadataParams) (db.SubmissionMetadatum, error)
 	listSubmissionsByForm    func(db.ListSubmissionsByFormParams) ([]db.ListSubmissionsByFormRow, error)
 	listAllSubmissions       func(db.ListAllSubmissionsByFormParams) ([]db.ListAllSubmissionsByFormRow, error)
+	countByTenantSince       func(db.CountSubmissionsByTenantSinceParams) (int64, error)
+}
+
+func (f *fakeQuerier) CountSubmissionsByTenantSince(_ context.Context, arg db.CountSubmissionsByTenantSinceParams) (int64, error) {
+	return f.countByTenantSince(arg)
 }
 
 func (f *fakeQuerier) CreateFormSubmission(_ context.Context, arg db.CreateFormSubmissionParams) (db.FormSubmission, error) {
@@ -217,6 +222,40 @@ func TestListAllByForm(t *testing.T) {
 			assertCode(t, err, tt.wantCode)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("submissions = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountByTenantSince(t *testing.T) {
+	tests := []struct {
+		name     string
+		count    int64
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", 42, nil, "", 42},
+		{"none", 0, nil, "", 0},
+		{"db failure", 0, errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{countByTenantSince: func(arg db.CountSubmissionsByTenantSinceParams) (int64, error) {
+				if arg.TenantID != 7 {
+					t.Fatalf("tenant = %d, want 7", arg.TenantID)
+				}
+				if arg.Since == nil || !arg.Since.Equal(now) {
+					t.Fatalf("since = %v, want %v", arg.Since, now)
+				}
+				return tt.count, tt.err
+			}})
+
+			got, err := svc.CountByTenantSince(context.Background(), 7, now)
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("count = %d, want %d", got, tt.want)
 			}
 		})
 	}

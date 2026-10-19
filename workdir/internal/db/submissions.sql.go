@@ -11,6 +11,27 @@ import (
 	"time"
 )
 
+const countSubmissionsByTenantSince = `-- name: CountSubmissionsByTenantSince :one
+SELECT count(*)
+FROM form_submissions s
+JOIN forms f ON f.id = s.form_id
+WHERE f.tenant_id = $1 AND s.submitted_at >= $2
+`
+
+type CountSubmissionsByTenantSinceParams struct {
+	TenantID int32      `db:"tenant_id" json:"tenant_id"`
+	Since    *time.Time `db:"since" json:"since"`
+}
+
+// Submissions received by every form of the tenant since a point in time, for
+// the monthly plan limit.
+func (q *Queries) CountSubmissionsByTenantSince(ctx context.Context, arg CountSubmissionsByTenantSinceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countSubmissionsByTenantSince, arg.TenantID, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createFormSubmission = `-- name: CreateFormSubmission :one
 INSERT INTO form_submissions (form_id, payload, user_id)
 VALUES ($1, $2, $3)

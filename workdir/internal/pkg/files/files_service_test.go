@@ -26,6 +26,11 @@ type fakeQuerier struct {
 	countAll    func() (int64, error)
 	listTenant  func(db.ListFilesByTenantParams) ([]db.ListFilesByTenantRow, error)
 	countTenant func(int32) (int64, error)
+	sumTenant   func(int32) (int64, error)
+}
+
+func (f *fakeQuerier) SumFileSizeByTenant(_ context.Context, tenantID int32) (int64, error) {
+	return f.sumTenant(tenantID)
 }
 
 func (f *fakeQuerier) ListFilesByTenant(_ context.Context, arg db.ListFilesByTenantParams) ([]db.ListFilesByTenantRow, error) {
@@ -322,6 +327,37 @@ func TestCountByTenant(t *testing.T) {
 			assertCode(t, err, tt.wantCode)
 			if got != tt.want {
 				t.Fatalf("count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStorageUsedByTenant(t *testing.T) {
+	tests := []struct {
+		name     string
+		used     int64
+		err      error
+		wantCode apperrors.Code
+		want     int64
+	}{
+		{"ok", 1 << 20, nil, "", 1 << 20},
+		{"no files", 0, nil, "", 0},
+		{"db failure", 0, errDB, apperrors.CodeInternal, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(&fakeQuerier{sumTenant: func(tenantID int32) (int64, error) {
+				if tenantID != 7 {
+					t.Fatalf("tenant = %d, want 7", tenantID)
+				}
+				return tt.used, tt.err
+			}})
+
+			got, err := svc.StorageUsedByTenant(context.Background(), 7)
+
+			assertCode(t, err, tt.wantCode)
+			if got != tt.want {
+				t.Fatalf("used = %d, want %d", got, tt.want)
 			}
 		})
 	}

@@ -14,6 +14,9 @@ type Querier interface {
 	CountFilesByTenant(ctx context.Context, tenantID int32) (int64, error)
 	// Same filters as ListFormsByTenant, for pagination totals.
 	CountFormsByTenant(ctx context.Context, arg CountFormsByTenantParams) (int64, error)
+	// Submissions received by every form of the tenant since a point in time, for
+	// the monthly plan limit.
+	CountSubmissionsByTenantSince(ctx context.Context, arg CountSubmissionsByTenantSinceParams) (int64, error)
 	// Returns the metadata only: the blob was just sent by the caller.
 	CreateFile(ctx context.Context, arg CreateFileParams) (CreateFileRow, error)
 	CreateForm(ctx context.Context, arg CreateFormParams) (Form, error)
@@ -35,7 +38,8 @@ type Querier interface {
 	// Scoped by tenant so one tenant can never read another tenant's form.
 	GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFormByIDRow, error)
 	// Any state, for the respondent pages that explain why a form is closed. The
-	// caller decides availability from is_active, the window and tenant_is_active.
+	// caller decides availability from is_active, the window and tenant_is_active,
+	// and the plan limits from tenant_plan.
 	GetFormBySlug(ctx context.Context, slug string) (GetFormBySlugRow, error)
 	// GetAnyFormByID scoped by tenant, for the /app pages of a signed-in user.
 	GetFormOverviewByID(ctx context.Context, arg GetFormOverviewByIDParams) (GetFormOverviewByIDRow, error)
@@ -74,6 +78,8 @@ type Querier interface {
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	RotateTenantAPIKey(ctx context.Context, arg RotateTenantAPIKeyParams) (Tenant, error)
 	SetTenantStripeCustomer(ctx context.Context, arg SetTenantStripeCustomerParams) (Tenant, error)
+	// Storage used by the tenant's files, for the plan storage limit.
+	SumFileSizeByTenant(ctx context.Context, tenantID int32) (int64, error)
 	UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error)
 	// An update about the stored subscription created before the last one
 	// applied matches no row, so events delivered out of order are dropped.

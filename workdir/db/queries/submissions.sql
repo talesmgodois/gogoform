@@ -26,3 +26,11 @@ JOIN forms f ON f.id = s.form_id
 LEFT JOIN submission_metadata m ON m.submission_id = s.id
 WHERE s.form_id = sqlc.arg(form_id) AND f.tenant_id = sqlc.arg(tenant_id)
 ORDER BY s.submitted_at DESC, s.id DESC;
+
+-- name: CountSubmissionsByTenantSince :one
+-- Submissions received by every form of the tenant since a point in time, for
+-- the monthly plan limit.
+SELECT count(*)
+FROM form_submissions s
+JOIN forms f ON f.id = s.form_id
+WHERE f.tenant_id = sqlc.arg(tenant_id) AND s.submitted_at >= sqlc.arg(since);

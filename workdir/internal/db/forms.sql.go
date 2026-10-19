@@ -217,7 +217,7 @@ func (q *Queries) GetFormByID(ctx context.Context, arg GetFormByIDParams) (GetFo
 }
 
 const getFormBySlug = `-- name: GetFormBySlug :one
-SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name, t.is_active AS tenant_is_active
+SELECT f.id, f.tenant_id, f.title, f.slug, f.description, f.is_active, f.start_date, f.end_date, f.form_content, f.created_at, f.updated_at, f.public_available, f.accept_anonymous, t.name AS tenant_name, t.is_active AS tenant_is_active, t.plan AS tenant_plan
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.slug = $1
@@ -239,10 +239,12 @@ type GetFormBySlugRow struct {
 	AcceptAnonymous bool            `db:"accept_anonymous" json:"accept_anonymous"`
 	TenantName      string          `db:"tenant_name" json:"tenant_name"`
 	TenantIsActive  *bool           `db:"tenant_is_active" json:"tenant_is_active"`
+	TenantPlan      TenantPlan      `db:"tenant_plan" json:"tenant_plan"`
 }
 
 // Any state, for the respondent pages that explain why a form is closed. The
-// caller decides availability from is_active, the window and tenant_is_active.
+// caller decides availability from is_active, the window and tenant_is_active,
+// and the plan limits from tenant_plan.
 func (q *Queries) GetFormBySlug(ctx context.Context, slug string) (GetFormBySlugRow, error) {
 	row := q.db.QueryRow(ctx, getFormBySlug, slug)
 	var i GetFormBySlugRow
@@ -262,6 +264,7 @@ func (q *Queries) GetFormBySlug(ctx context.Context, slug string) (GetFormBySlug
 		&i.AcceptAnonymous,
 		&i.TenantName,
 		&i.TenantIsActive,
+		&i.TenantPlan,
 	)
 	return i, err
 }

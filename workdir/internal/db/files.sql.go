@@ -264,3 +264,16 @@ func (q *Queries) ListFilesByTenant(ctx context.Context, arg ListFilesByTenantPa
 	}
 	return items, nil
 }
+
+const sumFileSizeByTenant = `-- name: SumFileSizeByTenant :one
+SELECT COALESCE(sum(size_bytes), 0)::bigint AS used_bytes FROM files
+WHERE tenant_id = $1
+`
+
+// Storage used by the tenant's files, for the plan storage limit.
+func (q *Queries) SumFileSizeByTenant(ctx context.Context, tenantID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, sumFileSizeByTenant, tenantID)
+	var used_bytes int64
+	err := row.Scan(&used_bytes)
+	return used_bytes, err
+}

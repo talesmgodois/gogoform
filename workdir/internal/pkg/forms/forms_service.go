@@ -9,6 +9,7 @@ import (
 	"app/internal/database"
 	"app/internal/db"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/tenants"
 )
 
 // Client-facing messages of the errors returned by Service.
@@ -130,6 +131,7 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (FormBySlug, error
 		}),
 		TenantName:   row.TenantName,
 		TenantActive: deref(row.TenantIsActive),
+		TenantPlan:   tenants.Plan(row.TenantPlan),
 	}, nil
 }
 

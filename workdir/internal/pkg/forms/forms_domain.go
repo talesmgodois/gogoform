@@ -5,6 +5,8 @@ package forms
 import (
 	"encoding/json"
 	"time"
+
+	"app/internal/pkg/tenants"
 )
 
 // Form is a form owned by a tenant.
@@ -37,11 +39,13 @@ type FormDetails struct {
 }
 
 // FormBySlug is a Form looked up by slug in any state, together with its
-// tenant, so callers can tell why a form is not available (see Availability).
+// tenant, so callers can tell why a form is not available (see Availability)
+// and which plan limits apply to it.
 type FormBySlug struct {
 	Form
 	TenantName   string
 	TenantActive bool
+	TenantPlan   tenants.Plan
 }
 
 // FormSummary is a Form as shown in listings, with its submission count.

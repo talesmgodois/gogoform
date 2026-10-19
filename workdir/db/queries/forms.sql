@@ -26,8 +26,9 @@ WHERE f.slug = $1
 
 -- name: GetFormBySlug :one
 -- Any state, for the respondent pages that explain why a form is closed. The
--- caller decides availability from is_active, the window and tenant_is_active.
-SELECT f.*, t.name AS tenant_name, t.is_active AS tenant_is_active
+-- caller decides availability from is_active, the window and tenant_is_active,
+-- and the plan limits from tenant_plan.
+SELECT f.*, t.name AS tenant_name, t.is_active AS tenant_is_active, t.plan AS tenant_plan
 FROM forms f
 JOIN tenants t ON t.id = f.tenant_id
 WHERE f.slug = $1;

@@ -1,6 +1,9 @@
 package submissions
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Repository persists form submissions and their metadata.
 //
@@ -20,4 +23,7 @@ type Repository interface {
 	ListByForm(ctx context.Context, filter ListSubmissionsFilter, page Page) ([]Submission, error)
 	// ListAllByForm is ListByForm without pagination, for exports.
 	ListAllByForm(ctx context.Context, filter ListSubmissionsFilter) ([]Submission, error)
+	// CountByTenantSince returns how many submissions every form of the
+	// tenant received at or after since.
+	CountByTenantSince(ctx context.Context, tenantID int32, since time.Time) (int64, error)
 }

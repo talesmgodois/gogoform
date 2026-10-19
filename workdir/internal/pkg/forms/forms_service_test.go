@@ -13,6 +13,7 @@ import (
 
 	"app/internal/db"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/tenants"
 )
 
 // fakeQuerier implements db.Querier with per-method stubs. Calling a method
@@ -306,6 +307,7 @@ func TestGetBySlug(t *testing.T) {
 		ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
 		IsActive: ptr(true), StartDate: &now, FormContent: content,
 		CreatedAt: &now, UpdatedAt: &now, TenantName: "Acme", TenantIsActive: ptr(true),
+		TenantPlan: db.TenantPlanPro,
 	}
 	tests := []struct {
 		name     string
@@ -328,7 +330,7 @@ func TestGetBySlug(t *testing.T) {
 			got, err := svc.GetBySlug(context.Background(), "survey")
 
 			assertCode(t, err, tt.wantCode)
-			want := FormBySlug{Form: wantForm, TenantName: "Acme", TenantActive: true}
+			want := FormBySlug{Form: wantForm, TenantName: "Acme", TenantActive: true, TenantPlan: tenants.PlanPro}
 			if err == nil && !reflect.DeepEqual(got, want) {
 				t.Fatalf("form = %+v, want %+v", got, want)
 			}
