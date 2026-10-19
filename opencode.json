@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "compaction": {
+    "auto": true,
+    "prune": true
+  },
+  "watcher": {
+    "ignore": [
+      "workdir/docs/**",
+      "workdir/bin/**",
+      "__ai_work/finished/**",
+      "__ai_work/reviews/**"
+    ]
+  },
+  "permission": {
+    "read": {
+      "*": "allow",
+      "workdir/docs/*": "deny",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+# Hidden from search (ripgrep) for Claude Code's Grep/Glob and OpenCode's grep/glob/list,
+# so agents don't burn tokens on generated or historical files. They can still be
+# opened by path when needed. Git is unaffected (see .gitignore for that).
+
+# Generated swagger (~240 KB): regenerate with `make swagger`, never read.
+workdir/docs/
+
+# Build output and dependencies.
+workdir/bin/
+.opencode/node_modules/
+**/__pycache__/
+
+# Finished task history and runner state: open by path only when a task refers to it.
+__ai_work/finished/
+__ai_work/reviews/
+__ai_work/errors/track/
