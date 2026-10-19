@@ -35,7 +35,7 @@ func TestAppPageAccess(t *testing.T) {
 		{"/app/users", "creator", http.StatusForbidden},
 		{"/app/users", "admin", http.StatusOK},
 		{"/app/billing", "", http.StatusSeeOther},
-		{"/app/billing", "basic", http.StatusOK},
+		{"/app/billing", "basic", http.StatusForbidden}, // no workspace
 	}
 	for _, tt := range tests {
 		rec := serve(svc, pageRequest(t, svc, tt.path, tt.user))
@@ -118,18 +118,6 @@ func TestAppHeaderNavigation(t *testing.T) {
 	signin := serve(svc, pageRequest(t, svc, "/app/signin", "")).Body.String()
 	if strings.Contains(signin, "data-signout") || strings.Contains(signin, `href="/app/billing"`) {
 		t.Error("sign-in page shows the signed-in navigation")
-	}
-}
-
-func TestAppBillingPlaceholder(t *testing.T) {
-	svc := testServices()
-	rec := serve(svc, pageRequest(t, svc, "/app/billing", "basic"))
-	assertStatus(t, rec, http.StatusOK)
-	body := rec.Body.String()
-	for _, want := range []string{"Billing is coming soon", `aria-current="page">Billing</a>`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("billing page misses %q", want)
-		}
 	}
 }
 

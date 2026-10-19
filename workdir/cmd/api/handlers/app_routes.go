@@ -41,7 +41,7 @@ func (c *appController) routes() []appRoute {
 		{Pattern: "POST /app/signin", Handler: c.SignIn, Access: auth.Public},
 		{Pattern: "POST /app/signout", Handler: c.SignOut, Access: auth.Public},
 		{Pattern: "GET /app/account", Handler: c.Account, Access: auth.SignedIn(), Nav: &navTab{Key: "account", Label: "Account"}},
-		{Pattern: "GET /app/billing", Handler: c.Billing, Access: auth.SignedIn(), Nav: &navTab{Key: "billing", Label: "Billing"}},
+		{Pattern: "GET /app/billing", Handler: c.Billing, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "billing", Label: "Billing"}},
 		{Pattern: "GET /app/admin", Handler: c.AdminIndex, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "admin", Label: "All tenants"}},
 		{Pattern: "GET /app/admin/forms/{id}", Handler: c.AdminForm, Access: auth.SignedIn(auth.RoleAdmin)},
 		{Pattern: "GET /app/admin/forms/{id}/submissions.json", Handler: c.AdminExportJSON, Access: auth.SignedIn(auth.RoleAdmin)},

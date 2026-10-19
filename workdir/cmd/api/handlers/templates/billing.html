@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "head" "Billing"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "nav" .}}
+
+  <main class="mx-auto max-w-4xl px-6 py-8 space-y-8">
+    {{if eq .Checkout "success"}}
+    <div data-checkout="success" role="status" class="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+      Thanks for upgrading! Your payment went through; the pro plan shows up here as soon as Stripe confirms the subscription.
+    </div>
+    {{else if eq .Checkout "cancel"}}
+    <div data-checkout="cancel" role="status" class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+      Checkout was canceled. You have not been charged and your plan is unchanged.
+    </div>
+    {{end}}
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Current plan</p>
+          <h1 class="mt-1 flex items-center gap-3 text-xl font-bold tracking-tight">
+            {{if .Pro}}Pro{{else}}Free{{end}}
+            {{if .Pro}}<span data-plan="pro" class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-xs font-medium text-indigo-300 ring-1 ring-inset ring-indigo-500/20">9 USD / month</span>{{else}}<span data-plan="free" class="rounded-full bg-slate-500/10 px-2 py-0.5 font-mono text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">0 USD</span>{{end}}
+          </h1>
+          <p class="mt-1 text-xs text-slate-500">Workspace {{.Tenant.Name}} · tenant #{{.Tenant.ID}}</p>
+        </div>
+        {{if .Enabled}}
+        <div class="flex flex-wrap gap-2 text-xs font-semibold">
+          {{if .CanManage}}
+          <form method="post" action="/billing/portal">
+            <button type="submit" class="rounded-lg border border-slate-700 px-4 py-2 text-slate-200 hover:bg-slate-800">Manage subscription</button>
+          </form>
+          {{end}}
+          {{if .CanUpgrade}}
+          <form method="post" action="/billing/checkout">
+            <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-white shadow hover:bg-indigo-500">Upgrade to Pro</button>
+          </form>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+
+      <dl class="mt-6 grid gap-4 sm:grid-cols-2">
+        <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <dt class="text-xs font-semibold uppercase tracking-wider text-slate-400">Subscription status</dt>
+          <dd class="mt-1 font-mono text-sm text-slate-200">{{or .Tenant.SubscriptionStatus "none"}}</dd>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <dt class="text-xs font-semibold uppercase tracking-wider text-slate-400">Renews on</dt>
+          <dd class="mt-1 text-sm text-slate-200">{{datetime .Tenant.CurrentPeriodEnd}}</dd>
+        </div>
+      </dl>
+
+      {{if not .Enabled}}
+      <p data-billing-unavailable class="mt-6 text-sm text-slate-400">Billing is not available on this server, so plans cannot be changed here. Your forms keep working in the meantime.</p>
+      {{else if .Pro}}
+      <p class="mt-6 text-sm text-slate-400">Update your payment method, download invoices or cancel in the Stripe customer portal.</p>
+      {{else}}
+      <p class="mt-6 text-sm text-slate-400">Upgrade to Pro for 9 USD a month. Payment is handled securely by Stripe.</p>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>

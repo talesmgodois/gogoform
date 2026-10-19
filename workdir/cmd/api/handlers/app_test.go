@@ -9,9 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"app/internal/config"
+	"app/internal/database"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/billing"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/tenants"
 )
 
 // getApp requests GET /app with the session cookie of username (none when
@@ -276,5 +280,123 @@ func TestFormStatus(t *testing.T) {
 		if got := formStatus(tt.form).Label; got != tt.want {
 			t.Errorf("%s: status = %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+// billingTestStripe is a complete Stripe configuration, which mounts the
+// billing routes.
+var billingTestStripe = config.StripeConfig{
+	SecretKey: "sk_test_x", WebhookSecret: "whsec_test", PriceID: "price_pro", AppBaseURL: "https://forms.example.com",
+}
+
+// getBilling requests GET /app/billing (with query) as appUser, whose
+// workspace is testTenant changed by change. Billing is enabled when stripe
+// is.
+func getBilling(t *testing.T, stripe config.StripeConfig, query string, change func(*tenants.Tenant)) *httptest.ResponseRecorder {
+	t.Helper()
+	svc := appServices()
+	owned := svc.tenants.(*fakeTenants).owned
+	tenant := owned[2]
+	change(&tenant)
+	owned[2] = tenant
+	if stripe.Enabled() {
+		billingSvc, err := billing.NewService(nil, svc.tenants, billing.Options{PriceID: stripe.PriceID, Tx: &database.FakeTxRunner{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		svc.billing = billingSvc
+	}
+	rec := httptest.NewRecorder()
+	Routes(svc, testFeatures, stripe).ServeHTTP(rec, pageRequest(t, svc, "/app/billing"+query, appUser))
+	return rec
+}
+
+func TestAppBilling(t *testing.T) {
+	periodEnd := time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
+	free := func(*tenants.Tenant) {}
+	pro := func(tt *tenants.Tenant) {
+		tt.Plan, tt.StripeCustomerID, tt.StripeSubscriptionID = tenants.PlanPro, "cus_1", "sub_1"
+		tt.SubscriptionStatus, tt.CurrentPeriodEnd = "active", &periodEnd
+	}
+	upgrade := `<form method="post" action="/billing/checkout">`
+	manage := `<form method="post" action="/billing/portal">`
+	unavailable := "data-billing-unavailable"
+	success, cancel := `data-checkout="success"`, `data-checkout="cancel"`
+	tests := []struct {
+		name          string
+		stripe        config.StripeConfig
+		query         string
+		change        func(*tenants.Tenant)
+		want, notWant []string
+	}{
+		{
+			name: "free", stripe: billingTestStripe, change: free,
+			want:    []string{`data-plan="free"`, ">none</dd>", ">—</dd>", upgrade},
+			notWant: []string{manage, unavailable, success, cancel},
+		},
+		{
+			name: "pro", stripe: billingTestStripe, change: pro,
+			want:    []string{`data-plan="pro"`, ">active</dd>", ">2026-11-19 10:00 UTC</dd>", manage},
+			notWant: []string{upgrade, unavailable},
+		},
+		{
+			name: "free with a canceled subscription", stripe: billingTestStripe,
+			change: func(tt *tenants.Tenant) { tt.StripeCustomerID, tt.SubscriptionStatus = "cus_1", "canceled" },
+			want:   []string{`data-plan="free"`, ">canceled</dd>", upgrade, manage},
+		},
+		{
+			name: "free with a past_due subscription", stripe: billingTestStripe,
+			change: func(tt *tenants.Tenant) {
+				tt.StripeCustomerID, tt.StripeSubscriptionID, tt.SubscriptionStatus = "cus_1", "sub_1", "past_due"
+			},
+			want:    []string{`data-plan="free"`, ">past_due</dd>", manage},
+			notWant: []string{upgrade},
+		},
+		{
+			name: "checkout success", stripe: billingTestStripe, query: "?checkout=success", change: free,
+			want: []string{success}, notWant: []string{cancel},
+		},
+		{
+			name: "checkout cancel", stripe: billingTestStripe, query: "?checkout=cancel", change: free,
+			want: []string{cancel}, notWant: []string{success},
+		},
+		{
+			name: "unknown checkout outcome", stripe: billingTestStripe, query: "?checkout=%3Cb%3E", change: free,
+			notWant: []string{success, cancel, "data-checkout"},
+		},
+		{
+			name: "stripe disabled", stripe: testStripe, change: pro,
+			want:    []string{`data-plan="pro"`, unavailable},
+			notWant: []string{upgrade, manage},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := getBilling(t, tt.stripe, tt.query, tt.change)
+			assertStatus(t, rec, http.StatusOK)
+			if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp,
+				"form-action 'self' https://checkout.stripe.com https://billing.stripe.com;") {
+				t.Errorf("Content-Security-Policy = %q, want the forms allowed to reach Stripe", csp)
+			}
+			body := rec.Body.String()
+			for _, want := range append(tt.want, `aria-current="page">Billing</a>`) {
+				if !strings.Contains(body, want) {
+					t.Errorf("billing page misses %q", want)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(body, notWant) {
+					t.Errorf("billing page shows %q", notWant)
+				}
+			}
+		})
+	}
+}
+
+func TestAppPagesForbidFormSubmissions(t *testing.T) {
+	rec := getApp(t, appServices(), appUser)
+	assertStatus(t, rec, http.StatusOK)
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'none';") {
+		t.Errorf("Content-Security-Policy = %q, want form-action 'none'", csp)
 	}
 }

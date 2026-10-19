@@ -13,6 +13,7 @@ import (
 	"app/internal/db"
 	"app/internal/handler"
 	authpkg "app/internal/pkg/auth"
+	"app/internal/pkg/billing"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
@@ -28,13 +29,17 @@ type Services struct {
 	webhooks    webhooks.Repository
 	files       files.Repository
 	auth        *authpkg.Service
+	// billing is nil when Stripe is not configured.
+	billing *billing.Service
 }
 
 // NewServices returns the sqlc-backed implementation of every repository,
-// along with authSvc, which authenticates users.
-func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
+// along with authSvc, which authenticates users, and billingSvc, which is nil
+// when Stripe is not configured.
+func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Service) Services {
 	return Services{
 		auth:        authSvc,
+		billing:     billingSvc,
 		tenants:     tenants.NewService(q),
 		forms:       forms.NewService(q),
 		submissions: submissions.NewService(q),
@@ -51,8 +56,9 @@ func NewServices(q db.Querier, authSvc *authpkg.Service) Services {
 // the session cookie, guarded by an auth.Policy (guard). The /app pages,
 // listed in app_routes.go, use the session cookie of a signed-in user. The
 // development-only POST /tenants and /samples/* are only mounted when enabled
-// in features.
-func Routes(svc Services, features config.FeaturesConfig) http.Handler {
+// in features. The billing routes (billing.go) are only mounted when stripe is
+// enabled and svc has a billing service, so they 404 otherwise.
+func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig) http.Handler {
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
 	formsCtl := &formsController{forms: svc.forms}
 	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions, files: svc.files}
@@ -112,7 +118,14 @@ func Routes(svc Services, features config.FeaturesConfig) http.Handler {
 	mux.HandleFunc("GET /f/{slug}", publicPageCtl.Form)
 	mux.HandleFunc("GET /f/{slug}/thanks", publicPageCtl.Thanks)
 
-	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth}
+	billingEnabled := stripe.Enabled() && svc.billing != nil
+	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth,
+		billingEnabled: billingEnabled}
 	appCtl.mount(mux)
+
+	if billingEnabled {
+		billingCtl := &billingController{billing: svc.billing, stripe: stripe, app: appCtl}
+		billingCtl.mount(mux)
+	}
 	return mux
 }

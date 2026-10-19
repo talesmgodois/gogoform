@@ -9,7 +9,7 @@ import (
 )
 
 func TestRoutes(t *testing.T) {
-	srv := httptest.NewServer(Routes(testServices(), testFeatures))
+	srv := httptest.NewServer(Routes(testServices(), testFeatures, testStripe))
 	defer srv.Close()
 
 	tests := []struct {
@@ -74,7 +74,7 @@ func TestDevOnlyRoutes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := Routes(testServices(), tt.features)
+			h := Routes(testServices(), tt.features, testStripe)
 			for _, r := range devRoutes {
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, httptest.NewRequest(r.method, r.path, nil))

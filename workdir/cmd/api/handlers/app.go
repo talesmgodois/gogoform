@@ -26,10 +26,15 @@ const appListLimit = 100
 // injects the generated CSS as inline <style> tags, and run the inline scripts
 // carrying the per-request nonce (the %s verb). The file viewer embeds files
 // from /files/{id}: images, audio/video, PDFs in a frame and text via fetch;
-// the form builder and the form actions call the /forms API.
+// the form builder and the form actions call the /forms API. The second %s
+// verb is the form-action source list (appLayout.formAction).
 const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%s'; " +
 	"style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; " +
-	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	"base-uri 'none'; form-action %s; frame-ancestors 'none'"
+
+// defaultFormAction forbids form submissions; the pages call the API with
+// fetch instead.
+const defaultFormAction = "'none'"
 
 //go:embed templates
 var templatesFS embed.FS
@@ -51,6 +56,7 @@ var (
 	appAccountTemplate = parseAppPage("account.html")
 	appUsersTemplate   = parseAppPage("users.html")
 	appMessageTemplate = parseAppPage("message.html")
+	appBillingTemplate = parseAppPage("billing.html")
 )
 
 // parseAppPage parses the page template called name along with the shared
@@ -74,6 +80,9 @@ type appLayout struct {
 	User *auth.User
 	// Tabs are the navigation entries the viewer may open.
 	Tabs []navTab
+	// formAction is the form-action source list of the page's
+	// Content-Security-Policy; defaultFormAction when empty.
+	formAction string
 }
 
 func (l *appLayout) layout() *appLayout { return l }
@@ -117,6 +126,9 @@ type appController struct {
 	files       files.Repository
 	submissions submissions.Repository
 	auth        *auth.Service
+	// billingEnabled tells whether the /billing routes are mounted, so the
+	// billing page can offer checkout and the customer portal.
+	billingEnabled bool
 	// mounted are the routes registered by mount.
 	mounted []appRoute
 }
@@ -143,15 +155,6 @@ func (c *appController) renderIndex(w http.ResponseWriter, r *http.Request, v ap
 	}
 	page.appView, page.Active = v, v.navKey()
 	renderAppPage(w, r, appTemplate, &page)
-}
-
-// Billing is a placeholder for the billing page.
-func (c *appController) Billing(w http.ResponseWriter, r *http.Request) {
-	renderAppPage(w, r, appMessageTemplate, &appMessagePage{
-		appLayout: appLayout{Active: "billing"},
-		Title:     "Billing is coming soon",
-		Message:   "Plans and invoices will show up here. Your forms keep working in the meantime.",
-	})
 }
 
 // navKey is the navTab highlighted on the pages of v.
@@ -185,7 +188,11 @@ func renderAppPageStatus(w http.ResponseWriter, r *http.Request, status int, t *
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", fmt.Sprintf(appContentSecurityPolicy, nonce))
+	formAction := l.formAction
+	if formAction == "" {
+		formAction = defaultFormAction
+	}
+	h.Set("Content-Security-Policy", fmt.Sprintf(appContentSecurityPolicy, nonce, formAction))
 	setAppNoStoreHeaders(h)
 	w.WriteHeader(status)
 	buf.WriteTo(w)

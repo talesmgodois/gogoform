@@ -28,6 +28,9 @@ const testAPIKey = "test-key"
 // testFeatures enables the development-only routes, as in development.
 var testFeatures = featureFlags(true)
 
+// testStripe leaves Stripe unconfigured, so the billing routes are not mounted.
+var testStripe config.StripeConfig
+
 // featureFlags returns a FeaturesConfig with every flag set to enabled.
 func featureFlags(enabled bool) config.FeaturesConfig {
 	return config.FeaturesConfig{PublicTenantSignup: &enabled, Samples: &enabled}
@@ -529,10 +532,10 @@ func tokenFor(t *testing.T, svc Services, username string) string {
 	return tok.AccessToken
 }
 
-// serve sends req through Routes(svc, testFeatures).
+// serve sends req through Routes(svc, testFeatures, testStripe).
 func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -559,7 +562,7 @@ func appServices(fs ...forms.Form) Services {
 	return svc
 }
 
-// do sends a request with the given body (if any) through Routes(svc, testFeatures),
+// do sends a request with the given body (if any) through Routes(svc, testFeatures, testStripe),
 // authenticated with testAPIKey when auth is true.
 func do(t *testing.T, svc Services, method, path, body string, auth bool) *httptest.ResponseRecorder {
 	t.Helper()
@@ -572,7 +575,7 @@ func do(t *testing.T, svc Services, method, path, body string, auth bool) *httpt
 		req.Header.Set(apiKeyHeader, testAPIKey)
 	}
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe).ServeHTTP(rec, req)
 	return rec
 }
 

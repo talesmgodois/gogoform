@@ -40,6 +40,8 @@ import (
 	"app/internal/db"
 	"app/internal/logger"
 	"app/internal/pkg/auth"
+	"app/internal/pkg/billing"
+	"app/internal/pkg/tenants"
 )
 
 func main() {
@@ -85,13 +87,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	billingSvc, err := newBillingService(log, queries, txRunner, cfg.Stripe)
+	if err != nil {
+		return err
+	}
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	docs.SwaggerInfo.Host = fmt.Sprintf("localhost:%d", cfg.Server.Port)
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc), cfg.Features),
+		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc, billingSvc), cfg.Features, cfg.Stripe),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -144,6 +150,23 @@ func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx data
 		if created {
 			log.Info("auth: bootstrap admin created", "username", auth.NormalizeUsername(cfg.AdminUsername))
 		}
+	}
+	return svc, nil
+}
+
+// newBillingService builds the Stripe billing service, or returns nil when
+// Stripe is not configured, which leaves the billing routes unmounted.
+func newBillingService(log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.StripeConfig) (*billing.Service, error) {
+	if !cfg.Enabled() {
+		log.Info("billing: Stripe is not configured; billing routes are disabled")
+		return nil, nil
+	}
+	svc, err := billing.NewService(billing.NewStripeGateway(cfg.SecretKey), tenants.NewService(q), billing.Options{
+		PriceID: cfg.PriceID,
+		Tx:      tx,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("billing: %w", err)
 	}
 	return svc, nil
 }
