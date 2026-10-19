@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
+	"app/internal/pkg/tenants"
 )
 
 const testFileID = "0b6a3b2e-8f1c-4c4e-9d5e-2f1a7c3b9e10"
@@ -89,6 +92,64 @@ func TestUploadFileInvalid(t *testing.T) {
 	assertStatus(t, upload(t, svc, [4]string{"file", "big.bin", "", strings.Repeat("x", maxUploadBytes+1)}), http.StatusBadRequest)
 	assertStatus(t, do(t, svc, http.MethodPost, "/files", `{"file":"x"}`, true), http.StatusBadRequest)
 	assertStatus(t, do(t, svc, http.MethodPost, "/files", "", false), http.StatusUnauthorized)
+}
+
+// storageLimitCases are uploads of uploadSize bytes for tenants of each plan
+// whose stored files already take all but free bytes of the plan's storage.
+var storageLimitCases = []struct {
+	name string
+	plan tenants.Plan
+	free int64
+	want int
+}{
+	{"free lands on the limit", tenants.PlanFree, uploadSize, http.StatusCreated},
+	{"free one byte over", tenants.PlanFree, uploadSize - 1, http.StatusPaymentRequired},
+	{"pro lands on the limit", tenants.PlanPro, uploadSize, http.StatusCreated},
+	{"pro one byte over", tenants.PlanPro, uploadSize - 1, http.StatusPaymentRequired},
+}
+
+// uploadSize is the size of the uploads of storageLimitCases.
+const uploadSize = 4
+
+// seedStorage stores a file for tenantID taking all but free bytes of plan's
+// storage limit.
+func seedStorage(svc Services, tenantID int32, plan tenants.Plan, free int64) {
+	used := plans.For(plan).MaxStorageBytes - free
+	svc.files.(*fakeFiles).files["seed"] = files.File{ID: "seed", TenantID: tenantID, Size: used}
+}
+
+func TestUploadFileStorageLimit(t *testing.T) {
+	proTenant := tenants.Tenant{ID: 8, Name: "Pro", APIKey: "pro-key", IsActive: true, Plan: tenants.PlanPro}
+	for _, tt := range storageLimitCases {
+		t.Run(tt.name, func(t *testing.T) {
+			tenant := testTenant
+			if tt.plan == tenants.PlanPro {
+				tenant = proTenant
+			}
+			svc := testServices()
+			svc.tenants = &fakeTenants{owned: map[int32]tenants.Tenant{proTenant.ID: proTenant}}
+			seedStorage(svc, tenant.ID, tt.plan, tt.free)
+
+			req := multipartRequest(t, "/files", [4]string{"file", "a.txt", "text/plain", strings.Repeat("x", uploadSize)})
+			req.Header.Set(apiKeyHeader, tenant.APIKey)
+			rec := serve(svc, req)
+			assertStatus(t, rec, tt.want)
+
+			in := svc.files.(*fakeFiles).created
+			if tt.want == http.StatusCreated {
+				if in.TenantID != tenant.ID {
+					t.Fatalf("input = %+v", in)
+				}
+				return
+			}
+			if in.Data != nil {
+				t.Fatalf("stored over the limit: %+v", in)
+			}
+			if body := decode[apperrors.HTTPErrorResponse](t, rec); body.Code != apperrors.CodePlanLimitReached {
+				t.Fatalf("body = %+v", body)
+			}
+		})
+	}
 }
 
 func TestGetFile(t *testing.T) {
@@ -251,5 +312,34 @@ func TestPublicUploadFileAvailability(t *testing.T) {
 		req := multipartRequest(t, "/public/forms/"+slug+"/files", [4]string{"field", "", "", "photo"}, png)
 		req.Header.Set("Authorization", token)
 		assertStatus(t, serve(svc, req), http.StatusCreated)
+	}
+}
+
+func TestPublicUploadFileStorageLimit(t *testing.T) {
+	for _, tt := range storageLimitCases {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := testServices(uploadForm)
+			svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{uploadForm.TenantID: tt.plan}
+			seedStorage(svc, uploadForm.TenantID, tt.plan, tt.free)
+
+			rec := publicUpload(t, svc, "jobs", "cv", [4]string{"file", "cv.txt", "text/plain", strings.Repeat("x", uploadSize)})
+			assertStatus(t, rec, tt.want)
+
+			in := svc.files.(*fakeFiles).created
+			if tt.want == http.StatusCreated {
+				if in.TenantID != uploadForm.TenantID {
+					t.Fatalf("input = %+v", in)
+				}
+				return
+			}
+			if in.Data != nil {
+				t.Fatalf("stored over the limit: %+v", in)
+			}
+			// Respondents get a generic message, without the tenant's plan.
+			body := decode[apperrors.HTTPErrorResponse](t, rec)
+			if body.Code != apperrors.CodePlanLimitReached || body.Message != "This form is not accepting responses right now." {
+				t.Fatalf("body = %+v", body)
+			}
+		})
 	}
 }

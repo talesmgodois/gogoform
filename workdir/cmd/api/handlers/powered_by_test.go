@@ -1,15 +1,27 @@
 package handlers
 
 import (
-	"context"
 	"html/template"
 	"strings"
 	"testing"
+
+	"app/internal/pkg/tenants"
 )
 
-func TestShowPoweredByAlwaysForNow(t *testing.T) {
-	if !showPoweredBy(context.Background(), 7) {
-		t.Fatal("showPoweredBy = false, want true until plans exist")
+func TestShowPoweredBy(t *testing.T) {
+	tests := []struct {
+		plan tenants.Plan
+		want bool
+	}{
+		{tenants.PlanFree, true},
+		{tenants.PlanPro, false},
+		{"", true},
+		{"enterprise", true},
+	}
+	for _, tt := range tests {
+		if got := showPoweredBy(tt.plan); got != tt.want {
+			t.Errorf("showPoweredBy(%q) = %v, want %v", tt.plan, got, tt.want)
+		}
 	}
 }
 

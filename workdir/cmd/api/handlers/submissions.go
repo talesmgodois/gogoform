@@ -11,6 +11,7 @@ import (
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 )
 
@@ -18,6 +19,9 @@ import (
 const (
 	msgInvalidAnswers = "some answers are invalid"
 	msgFileNotFound   = "file not found; upload it again"
+	// msgNotAccepting is shown to respondents instead of the plan limit
+	// reached by the form's tenant, which they need not know about.
+	msgNotAccepting = "This form is not accepting responses right now."
 )
 
 // CreateSubmissionRequest is the body of POST /public/forms/{slug}/submissions.
@@ -60,12 +64,13 @@ type submissionsController struct {
 	forms       forms.Repository
 	submissions submissions.Repository
 	files       files.Repository
+	plans       *plans.Enforcer
 }
 
 // Create stores a submission of a public form.
 //
 //	@Summary		Submit a form
-//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose "fields" object maps each offending field name to its error.
+//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose "fields" object maps each offending field name to its error. A form whose tenant reached its plan's monthly submission limit fails with plan_limit_reached and a generic message.
 //	@Tags			submissions,public
 //	@Accept			json
 //	@Produce		json
@@ -76,6 +81,7 @@ type submissionsController struct {
 //	@Success		201		{object}	SubmissionResponse			"Submission stored"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request, or invalid answers listed in fields"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
+//	@Failure		402		{object}	errors.HTTPErrorResponse	"Form not accepting responses: monthly submission limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
@@ -113,7 +119,11 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		in.UserID = &u.ID
 	}
-	if err := c.validatePayload(r, f, payload); err != nil {
+	if err := checkSubmissionLimit(r, c.plans, f); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	if err := c.validatePayload(r, f.Form, payload); err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
@@ -137,6 +147,23 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 		sub.Metadata = &meta
 	}
 	writeJSON(w, r, http.StatusCreated, toSubmissionResponse(sub))
+}
+
+// checkSubmissionLimit checks that f's tenant may receive another submission
+// this month. Over the limit it returns a plan_limit_reached error with the
+// generic msgNotAccepting, keeping the tenant's plan from respondents.
+func checkSubmissionLimit(r *http.Request, enforcer *plans.Enforcer, f forms.FormBySlug) error {
+	return hidePlanLimit(enforcer.CheckSubmission(r.Context(), f.TenantID, f.TenantPlan, time.Now()))
+}
+
+// hidePlanLimit replaces the message of a plan_limit_reached err with the
+// generic msgNotAccepting, for public endpoints whose callers need not know
+// the tenant's plan. Other errors are returned unchanged.
+func hidePlanLimit(err error) error {
+	if e, ok := apperrors.As(err); ok && e.Code == apperrors.CodePlanLimitReached {
+		return apperrors.NewPlanLimitReached(msgNotAccepting)
+	}
+	return err
 }
 
 // validatePayload checks payload against the definition of f and that the

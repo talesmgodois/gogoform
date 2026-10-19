@@ -13,6 +13,7 @@ import (
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 )
 
@@ -31,11 +32,14 @@ type appFormPage struct {
 	appLayout
 	appView
 	Origin string
-	Form forms.FormOverview
+	Form   forms.FormOverview
 	// Table and JSON show the submissions of the current page, newest first.
 	Table submissionTable
 	JSON  string
 	Pager pager
+	// Exports tells whether the page offers the CSV and JSON downloads: always
+	// in an admin view, else only when the workspace's plan includes them.
+	Exports bool
 }
 
 // pager is the position of a page of submissions within all of them.
@@ -135,6 +139,7 @@ func (c *appController) renderForm(w http.ResponseWriter, r *http.Request, v app
 		Table:     newSubmissionTable(f.Content, subs),
 		JSON:      string(body),
 		Pager:     p,
+		Exports:   canExport(r, v),
 	}
 	renderAppPage(w, r, appFormTemplate, &page)
 }
@@ -209,12 +214,22 @@ func (c *appController) viewForm(r *http.Request, v appView, name, s string) (fo
 	return c.forms.GetOverview(r.Context(), tenantFrom(r.Context()).ID, id)
 }
 
+// canExport reports whether the viewer of v may download submissions: admins
+// always, else only when the workspace's plan includes exports.
+func canExport(r *http.Request, v appView) bool {
+	return v.Admin || plans.For(tenantFrom(r.Context()).Plan).Exports
+}
+
 // allSubmissions returns the form of v named by the id path value and every
-// one of its submissions, newest first.
+// one of its submissions, newest first. A workspace whose plan has no exports
+// gets a plan_feature_unavailable error once the form is found.
 func (c *appController) allSubmissions(r *http.Request, v appView) (forms.FormOverview, []submissions.Submission, error) {
 	f, err := c.viewForm(r, v, "id", r.PathValue("id"))
 	if err != nil {
 		return forms.FormOverview{}, nil, err
+	}
+	if !canExport(r, v) {
+		return forms.FormOverview{}, nil, apperrors.NewPlanFeatureUnavailable("Exporting submissions as CSV or JSON is available on the Pro plan. Upgrade to Pro to download them.")
 	}
 	subs, err := c.submissions.ListAllByForm(r.Context(), submissions.ListSubmissionsFilter{TenantID: f.TenantID, FormID: f.ID})
 	if err != nil {

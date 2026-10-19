@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"app/internal/pkg/tenants"
 )
 
 func TestIsolationAppPagesHideOtherTenant(t *testing.T) {
@@ -53,7 +55,8 @@ func TestIsolationAppPagesHideOtherTenant(t *testing.T) {
 // tenantA), who must reach only A's form and get 404 for B's ("basic",
 // tenantB) while B's form stays untouched.
 func TestIsolationTwoSignedInUsers(t *testing.T) {
-	svc := twoTenantServices()
+	// A is on the pro plan so their exports are not gated.
+	svc := onPlan(twoTenantServices(), tenants.PlanPro)
 	fake := svc.forms.(*fakeForms)
 	formB := fake.forms[formOfB]
 	const origin = "http://example.com" // httptest.NewRequest's host

@@ -16,6 +16,7 @@ import (
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 )
 
 const (
@@ -53,12 +54,13 @@ type FileResponse struct {
 type filesController struct {
 	files files.Repository
 	forms forms.Repository
+	plans *plans.Enforcer
 }
 
 // Create uploads a file for the authenticated tenant.
 //
 //	@Summary		Upload a file
-//	@Description	Stores the file sent in the "file" field of a multipart form. Files are limited to 10 MiB and can then be read publicly at the returned url.
+//	@Description	Stores the file sent in the "file" field of a multipart form. Files are limited to 10 MiB and can then be read publicly at the returned url. Fails with plan_limit_reached when the file would take the tenant over its plan's storage limit.
 //	@Tags			files
 //	@Accept			multipart/form-data
 //	@Produce		json
@@ -69,6 +71,7 @@ type filesController struct {
 //	@Success		201		{object}	FileResponse				"File uploaded"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid, missing, empty or too large file"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		402		{object}	errors.HTTPErrorResponse	"Plan storage limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/files [post]
@@ -78,7 +81,12 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	in.TenantID = tenantFrom(r.Context()).ID
+	tenant := tenantFrom(r.Context())
+	if err := c.plans.CheckUpload(r.Context(), tenant.ID, tenant.Plan, int64(len(in.Data))); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	in.TenantID = tenant.ID
 	f, err := c.files.Create(r.Context(), in)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
@@ -93,7 +101,7 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 // storing it under the form's tenant.
 //
 //	@Summary		Upload a file to a form
-//	@Description	Stores the file sent in the "file" field of a multipart form, for the file field of the form named by the "field" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission.
+//	@Description	Stores the file sent in the "file" field of a multipart form, for the file field of the form named by the "field" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission. A form whose tenant would go over its plan's storage limit fails with plan_limit_reached and a generic message.
 //	@Tags			files,public
 //	@Accept			multipart/form-data
 //	@Produce		json
@@ -105,6 +113,7 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Success		201		{object}	FileResponse				"File uploaded"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid, missing, empty, too large or not accepted file, or unknown or non-file field"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
+//	@Failure		402		{object}	errors.HTTPErrorResponse	"Form not accepting responses: storage limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
@@ -124,7 +133,7 @@ func (c *filesController) PublicCreate(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	field, err := uploadFormField(f, values.Get(formFieldValue))
+	field, err := uploadFormField(f.Form, values.Get(formFieldValue))
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -136,6 +145,10 @@ func (c *filesController) PublicCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	case !field.Accepts(in.Name, in.ContentType):
 		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("file type is not accepted, expected "+field.Accept))
+		return
+	}
+	if err := hidePlanLimit(c.plans.CheckUpload(r.Context(), f.TenantID, f.TenantPlan, int64(len(in.Data)))); err != nil {
+		apperrors.WriteHTTP(w, r, err)
 		return
 	}
 	in.TenantID = f.TenantID

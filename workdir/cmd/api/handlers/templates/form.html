@@ -30,8 +30,12 @@
           {{end}}
           <a href="/f/{{.Slug}}" target="_blank" rel="noopener" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">Open form</a>
           <button type="button" data-copy-link="/f/{{.Slug}}" class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800" title="Copy the public link of {{.Title}}">Copy public link</button>
+          {{if $.Exports}}
           <a href="{{$.Base}}/forms/{{.ID}}/submissions.json" download class="rounded-lg border border-slate-700 px-3 py-2 text-slate-200 hover:bg-slate-800">Download JSON</a>
           <a href="{{$.Base}}/forms/{{.ID}}/submissions.csv" download class="rounded-lg bg-indigo-600 px-3 py-2 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-600/25">Download CSV</a>
+          {{else}}
+          <a href="/app/billing" data-upgrade-exports class="rounded-lg border border-indigo-500/40 px-3 py-2 text-indigo-300 hover:bg-indigo-500/10" title="CSV and JSON exports are available on the Pro plan">Upgrade to Pro to export</a>
+          {{end}}
           {{if not $.Admin}}<button type="button" data-form-delete class="rounded-lg border border-rose-500/30 px-3 py-2 text-rose-300 hover:bg-rose-500/10" title="Delete {{.Title}}">Delete</button>{{end}}
         </div>
       </div>

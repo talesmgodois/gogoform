@@ -12,6 +12,7 @@ import (
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 )
 
 // maxFormTextLen matches the size of the forms.title and forms.slug columns.
@@ -92,12 +93,13 @@ type FormListResponse struct {
 // formsController serves the form endpoints.
 type formsController struct {
 	forms forms.Repository
+	plans *plans.Enforcer
 }
 
 // Create creates a form for the authenticated tenant.
 //
 //	@Summary		Create a form
-//	@Description	Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.
+//	@Description	Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions. Fails with plan_limit_reached when the tenant's plan allows no more forms.
 //	@Tags			forms
 //	@Accept			json
 //	@Produce		json
@@ -108,6 +110,7 @@ type formsController struct {
 //	@Success		201		{object}	FormResponse				"Form created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
+//	@Failure		402		{object}	errors.HTTPErrorResponse	"Plan form limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		409		{object}	errors.HTTPErrorResponse	"Slug already exists"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
@@ -118,8 +121,13 @@ func (c *formsController) Create(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
+	tenant := tenantFrom(r.Context())
+	if err := c.plans.CheckFormCreate(r.Context(), tenant.ID, tenant.Plan); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
 	f, err := c.forms.Create(r.Context(), forms.CreateFormInput{
-		TenantID:        tenantFrom(r.Context()).ID,
+		TenantID:        tenant.ID,
 		Title:           req.Title,
 		Slug:            req.Slug,
 		Description:     req.Description,
@@ -343,28 +351,28 @@ func (c *formsController) GetPublic(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// availableForm returns the form of the slug path value if it can be filled
-// in by the user of the request, which Guard(auth.Public, ...) resolved.
+// availableForm returns the form of the slug path value, along with its
+// tenant's state, if it can be filled in by the user of the request, which Guard(auth.Public, ...) resolved.
 // Forms that exist but accept no responses get a 403 telling why, as the /f
 // page does; inactive forms and forms of inactive tenants share a message.
-func availableForm(r *http.Request, repo forms.Repository) (forms.Form, error) {
+func availableForm(r *http.Request, repo forms.Repository) (forms.FormBySlug, error) {
 	f, err := repo.GetBySlug(r.Context(), r.PathValue("slug"))
 	if err != nil {
-		return forms.Form{}, err
+		return forms.FormBySlug{}, err
 	}
 	switch forms.Availability(f.Form, f.TenantActive, time.Now()) {
 	case forms.Available:
 	case forms.NotStarted:
-		return forms.Form{}, apperrors.NewForbidden("form opens on " + f.StartDate.UTC().Format(time.RFC3339))
+		return forms.FormBySlug{}, apperrors.NewForbidden("form opens on " + f.StartDate.UTC().Format(time.RFC3339))
 	case forms.Ended:
-		return forms.Form{}, apperrors.NewForbidden("form closed on " + f.EndDate.UTC().Format(time.RFC3339))
+		return forms.FormBySlug{}, apperrors.NewForbidden("form closed on " + f.EndDate.UTC().Format(time.RFC3339))
 	default:
-		return forms.Form{}, apperrors.NewForbidden("form is not accepting responses")
+		return forms.FormBySlug{}, apperrors.NewForbidden("form is not accepting responses")
 	}
 	if !f.PublicAvailable && userFrom(r.Context()) == nil {
-		return forms.Form{}, apperrors.NewUnauthorized("sign in to access this form")
+		return forms.FormBySlug{}, apperrors.NewUnauthorized("sign in to access this form")
 	}
-	return f.Form, nil
+	return f, nil
 }
 
 // decodeFormRequest decodes and validates a FormRequest. Dates are

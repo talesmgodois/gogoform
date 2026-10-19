@@ -168,22 +168,27 @@ func renderAppMessage(w http.ResponseWriter, r *http.Request, status int, title,
 
 // renderAppError renders err as a message page, the HTML counterpart of
 // apperrors.WriteHTTP for the /app pages: malformed and unknown form IDs get
-// a 400 and a 404 page linking back to the dashboard, and 5xx errors are
-// logged and shown without their details.
+// a 400 and a 404 page linking back to the dashboard, features missing from
+// the workspace's plan a 403 page linking to the billing page, and 5xx
+// errors are logged and shown without their details.
 func renderAppError(w http.ResponseWriter, r *http.Request, err error) {
 	status := apperrors.HTTPStatus(err)
 	page := appMessagePage{Href: "/app", Link: "Back to your forms"}
+	appErr, _ := apperrors.As(err)
 	switch {
 	case status == http.StatusBadRequest:
 		page.Title, page.Message = "Invalid form", "The form address is malformed. Open the form from your dashboard."
 	case status == http.StatusNotFound:
 		page.Title, page.Message = "Form not found", "This form does not exist or is not in your workspace."
+	case appErr != nil && appErr.Code == apperrors.CodePlanFeatureUnavailable:
+		page.Title, page.Message = "Upgrade to Pro", appErr.Message
+		page.Href, page.Link = "/app/billing", "See plans"
 	case status >= http.StatusInternalServerError:
 		slog.ErrorContext(r.Context(), "request failed", "status", status, "error", err)
 		page.Title, page.Message = "Something went wrong", "We could not load this page. Try again in a moment."
 	default:
 		page.Title, page.Message = http.StatusText(status), "This request could not be completed."
-		if appErr, ok := apperrors.As(err); ok {
+		if appErr != nil {
 			page.Message = appErr.Message
 		}
 	}

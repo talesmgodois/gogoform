@@ -12,6 +12,7 @@ import (
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
+	"app/internal/pkg/tenants"
 )
 
 // surveyForm is a public form with an input of each kind the submission
@@ -183,6 +184,46 @@ func TestCreateSubmissionAvailability(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/public/forms/private/submissions", strings.NewReader(body))
 	req.Header.Set("Authorization", bearer(tokenFor(t, svc, "basic")))
 	assertStatus(t, serve(svc, req), http.StatusCreated)
+}
+
+func TestCreateSubmissionPlanLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		plan       tenants.Plan
+		monthCount int64
+		want       int
+	}{
+		{"free below limit", tenants.PlanFree, 99, http.StatusCreated},
+		{"free at limit", tenants.PlanFree, 100, http.StatusPaymentRequired},
+		{"pro at free limit", tenants.PlanPro, 100, http.StatusCreated},
+		{"pro below limit", tenants.PlanPro, 9_999, http.StatusCreated},
+		{"pro at limit", tenants.PlanPro, 10_000, http.StatusPaymentRequired},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := testServices(ownForm)
+			svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{ownForm.TenantID: tt.plan}
+			fake := svc.submissions.(*fakeSubmissions)
+			fake.monthCount = tt.monthCount
+
+			rec := do(t, svc, http.MethodPost, "/public/forms/contact/submissions", `{"payload":{}}`, false)
+			assertStatus(t, rec, tt.want)
+			if tt.want == http.StatusCreated {
+				if fake.created.FormID != ownForm.ID {
+					t.Fatalf("created = %+v", fake.created)
+				}
+				return
+			}
+			if fake.created.FormID != 0 {
+				t.Fatalf("submission created over the limit: %+v", fake.created)
+			}
+			// Respondents get a generic message, without the tenant's plan.
+			body := decode[apperrors.HTTPErrorResponse](t, rec)
+			if body.Code != apperrors.CodePlanLimitReached || body.Message != "This form is not accepting responses right now." {
+				t.Fatalf("body = %+v", body)
+			}
+		})
+	}
 }
 
 func TestListSubmissions(t *testing.T) {

@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
 	"time"
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
 )
@@ -115,6 +117,62 @@ type appPage struct {
 	Files       []files.FileSummary
 	FilesTotal  int64
 	GeneratedAt time.Time
+	// Usage is the workspace's usage against its plan; nil in the admin view.
+	Usage *usagePanel
+}
+
+// usagePanel is the plan usage shown on the workspace dashboard.
+type usagePanel struct {
+	// Plan is the workspace's plan.
+	Plan tenants.Plan
+	// Meters are the forms, the submissions this month and the storage.
+	Meters []usageMeter
+	// Upgrade tells whether to link to /app/billing: billing is enabled and
+	// the workspace is on the free plan.
+	Upgrade bool
+}
+
+// usageMeter is one usage figure against its limit.
+type usageMeter struct {
+	// Key identifies the meter in the page (data-usage attribute).
+	Key, Label string
+	// Used and Limit are the rendered figures; Limit is "Unlimited" when the
+	// plan sets no limit.
+	Used, Limit string
+	// Percent is the used share of the limit, capped at 100; 0 when
+	// unlimited.
+	Percent int
+	// Unlimited tells whether the plan sets no limit, so no bar is drawn.
+	Unlimited bool
+}
+
+// newUsagePanel builds the dashboard usage panel from u.
+func newUsagePanel(plan tenants.Plan, u plans.Usage, billingEnabled bool) *usagePanel {
+	count := func(n int64) string { return strconv.FormatInt(n, 10) }
+	return &usagePanel{
+		Plan: plan,
+		Meters: []usageMeter{
+			newUsageMeter("forms", "Forms", u.Forms, u.Limits.MaxForms, count),
+			newUsageMeter("submissions", "Submissions this month", u.SubmissionsThisMonth, u.Limits.MaxSubmissionsPerMonth, count),
+			newUsageMeter("storage", "Storage", u.StorageBytes, u.Limits.MaxStorageBytes, formatBytes),
+		},
+		Upgrade: billingEnabled && plan != tenants.PlanPro,
+	}
+}
+
+func newUsageMeter(key, label string, used, limit int64, format func(int64) string) usageMeter {
+	m := usageMeter{Key: key, Label: label, Used: format(used)}
+	if limit == plans.Unlimited {
+		m.Limit, m.Unlimited = "Unlimited", true
+		return m
+	}
+	m.Limit = format(limit)
+	if limit > 0 {
+		m.Percent = int(min(100, used*100/limit))
+	} else {
+		m.Percent = 100
+	}
+	return m
 }
 
 // appController serves the /app pages: the dashboard listing the forms and
@@ -126,6 +184,8 @@ type appController struct {
 	files       files.Repository
 	submissions submissions.Repository
 	auth        *auth.Service
+	// plans measures the workspace's usage for the dashboard.
+	plans *plans.Enforcer
 	// billingEnabled tells whether the /billing routes are mounted, so the
 	// billing page can offer checkout and the customer portal.
 	billingEnabled bool
@@ -228,6 +288,11 @@ func (c *appController) load(r *http.Request) (appPage, error) {
 	if page.FilesTotal, err = c.files.CountByTenant(ctx, t.ID); err != nil {
 		return appPage{}, err
 	}
+	usage, err := c.plans.Usage(ctx, t.ID, t.Plan, page.GeneratedAt)
+	if err != nil {
+		return appPage{}, err
+	}
+	page.Usage = newUsagePanel(t.Plan, usage, c.billingEnabled)
 	return page, nil
 }
 

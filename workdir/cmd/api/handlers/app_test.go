@@ -171,6 +171,88 @@ func TestAppEmpty(t *testing.T) {
 	}
 }
 
+func TestAppUsagePanel(t *testing.T) {
+	upgrade := `href="/app/billing" data-usage-upgrade`
+	tests := []struct {
+		name          string
+		plan          tenants.Plan
+		stripe        config.StripeConfig
+		want, notWant []string
+	}{
+		{
+			name: "free with billing", plan: tenants.PlanFree, stripe: billingTestStripe,
+			want: []string{
+				`data-plan="free"`, "Free plan", upgrade,
+				`<span data-usage-limit class="font-mono tabular-nums">3</span>`, `aria-label="Forms" aria-valuemin="0" aria-valuemax="100" aria-valuenow="66"`,
+				`<span class="font-mono tabular-nums">100</span> <span class="text-slate-500">of</span> <span data-usage-limit class="font-mono tabular-nums">100</span>`,
+				`aria-valuenow="100"`, "bg-rose-500",
+				`<span class="font-mono tabular-nums">2.0 KiB</span>`, `>100.0 MiB</span>`, `aria-valuenow="0"`,
+			},
+			notWant: []string{"Unlimited"},
+		},
+		{
+			name: "free without billing", plan: tenants.PlanFree, stripe: testStripe,
+			want:    []string{`data-plan="free"`, `>3</span>`, `>100.0 MiB</span>`},
+			notWant: []string{upgrade},
+		},
+		{
+			name: "pro", plan: tenants.PlanPro, stripe: billingTestStripe,
+			want: []string{
+				`data-plan="pro"`, "Pro plan",
+				`<span data-usage-limit class="font-mono tabular-nums">Unlimited</span>`,
+				`>10000</span>`, `aria-label="Submissions this month" aria-valuemin="0" aria-valuemax="100" aria-valuenow="1"`,
+				`>10.0 GiB</span>`,
+			},
+			notWant: []string{upgrade, `aria-label="Forms"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := appServices(
+				forms.Form{ID: 1, TenantID: 7, Title: "Survey", Slug: "survey"},
+				forms.Form{ID: 3, TenantID: 7, Title: "Poll", Slug: "poll"},
+			)
+			owned := svc.tenants.(*fakeTenants).owned
+			tenant := owned[2]
+			tenant.Plan = tt.plan
+			owned[2] = tenant
+			svc.submissions.(*fakeSubmissions).monthCount = 100
+			svc.files.(*fakeFiles).files[testFileID] = files.File{ID: testFileID, TenantID: 7, Name: "logo.png", Size: 2048}
+			if tt.stripe.Enabled() {
+				billingSvc, err := billing.NewService(nil, svc.tenants, billing.Options{PriceID: tt.stripe.PriceID, Tx: &database.FakeTxRunner{}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				svc.billing = billingSvc
+			}
+			rec := httptest.NewRecorder()
+			Routes(svc, testFeatures, tt.stripe).ServeHTTP(rec, pageRequest(t, svc, "/app", appUser))
+
+			assertStatus(t, rec, http.StatusOK)
+			body := rec.Body.String()
+			for _, want := range append(tt.want, `id="usage"`, "Submissions this month", "Storage") {
+				if !strings.Contains(body, want) {
+					t.Errorf("body does not contain %q", want)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(body, notWant) {
+					t.Errorf("body contains %q", notWant)
+				}
+			}
+		})
+	}
+}
+
+func TestAppUsageError(t *testing.T) {
+	svc := appServices()
+	svc.submissions.(*fakeSubmissions).monthErr = apperrors.NewInternal(errors.New("db down"))
+
+	rec := getApp(t, svc, appUser)
+
+	assertMessagePage(t, rec, http.StatusInternalServerError, "Something went wrong")
+}
+
 func TestAdminDashboardShowsTenantsWithoutEdit(t *testing.T) {
 	svc := appServices(forms.Form{ID: 1, TenantID: 7, Title: "Customer survey", Slug: "customer-survey"})
 
@@ -183,7 +265,7 @@ func TestAdminDashboardShowsTenantsWithoutEdit(t *testing.T) {
 			t.Errorf("body does not contain %q", want)
 		}
 	}
-	for _, unwanted := range []string{`href="/app/builder?form=1"`, ">New form</a>", "data-form-row", "data-form-toggle", "data-form-delete", `id="form-delete-dialog"`} {
+	for _, unwanted := range []string{`href="/app/builder?form=1"`, ">New form</a>", "data-form-row", "data-form-toggle", "data-form-delete", `id="form-delete-dialog"`, `id="usage"`} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("admin dashboard shows %q", unwanted)
 		}

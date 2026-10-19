@@ -28,6 +28,31 @@
       </div>
     </section>
 
+    {{with .Usage}}
+    <section id="usage" data-plan="{{.Plan}}" class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold tracking-tight">Plan usage</h2>
+          <p class="mt-1 text-xs text-slate-500">{{if eq (print .Plan) "pro"}}Pro{{else}}Free{{end}} plan · submissions reset on the 1st of each month (UTC)</p>
+        </div>
+        {{if .Upgrade}}<a href="/app/billing" data-usage-upgrade class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition">Upgrade to Pro</a>{{end}}
+      </div>
+      <dl class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-5">
+        {{range .Meters}}
+        <div data-usage="{{.Key}}">
+          <dt class="text-xs font-semibold uppercase tracking-wider text-slate-400">{{.Label}}</dt>
+          <dd class="mt-2 text-sm text-slate-200"><span class="font-mono tabular-nums">{{.Used}}</span> <span class="text-slate-500">of</span> <span data-usage-limit class="font-mono tabular-nums">{{.Limit}}</span></dd>
+          {{if not .Unlimited}}
+          <div role="progressbar" aria-label="{{.Label}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{.Percent}}" class="mt-2 h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div class="h-full rounded-full {{if ge .Percent 100}}bg-rose-500{{else if ge .Percent 80}}bg-amber-500{{else}}bg-indigo-500{{end}}" style="width: {{.Percent}}%"></div>
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+      </dl>
+    </section>
+    {{end}}
+
     <section id="forms">
       <div class="flex items-end justify-between mb-4">
         <h2 class="text-lg font-semibold tracking-tight">Forms</h2>

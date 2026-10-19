@@ -16,6 +16,7 @@ import (
 	"app/internal/pkg/billing"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
 	"app/internal/pkg/webhooks"
@@ -31,20 +32,24 @@ type Services struct {
 	auth        *authpkg.Service
 	// billing is nil when Stripe is not configured.
 	billing *billing.Service
+	// plans enforces plan limits, counting usage through the repositories.
+	plans *plans.Enforcer
 }
 
-// NewServices returns the sqlc-backed implementation of every repository,
-// along with authSvc, which authenticates users, and billingSvc, which is nil
+// NewServices returns the sqlc-backed implementation of every repository and
+// the plan Enforcer over them, along with authSvc, which authenticates users, and billingSvc, which is nil
 // when Stripe is not configured.
 func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Service) Services {
+	formsSvc, submissionsSvc, filesSvc := forms.NewService(q), submissions.NewService(q), files.NewService(q)
 	return Services{
 		auth:        authSvc,
 		billing:     billingSvc,
 		tenants:     tenants.NewService(q),
-		forms:       forms.NewService(q),
-		submissions: submissions.NewService(q),
+		forms:       formsSvc,
+		submissions: submissionsSvc,
 		webhooks:    webhooks.NewService(q),
-		files:       files.NewService(q),
+		files:       filesSvc,
+		plans:       plans.NewEnforcer(formsSvc, submissionsSvc, filesSvc),
 	}
 }
 
@@ -60,10 +65,10 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 // enabled and svc has a billing service, so they 404 otherwise.
 func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig) http.Handler {
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
-	formsCtl := &formsController{forms: svc.forms}
-	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions, files: svc.files}
+	formsCtl := &formsController{forms: svc.forms, plans: svc.plans}
+	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions, files: svc.files, plans: svc.plans}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
-	filesCtl := &filesController{files: svc.files, forms: svc.forms}
+	filesCtl := &filesController{files: svc.files, forms: svc.forms, plans: svc.plans}
 	authCtl := &authController{auth: svc.auth}
 	auth := tenantOrUser(svc.tenants, authCtl)
 	guard := authCtl.Guard
@@ -114,13 +119,13 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	mux.HandleFunc("POST /public/forms/{slug}/submissions", authCtl.PublicForm(submissionsCtl.Create))
 	mux.HandleFunc("POST /public/forms/{slug}/files", authCtl.PublicForm(filesCtl.PublicCreate))
 
-	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth}
+	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth, plans: svc.plans}
 	mux.HandleFunc("GET /f/{slug}", publicPageCtl.Form)
 	mux.HandleFunc("GET /f/{slug}/thanks", publicPageCtl.Thanks)
 
 	billingEnabled := stripe.Enabled() && svc.billing != nil
 	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth,
-		billingEnabled: billingEnabled}
+		plans: svc.plans, billingEnabled: billingEnabled}
 	appCtl.mount(mux)
 
 	if billingEnabled {

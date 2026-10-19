@@ -14,6 +14,7 @@ import (
 	apperrors "app/internal/errors"
 	"app/internal/pkg/forms"
 	"app/internal/pkg/submissions"
+	"app/internal/pkg/tenants"
 )
 
 // getAppPath requests GET path with the session cookie of appUser.
@@ -46,8 +47,17 @@ func formWithSubmissions() Services {
 	return svc
 }
 
+// onPlan puts the workspace of appUser in svc, built by appServices, on plan.
+func onPlan(svc Services, plan tenants.Plan) Services {
+	owned := svc.tenants.(*fakeTenants).owned
+	tenant := owned[2]
+	tenant.Plan = plan
+	owned[2] = tenant
+	return svc
+}
+
 func TestAppFormRendersSubmissions(t *testing.T) {
-	svc := formWithSubmissions()
+	svc := onPlan(formWithSubmissions(), tenants.PlanPro)
 
 	rec := getAppPath(t, svc, "/app/forms/1")
 
@@ -89,7 +99,7 @@ func TestAppFormEmpty(t *testing.T) {
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	for _, want := range []string{"This form has no submissions yet.", "No submissions to show.", `href="/app/forms/1/submissions.csv"`} {
+	for _, want := range []string{"This form has no submissions yet.", "No submissions to show."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
 		}
@@ -212,7 +222,7 @@ func TestAppFormErrors(t *testing.T) {
 
 func TestAppFormRepositoryError(t *testing.T) {
 	for _, path := range []string{"/app/forms/1", "/app/forms/1/submissions.json", "/app/forms/1/submissions.csv"} {
-		svc := formWithSubmissions()
+		svc := onPlan(formWithSubmissions(), tenants.PlanPro)
 		svc.submissions.(*fakeSubmissions).listErr = apperrors.NewInternal(errors.New("db down"))
 
 		rec := getAppPath(t, svc, path)
@@ -244,7 +254,7 @@ func assertMessagePage(t *testing.T, rec *httptest.ResponseRecorder, status int,
 }
 
 func TestAppExportJSON(t *testing.T) {
-	svc := formWithSubmissions()
+	svc := onPlan(formWithSubmissions(), tenants.PlanPro)
 
 	rec := getAppPath(t, svc, "/app/forms/1/submissions.json")
 
@@ -260,7 +270,7 @@ func TestAppExportJSON(t *testing.T) {
 }
 
 func TestAppExportCSV(t *testing.T) {
-	rec := getAppPath(t, formWithSubmissions(), "/app/forms/1/submissions.csv")
+	rec := getAppPath(t, onPlan(formWithSubmissions(), tenants.PlanPro), "/app/forms/1/submissions.csv")
 
 	assertStatus(t, rec, http.StatusOK)
 	assertAttachment(t, rec, "text/csv; charset=utf-8", "customer-survey-submissions.csv")
@@ -275,6 +285,64 @@ func TestAppExportCSV(t *testing.T) {
 	}
 	if !reflect.DeepEqual(records, want) {
 		t.Fatalf("CSV =\n%q\nwant\n%q", records, want)
+	}
+}
+
+func TestAppExportPlanGate(t *testing.T) {
+	downloads := []string{`href="/app/forms/1/submissions.json"`, `href="/app/forms/1/submissions.csv"`}
+	upgrade := `<a href="/app/billing" data-upgrade-exports`
+	tests := []struct {
+		plan    tenants.Plan
+		exports bool
+	}{
+		{tenants.PlanFree, false},
+		{tenants.PlanPro, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.plan), func(t *testing.T) {
+			rec := getAppPath(t, onPlan(formWithSubmissions(), tt.plan), "/app/forms/1")
+			assertStatus(t, rec, http.StatusOK)
+			body := rec.Body.String()
+			for _, link := range downloads {
+				if strings.Contains(body, link) != tt.exports {
+					t.Errorf("form page shows %s = %v, want %v", link, !tt.exports, tt.exports)
+				}
+			}
+			if strings.Contains(body, upgrade) == tt.exports {
+				t.Errorf("form page shows the upgrade hint = %v, want %v", tt.exports, !tt.exports)
+			}
+
+			for _, path := range []string{"/app/forms/1/submissions.json", "/app/forms/1/submissions.csv"} {
+				svc := onPlan(formWithSubmissions(), tt.plan)
+				rec := getAppPath(t, svc, path)
+				if tt.exports {
+					assertStatus(t, rec, http.StatusOK)
+					continue
+				}
+				assertStatus(t, rec, http.StatusForbidden)
+				if cd := rec.Header().Get("Content-Disposition"); cd != "" {
+					t.Errorf("%s: Content-Disposition = %q, want no download", path, cd)
+				}
+				body := rec.Body.String()
+				for _, want := range []string{"Upgrade to Pro</h1>", "available on the Pro plan", `href="/app/billing"`} {
+					if !strings.Contains(body, want) {
+						t.Errorf("%s: message page does not contain %q: %s", path, want, body)
+					}
+				}
+				if svc.submissions.(*fakeSubmissions).filter != (submissions.ListSubmissionsFilter{}) {
+					t.Errorf("%s: submissions were listed for a plan without exports", path)
+				}
+			}
+		})
+	}
+}
+
+func TestAdminExportIgnoresThePlan(t *testing.T) {
+	// Admin exports are not gated by any workspace plan.
+	svc := formWithSubmissions()
+	for _, path := range []string{"/app/admin/forms/1/submissions.json", "/app/admin/forms/1/submissions.csv"} {
+		rec := serve(svc, pageRequest(t, svc, path, "admin"))
+		assertStatus(t, rec, http.StatusOK)
 	}
 }
 

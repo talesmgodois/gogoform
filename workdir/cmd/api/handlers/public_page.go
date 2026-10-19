@@ -11,6 +11,7 @@ import (
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 )
 
 // publicContentSecurityPolicy is the policy of the public form pages. Like
@@ -89,13 +90,15 @@ type publicMessagePage struct {
 type publicPageController struct {
 	forms forms.Repository
 	auth  *auth.Service
+	plans *plans.Enforcer
 }
 
 // Form renders the form of the slug path value for respondents. The page
 // submits the answers to POST /public/forms/{slug}/submissions with the
 // session cookie of the optional signed-in user. A form that cannot be
 // filled in renders a message page instead: not found (404), not accepting
-// responses, not open yet or closed (403), or private with no session (401,
+// responses (also when its tenant reached the plan's monthly submission
+// limit), not open yet or closed (403), or private with no session (401,
 // with a sign-in link back to the form). With embed=1 every page renders the
 // embed mode, which other sites may frame.
 func (c *publicPageController) Form(w http.ResponseWriter, r *http.Request) {
@@ -105,8 +108,19 @@ func (c *publicPageController) Form(w http.ResponseWriter, r *http.Request) {
 		c.writeFormError(w, r, embed, err)
 		return
 	}
-	layout := publicLayout{PoweredBy: showPoweredBy(r.Context(), f.TenantID), Embed: embed}
-	if msg := unavailableMessage(f.Form, f.TenantActive, time.Now()); msg != nil {
+	layout := publicLayout{PoweredBy: showPoweredBy(f.TenantPlan), Embed: embed}
+	msg := unavailableMessage(f.Form, f.TenantActive, time.Now())
+	if msg == nil {
+		err := checkSubmissionLimit(r, c.plans, f)
+		switch {
+		case apperrors.HTTPStatus(err) == http.StatusPaymentRequired:
+			msg = notAcceptingMessage(f.Form)
+		case err != nil:
+			apperrors.WriteHTTP(w, r, err)
+			return
+		}
+	}
+	if msg != nil {
 		msg.publicLayout = layout
 		renderPublicPage(w, r, http.StatusForbidden, publicMessageTemplate, msg)
 		return
@@ -157,7 +171,7 @@ func (c *publicPageController) Thanks(w http.ResponseWriter, r *http.Request) {
 		again += "?embed=1"
 	}
 	renderPublicPage(w, r, http.StatusOK, publicMessageTemplate, &publicMessagePage{
-		publicLayout: publicLayout{PoweredBy: showPoweredBy(r.Context(), f.TenantID), Embed: embed},
+		publicLayout: publicLayout{PoweredBy: showPoweredBy(f.TenantPlan), Embed: embed},
 		FormTitle:    f.Title,
 		Title:        "Thank you!",
 		Message:      "Your response has been recorded.",
@@ -195,10 +209,16 @@ func unavailableMessage(f forms.Form, tenantActive bool, now time.Time) *publicM
 		msg.Title = "Form closed"
 		msg.Message = "This form closed on " + f.EndDate.UTC().Format(publicDateLayout) + " and no longer accepts responses."
 	default:
-		msg.Title = "Not accepting responses"
-		msg.Message = "This form is not accepting responses right now."
+		return notAcceptingMessage(f)
 	}
 	return msg
+}
+
+// notAcceptingMessage returns the message page of a form that accepts no
+// responses for a reason respondents need not know, such as being inactive
+// or its tenant having reached a plan limit.
+func notAcceptingMessage(f forms.Form) *publicMessagePage {
+	return &publicMessagePage{FormTitle: f.Title, Title: "Not accepting responses", Message: msgNotAccepting}
 }
 
 // publicPage is the data of a public page template, which embeds publicLayout.

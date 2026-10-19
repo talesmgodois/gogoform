@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"app/internal/pkg/forms"
+	"app/internal/pkg/tenants"
 )
 
 // publicSurvey is a public form of testTenant to render on /f.
@@ -129,6 +130,81 @@ func TestPublicFormPageStates(t *testing.T) {
 				t.Errorf("Content-Type = %q", got)
 			}
 			assertFrameAncestors(t, rec, strings.Contains(tt.path, "embed=1"))
+		})
+	}
+}
+
+func TestPublicFormPageSubmissionLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		plan       tenants.Plan
+		monthCount int64
+		want       int
+	}{
+		{"free below limit", tenants.PlanFree, 99, http.StatusOK},
+		{"free at limit", tenants.PlanFree, 100, http.StatusForbidden},
+		{"pro at free limit", tenants.PlanPro, 100, http.StatusOK},
+		{"pro below limit", tenants.PlanPro, 9_999, http.StatusOK},
+		{"pro at limit", tenants.PlanPro, 10_000, http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := testServices(publicSurvey())
+			svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{testTenant.ID: tt.plan}
+			svc.submissions.(*fakeSubmissions).monthCount = tt.monthCount
+
+			rec := serve(svc, pageRequest(t, svc, "/f/feedback", ""))
+			assertStatus(t, rec, tt.want)
+			body := rec.Body.String()
+			if tt.want == http.StatusOK {
+				if !strings.Contains(body, `id="public-form"`) {
+					t.Error("body does not render the form")
+				}
+				return
+			}
+			for _, want := range []string{"Not accepting responses", "This form is not accepting responses right now.", "Feedback &amp; ideas"} {
+				if !strings.Contains(body, want) {
+					t.Errorf("body does not contain %q", want)
+				}
+			}
+			for _, leak := range []string{`id="public-form"`, "plan", "Upgrade", "limit"} {
+				if strings.Contains(body, leak) {
+					t.Errorf("body contains %q", leak)
+				}
+			}
+		})
+	}
+}
+
+func TestPublicPagesPoweredByBadge(t *testing.T) {
+	inactive := publicSurvey()
+	inactive.IsActive = false
+	tests := []struct {
+		name, path string
+		form       forms.Form
+		plan       tenants.Plan
+		want       int
+		badge      bool
+	}{
+		{"free form", "/f/feedback", publicSurvey(), tenants.PlanFree, http.StatusOK, true},
+		{"pro form", "/f/feedback", publicSurvey(), tenants.PlanPro, http.StatusOK, false},
+		{"free embed", "/f/feedback?embed=1", publicSurvey(), tenants.PlanFree, http.StatusOK, true},
+		{"pro embed", "/f/feedback?embed=1", publicSurvey(), tenants.PlanPro, http.StatusOK, false},
+		{"free message", "/f/feedback", inactive, tenants.PlanFree, http.StatusForbidden, true},
+		{"pro message", "/f/feedback", inactive, tenants.PlanPro, http.StatusForbidden, false},
+		{"free thanks", "/f/feedback/thanks", publicSurvey(), tenants.PlanFree, http.StatusOK, true},
+		{"pro thanks", "/f/feedback/thanks", publicSurvey(), tenants.PlanPro, http.StatusOK, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := testServices(tt.form)
+			svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{testTenant.ID: tt.plan}
+
+			rec := serve(svc, pageRequest(t, svc, tt.path, ""))
+			assertStatus(t, rec, tt.want)
+			if got := strings.Contains(rec.Body.String(), "Powered by gogoform"); got != tt.badge {
+				t.Errorf("badge shown = %v, want %v", got, tt.badge)
+			}
 		})
 	}
 }

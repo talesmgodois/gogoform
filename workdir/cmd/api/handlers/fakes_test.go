@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -18,6 +19,7 @@ import (
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
 	"app/internal/pkg/webhooks"
@@ -183,6 +185,16 @@ type fakeForms struct {
 	// tenantInactive marks tenants whose forms GetBySlug reports as belonging
 	// to an inactive tenant.
 	tenantInactive map[int32]bool
+	// tenantPlans sets the plan GetBySlug reports for a tenant, free by default.
+	tenantPlans map[int32]tenants.Plan
+}
+
+// plan returns the plan reported for the tenant id.
+func (f *fakeForms) plan(tenantID int32) tenants.Plan {
+	if p, ok := f.tenantPlans[tenantID]; ok {
+		return p
+	}
+	return tenants.PlanFree
 }
 
 // count returns the submission count reported for the form id.
@@ -227,11 +239,11 @@ func (f *fakeForms) GetPublicBySlug(_ context.Context, slug string) (forms.Form,
 }
 
 // GetBySlug returns the form whatever its state; tenantInactive marks the
-// tenants reported as inactive.
+// tenants reported as inactive and tenantPlans sets their plans.
 func (f *fakeForms) GetBySlug(_ context.Context, slug string) (forms.FormBySlug, error) {
 	for _, form := range f.forms {
 		if form.Slug == slug {
-			return forms.FormBySlug{Form: form, TenantName: "Acme", TenantActive: !f.tenantInactive[form.TenantID]}, nil
+			return forms.FormBySlug{Form: form, TenantName: "Acme", TenantActive: !f.tenantInactive[form.TenantID], TenantPlan: f.plan(form.TenantID)}, nil
 		}
 	}
 	return forms.FormBySlug{}, apperrors.NewNotFound("form not found")
@@ -311,6 +323,10 @@ type fakeSubmissions struct {
 	list        []submissions.Submission
 	// listErr, when set, is returned by ListByForm and ListAllByForm.
 	listErr error
+	// monthCount is returned by CountByTenantSince.
+	monthCount int64
+	// monthErr, when set, is returned by CountByTenantSince.
+	monthErr error
 }
 
 func (f *fakeSubmissions) Create(_ context.Context, in submissions.CreateSubmissionInput) (submissions.Submission, error) {
@@ -334,6 +350,10 @@ func (f *fakeSubmissions) ListByForm(_ context.Context, filter submissions.ListS
 func (f *fakeSubmissions) ListAllByForm(_ context.Context, filter submissions.ListSubmissionsFilter) ([]submissions.Submission, error) {
 	f.filter = filter
 	return f.list, f.listErr
+}
+
+func (f *fakeSubmissions) CountByTenantSince(context.Context, int32, time.Time) (int64, error) {
+	return f.monthCount, f.monthErr
 }
 
 // fakeWebhooks is a webhooks.Repository recording its inputs.
@@ -411,6 +431,16 @@ func (f *fakeFiles) CountByTenant(ctx context.Context, tenantID int32) (int64, e
 	for _, file := range f.files {
 		if file.TenantID == tenantID {
 			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeFiles) StorageUsedByTenant(_ context.Context, tenantID int32) (int64, error) {
+	var n int64
+	for _, file := range f.files {
+		if file.TenantID == tenantID {
+			n += file.Size
 		}
 	}
 	return n, nil
@@ -542,13 +572,15 @@ func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 // testServices returns Services backed by fakes, with forms holding fs and
 // the users of newTestAuth.
 func testServices(fs ...forms.Form) Services {
+	fakeF, fakeS, fakeFl := newFakeForms(fs...), &fakeSubmissions{}, &fakeFiles{files: map[string]files.File{}}
 	return Services{
 		auth:        newTestAuth(),
 		tenants:     &fakeTenants{},
-		forms:       newFakeForms(fs...),
-		submissions: &fakeSubmissions{},
+		forms:       fakeF,
+		submissions: fakeS,
 		webhooks:    &fakeWebhooks{},
-		files:       &fakeFiles{files: map[string]files.File{}},
+		files:       fakeFl,
+		plans:       plans.NewEnforcer(fakeF, fakeS, fakeFl),
 	}
 }
 

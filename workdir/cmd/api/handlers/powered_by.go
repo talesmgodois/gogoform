@@ -1,13 +1,13 @@
 package handlers
 
-import "context"
+import (
+	"app/internal/pkg/plans"
+	"app/internal/pkg/tenants"
+)
 
-// showPoweredBy reports whether the public form pages of the tenant show the
-// "Powered by gogoform" footer badge (the powered-by partial of
-// templates/powered_by.html).
-//
-// TODO(000025): read the tenant's plan limits so paid plans can hide the
-// badge; until plans exist every tenant shows it.
-func showPoweredBy(ctx context.Context, tenantID int32) bool {
-	return true
+// showPoweredBy reports whether the public form pages of a tenant on plan
+// show the "Powered by gogoform" footer badge (the powered-by partial of
+// templates/powered_by.html): free tenants show it, paid plans hide it.
+func showPoweredBy(plan tenants.Plan) bool {
+	return plans.For(plan).ShowBadge
 }

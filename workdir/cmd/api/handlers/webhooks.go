@@ -9,6 +9,8 @@ import (
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/plans"
+	"app/internal/pkg/tenants"
 	"app/internal/pkg/webhooks"
 )
 
@@ -47,7 +49,7 @@ type webhooksController struct {
 // Create registers a webhook on one of the authenticated tenant's forms.
 //
 //	@Summary		Create a webhook
-//	@Description	Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL.
+//	@Description	Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL. Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.
 //	@Tags			webhooks
 //	@Accept			json
 //	@Produce		json
@@ -59,7 +61,7 @@ type webhooksController struct {
 //	@Success		201		{object}	WebhookResponse				"Webhook created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
-//	@Failure		403		{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
+//	@Failure		403		{object}	errors.HTTPErrorResponse	"Plan without webhooks, signed-in user has no workspace, or cross-origin request authenticated by the session cookie"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id}/webhooks [post]
@@ -84,7 +86,13 @@ func (c *webhooksController) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The webhooks repository is not tenant scoped: check ownership first.
-	if _, err := c.forms.GetByID(r.Context(), tenantFrom(r.Context()).ID, formID); err != nil {
+	// The plan is checked after it so other tenants' forms stay 404.
+	tenant := tenantFrom(r.Context())
+	if _, err := c.forms.GetByID(r.Context(), tenant.ID, formID); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	if err := checkWebhooksAllowed(tenant); err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
@@ -103,7 +111,7 @@ func (c *webhooksController) Create(w http.ResponseWriter, r *http.Request) {
 // List lists the active webhooks of one of the authenticated tenant's forms.
 //
 //	@Summary		List webhooks
-//	@Description	Lists the active webhooks of one of the authenticated tenant's forms, oldest first.
+//	@Description	Lists the active webhooks of one of the authenticated tenant's forms, oldest first. Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.
 //	@Tags			webhooks
 //	@Produce		json
 //	@Security		ApiKeyAuth
@@ -113,7 +121,7 @@ func (c *webhooksController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Success		200	{object}	WebhookListResponse			"Webhooks"
 //	@Failure		400	{object}	errors.HTTPErrorResponse	"Invalid form ID"
 //	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid API key or user credentials"
-//	@Failure		403	{object}	errors.HTTPErrorResponse	"Signed-in user has no workspace"
+//	@Failure		403	{object}	errors.HTTPErrorResponse	"Plan without webhooks, or signed-in user has no workspace"
 //	@Failure		404	{object}	errors.HTTPErrorResponse	"Form not found"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/forms/{id}/webhooks [get]
@@ -123,7 +131,12 @@ func (c *webhooksController) List(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	if _, err := c.forms.GetByID(r.Context(), tenantFrom(r.Context()).ID, formID); err != nil {
+	tenant := tenantFrom(r.Context())
+	if _, err := c.forms.GetByID(r.Context(), tenant.ID, formID); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	if err := checkWebhooksAllowed(tenant); err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
@@ -137,6 +150,15 @@ func (c *webhooksController) List(w http.ResponseWriter, r *http.Request) {
 		resp.Items[i] = toWebhookResponse(h)
 	}
 	writeJSON(w, r, http.StatusOK, resp)
+}
+
+// checkWebhooksAllowed returns a plan_feature_unavailable error when the
+// tenant's plan does not include webhooks.
+func checkWebhooksAllowed(t tenants.Tenant) error {
+	if !plans.For(t.Plan).Webhooks {
+		return apperrors.NewPlanFeatureUnavailable("Webhooks are available on the Pro plan. Upgrade to Pro to use them.")
+	}
+	return nil
 }
 
 // validateTargetURL checks that raw is an absolute http(s) URL without

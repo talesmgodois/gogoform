@@ -1,11 +1,16 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	apperrors "app/internal/errors"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/tenants"
 )
 
 // ownForm belongs to testTenant; otherForm to another tenant.
@@ -34,6 +39,51 @@ func TestCreateForm(t *testing.T) {
 	}
 	if body := decode[FormResponse](t, rec); body.Slug != "contact-us" || string(body.Content) != `{"fields":[]}` {
 		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestCreateFormPlanLimit(t *testing.T) {
+	proTenant := tenants.Tenant{ID: 8, Name: "Pro", APIKey: "pro-key", IsActive: true, Plan: tenants.PlanPro}
+	tests := []struct {
+		name     string
+		tenant   tenants.Tenant
+		existing int
+		want     int
+	}{
+		{"free below limit", testTenant, 2, http.StatusCreated},
+		{"free at limit", testTenant, 3, http.StatusPaymentRequired},
+		{"pro at free limit", proTenant, 3, http.StatusCreated},
+		{"pro many", proTenant, 50, http.StatusCreated},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fs []forms.Form
+			for i := range tt.existing {
+				fs = append(fs, forms.Form{ID: int32(100 + i), TenantID: tt.tenant.ID, Slug: fmt.Sprintf("form-%d", i)})
+			}
+			svc := testServices(fs...)
+			svc.tenants = &fakeTenants{owned: map[int32]tenants.Tenant{proTenant.ID: proTenant}}
+
+			req := httptest.NewRequest(http.MethodPost, "/forms", strings.NewReader(validForm))
+			req.Header.Set(apiKeyHeader, tt.tenant.APIKey)
+			rec := serve(svc, req)
+			assertStatus(t, rec, tt.want)
+
+			created := svc.forms.(*fakeForms).created
+			if tt.want != http.StatusCreated {
+				if created.Slug != "" {
+					t.Fatalf("form created over the limit: %+v", created)
+				}
+				body := decode[apperrors.HTTPErrorResponse](t, rec)
+				if body.Code != apperrors.CodePlanLimitReached || !strings.Contains(body.Message, "Upgrade to Pro") {
+					t.Fatalf("body = %+v", body)
+				}
+				return
+			}
+			if created.TenantID != tt.tenant.ID {
+				t.Fatalf("tenant_id = %d, want %d", created.TenantID, tt.tenant.ID)
+			}
+		})
 	}
 }
 

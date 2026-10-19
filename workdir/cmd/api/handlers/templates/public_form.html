@@ -116,6 +116,9 @@
         switch (res.status) {
           case 401:
             return new Error("Sign in to " + action + " this form.");
+          case 402:
+            // A plan limit of the form's owner; the message is generic.
+            return new Error(detail);
           case 403:
             return new Error("This form is not accepting responses: " + detail + ".");
           case 404:
