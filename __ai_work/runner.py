@@ -5,7 +5,6 @@ import shutil
 import signal
 import subprocess
 import traceback
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -169,13 +168,14 @@ FIX_RESULT_RE = re.compile(r"^FIX_RESULT:\s*(FIXED|PARTIAL|NOTHING_TO_FIX|FAILED
 # How many /code-review-fixer rounds to run on a failing review before giving up.
 MAX_FIX_ATTEMPTS = int(os.environ.get("MAX_FIX_ATTEMPTS", "1"))
 
-# Optional guardrails for every claude call; unset means no limit.
+# Optional guardrails for every claude call (opencode has no equivalent); unset means no limit.
 MAX_TURNS = os.environ.get("MAX_TURNS") or None
 MAX_BUDGET_USD = os.environ.get("MAX_BUDGET_USD") or None
 
 # Per-stage model/effort overrides; unset means the CLI default. Models are claude
-# aliases/ids (sonnet, opus, claude-haiku-5-5) or opencode provider/model ids;
-# effort only applies to claude. Commits default to sonnet on claude.
+# aliases/ids (sonnet, opus, claude-haiku-5-5) or opencode provider/model ids
+# (opencode/claude-sonnet-5-5). Effort is claude's --effort or opencode's --variant.
+# Commits default to sonnet on claude.
 MODEL_PLAN = os.environ.get("MODEL_PLAN") or None
 MODEL_IMPLEMENT = os.environ.get("MODEL_IMPLEMENT") or None
 MODEL_REVIEW = os.environ.get("MODEL_REVIEW") or None
@@ -189,51 +189,51 @@ EFFORT_COMMITS = os.environ.get("EFFORT_COMMITS") or None
 TODOS_PER_SESSION = max(1, int(os.environ.get("TODOS_PER_SESSION", "1")))
 
 
-def claude_session_exists(session_id, cwd=WORKDIR):
-    """Whether claude has a stored session with this id for cwd, so it can be resumed."""
+def agent_session_exists(session_id, cwd=WORKDIR):
+    """Whether the agent CLI still has this session stored for cwd, so it can be resumed."""
+    if AGENT_CLI == "opencode":
+        result = run_command(["opencode", "session", "list", "--format", "json"], cwd=cwd, check=False)
+        try:
+            return any(session.get("id") == session_id for session in json.loads(result.stdout or "[]"))
+        except ValueError:
+            return False
     config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
     project = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
     return (config_dir / "projects" / project / f"{session_id}.jsonl").is_file()
 
 
-def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, plan=False,
-              session_id=None, resume=None, fork=False, model=None, effort=None):
+def stream_json_events(cmd, cwd):
+    """Runs cmd, yielding each JSON line of its stdout as it arrives. Returns (returncode, stderr)."""
+    proc = subprocess.Popen(cmd, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    for line in proc.stdout:
+        try:
+            yield json.loads(line)
+        except ValueError:
+            continue
+    stderr = proc.stderr.read()
+    proc.wait()
+    return proc.returncode, stderr
+
+
+def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, plan=False,
+              resume=None, fork=False, model=None, effort=None):
     """Runs the agent CLI headlessly with a free-form prompt or a skill/command.
 
-    plan=True runs it in the CLI's read-only plan mode. Returns (success, output, usage).
-    For claude, output is the final result text and usage holds cost/token/turn/session
-    info; the CLI streams JSON events so AGENT_CLI_STDOUT=1 can show its messages live.
-    For opencode, output is captured only when capture=True and usage is None.
-    stderr is shown when AGENT_CLI_STDOUT=1 or the command failed.
+    plan=True runs it in the CLI's read-only plan mode; resume continues a stored
+    session (fork=True copies it first). Both CLIs stream JSON events, so
+    AGENT_CLI_STDOUT=1 shows the agent's messages live. Returns (success, output,
+    usage): output is the agent's final text, usage holds the session id, cost,
+    tokens, turns and duration. stderr is shown when AGENT_CLI_STDOUT=1 or the call failed.
     """
     if AGENT_CLI == "opencode":
-        cmd = ["opencode", "run"]
-        if plan:
-            cmd += ["--agent", "plan"]
-        if model:
-            cmd += ["--model", model]
-        if command:
-            cmd += ["--command", command]
-            if args:
-                cmd.append(args)
-        else:
-            cmd.append(prompt)
-        if capture:
-            result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
-            if AGENT_CLI_STDOUT:
-                print(result.stdout)
-            if result.stderr and (AGENT_CLI_STDOUT or result.returncode != 0):
-                print(result.stderr)
-            return result.returncode == 0, result.stdout or "", None
-        stdout = None if AGENT_CLI_STDOUT else subprocess.DEVNULL
-        result = subprocess.run(cmd, cwd=cwd, text=True, stdout=stdout)
-        return result.returncode == 0, "", None
+        return _run_opencode(prompt, command, args, cwd, plan, resume, fork, model, effort)
+    return _run_claude(prompt, command, args, cwd, plan, resume, fork, model, effort)
 
+
+def _run_claude(prompt, command, args, cwd, plan, resume, fork, model, effort):
     text = f"/{command} {args}".strip() if command else prompt
     mode = ["--permission-mode", "plan"] if plan else ["--dangerously-skip-permissions"]
     cmd = ["claude", "-p", text, *mode, "--output-format", "stream-json", "--verbose"]
-    if session_id:
-        cmd += ["--session-id", session_id]
     if resume:
         cmd += ["--resume", resume]
         if fork:
@@ -247,23 +247,22 @@ def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, pl
     if MAX_BUDGET_USD:
         cmd += ["--max-budget-usd", MAX_BUDGET_USD]
 
-    proc = subprocess.Popen(cmd, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     final = {}
-    for line in proc.stdout:
+    events = stream_json_events(cmd, cwd)
+    while True:
         try:
-            event = json.loads(line)
-        except ValueError:
-            continue
+            event = next(events)
+        except StopIteration as stop:
+            returncode, stderr = stop.value
+            break
         if event.get("type") == "assistant" and AGENT_CLI_STDOUT:
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "text" and block.get("text"):
                     print(block["text"], flush=True)
         elif event.get("type") == "result":
             final = event
-    stderr = proc.stderr.read()
-    proc.wait()
 
-    ok = proc.returncode == 0 and bool(final) and not final.get("is_error")
+    ok = returncode == 0 and bool(final) and not final.get("is_error")
     if not ok and final.get("subtype") not in (None, "success"):
         print(f"⚠️  Agent stopped: {final['subtype']}")
     if stderr and (AGENT_CLI_STDOUT or not ok):
@@ -283,6 +282,76 @@ def run_agent(prompt=None, command=None, args="", cwd=WORKDIR, capture=False, pl
     return ok, final.get("result") or "", usage
 
 
+def _run_opencode(prompt, command, args, cwd, plan, resume, fork, model, effort):
+    # MAX_TURNS / MAX_BUDGET_USD have no opencode equivalent; permissions follow opencode's config.
+    cmd = ["opencode", "run", "--format", "json"]
+    if plan:
+        cmd += ["--agent", "plan"]
+    if resume:
+        cmd += ["--session", resume]
+        if fork:
+            cmd += ["--fork"]
+    if model:
+        cmd += ["--model", model]
+    if effort:
+        cmd += ["--variant", effort]
+    if command:
+        cmd += ["--command", command]
+        if args:
+            cmd.append(args)
+    else:
+        cmd.append(prompt)
+
+    started = datetime.now(timezone.utc)
+    texts, error, session_id, steps = [], None, None, 0
+    tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+    cost = 0.0
+    events = stream_json_events(cmd, cwd)
+    while True:
+        try:
+            event = next(events)
+        except StopIteration as stop:
+            returncode, stderr = stop.value
+            break
+        session_id = event.get("sessionID") or session_id
+        part = event.get("part") or {}
+        kind = event.get("type")
+        if kind == "text" and part.get("text"):
+            texts.append(part["text"])
+            if AGENT_CLI_STDOUT:
+                print(part["text"], flush=True)
+        elif kind == "tool_use" and AGENT_CLI_STDOUT:
+            print(f"🔧 {part.get('tool')}", flush=True)
+        elif kind == "step_finish":
+            steps += 1
+            cost += part.get("cost") or 0
+            t = part.get("tokens") or {}
+            tokens["input"] += t.get("input", 0)
+            tokens["output"] += t.get("output", 0) + t.get("reasoning", 0)
+            tokens["cache_read"] += (t.get("cache") or {}).get("read", 0)
+            tokens["cache_write"] += (t.get("cache") or {}).get("write", 0)
+        elif kind == "error":
+            error = (event.get("error") or {}).get("data", {}).get("message") or str(event.get("error"))
+
+    ok = returncode == 0 and error is None
+    if error:
+        print(f"⚠️  Agent error: {error}")
+    if stderr and (AGENT_CLI_STDOUT or not ok):
+        print(stderr)
+    usage = {
+        "model": model,
+        "cost_usd": round(cost, 6),
+        "duration_s": round((datetime.now(timezone.utc) - started).total_seconds(), 1),
+        "num_turns": steps,
+        "session_id": session_id,
+        "input_tokens": tokens["input"],
+        "output_tokens": tokens["output"],
+        "cache_creation_input_tokens": tokens["cache_write"],
+        "cache_read_input_tokens": tokens["cache_read"],
+    } if session_id else None
+    return ok, "\n".join(texts), usage
+
+
 def run_code_review(task_filename, attempt=0, recheck_report=None):
     """Runs the /code-review skill and gates on its VERDICT line.
 
@@ -300,7 +369,7 @@ def run_code_review(task_filename, attempt=0, recheck_report=None):
         except (ValueError, AttributeError):
             pass
         args = f"--recheck {rel}"
-    ok, output, usage = run_agent(command="code-review", args=args, cwd=PROJECT_ROOT, capture=True,
+    ok, output, usage = run_agent(command="code-review", args=args, cwd=PROJECT_ROOT,
                                   model=MODEL_REVIEW, effort=EFFORT_REVIEW)
 
     # Use the last VERDICT line, in case the report quotes the format earlier.
@@ -326,7 +395,7 @@ def run_code_review_fixer(report_path):
     """
     print("\n🛠️  Applying review findings via /code-review-fixer skill...")
     rel_report = report_path.relative_to(PROJECT_ROOT)
-    ok, output, usage = run_agent(command="code-review-fixer", args=str(rel_report), cwd=PROJECT_ROOT, capture=True,
+    ok, output, usage = run_agent(command="code-review-fixer", args=str(rel_report), cwd=PROJECT_ROOT,
                                   model=MODEL_IMPLEMENT, effort=EFFORT_IMPLEMENT)
 
     matches = FIX_RESULT_RE.findall(output)
@@ -398,7 +467,7 @@ def run_grouped_commits(task_name=None, plan=None):
         plan_text = "; ".join(f"{number}. {text}" for number, _, text in plan)
         args_parts.append(f"Group commits by these todos (one commit per todo where possible): {plan_text}")
     args = " ".join(args_parts)
-    ok, output, usage = run_agent(command="commits", args=args, cwd=PROJECT_ROOT, capture=True,
+    ok, output, usage = run_agent(command="commits", args=args, cwd=PROJECT_ROOT,
                                   model=MODEL_COMMITS, effort=EFFORT_COMMITS)
 
     matches = COMMITS_RESULT_RE.findall(output)
@@ -698,21 +767,16 @@ def plan_task(tracker, task_path, body):
     print(f"\n🧭 Planning '{task_path.name}' in plan mode...")
     tracker.set_current(task_path.name, "plan")
     entry = tracker.tasks[task_path.name]
-    if not entry.get("session_id"):
-        sid = str(uuid.uuid4())
-        entry["session_id"] = sid
-        tracker.save()
-    else:
-        sid = entry["session_id"]
     ok, output, usage = run_agent(
         prompt=PLAN_PROMPT.format(task_file=task_path.relative_to(PROJECT_ROOT), task=body),
-        capture=True,
         plan=True,
-        session_id=sid,
         model=MODEL_PLAN,
         effort=EFFORT_PLAN,
     )
-    tracker.add_usage(task_path.name, {"stage": "plan", "todo": None, **{k: v for k, v in (usage or {}).items()}})
+    tracker.add_usage(task_path.name, {"stage": "plan", "todo": None, **(usage or {})})
+    # Implement calls fork this session, so they start with the planner's exploration.
+    entry["session_id"] = (usage or {}).get("session_id")
+    tracker.save()
     items = parse_plan_output(output)
     if not ok or not items:
         raise TaskFailed("planning failed: agent crashed or printed no PLAN_BEGIN/PLAN_END todo list")
@@ -727,9 +791,8 @@ def implement_todos(tracker, task_path, body, items):
     entry = tracker.tasks[name]
     # Each implement call forks the planning session, so it starts with the plan's exploration.
     session_id = entry.get("session_id")
-    if session_id and (AGENT_CLI != "claude" or not claude_session_exists(session_id)):
-        if AGENT_CLI == "claude":
-            print(f"ℹ️  Planning session {session_id} not found; implementing without it.")
+    if session_id and not agent_session_exists(session_id):
+        print(f"ℹ️  Planning session {session_id} not found; implementing without it.")
         session_id = None
     # Build list of pending todos in order.
     pending = [(number, text) for (number, done, text) in items
