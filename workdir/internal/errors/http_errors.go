@@ -59,6 +59,11 @@ func NewPlanFeatureUnavailable(message string) *AppError {
 	return New(CodePlanFeatureUnavailable, message)
 }
 
+// NewEmailUnverified returns an AppError that maps to 403 Forbidden.
+func NewEmailUnverified(message string) *AppError {
+	return New(CodeEmailUnverified, message)
+}
+
 // NewInternal returns an AppError that wraps err and maps to 500 Internal Server Error.
 func NewInternal(err error) *AppError {
 	return Wrap(err, CodeInternal, internalMessage)
@@ -76,7 +81,7 @@ func HTTPStatus(err error) int {
 		return http.StatusBadRequest
 	case CodeUnauthorized:
 		return http.StatusUnauthorized
-	case CodeForbidden, CodePlanFeatureUnavailable:
+	case CodeForbidden, CodePlanFeatureUnavailable, CodeEmailUnverified:
 		return http.StatusForbidden
 	case CodeNotFound:
 		return http.StatusNotFound

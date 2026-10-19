@@ -23,6 +23,7 @@ func TestHTTPStatus(t *testing.T) {
 		{"conflict", NewConflict("dup"), http.StatusConflict},
 		{"plan limit reached", NewPlanLimitReached("limit"), http.StatusPaymentRequired},
 		{"plan feature unavailable", NewPlanFeatureUnavailable("pro only"), http.StatusForbidden},
+		{"email unverified", NewEmailUnverified("verify your email"), http.StatusForbidden},
 		{"internal", NewInternal(stderrors.New("db down")), http.StatusInternalServerError},
 		{"unknown code", New(Code("weird"), "?"), http.StatusInternalServerError},
 		{"plain error", stderrors.New("boom"), http.StatusInternalServerError},
@@ -74,6 +75,7 @@ func TestWriteHTTPPlanErrors(t *testing.T) {
 	}{
 		{"limit reached", NewPlanLimitReached("form limit reached"), http.StatusPaymentRequired, CodePlanLimitReached, "form limit reached"},
 		{"feature unavailable", NewPlanFeatureUnavailable("webhooks require pro"), http.StatusForbidden, CodePlanFeatureUnavailable, "webhooks require pro"},
+		{"email unverified", NewEmailUnverified("verify your email"), http.StatusForbidden, CodeEmailUnverified, "verify your email"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

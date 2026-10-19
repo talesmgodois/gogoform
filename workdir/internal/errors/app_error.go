@@ -22,6 +22,8 @@ const (
 	// CodePlanFeatureUnavailable means the tenant's plan does not include the
 	// requested feature.
 	CodePlanFeatureUnavailable Code = "plan_feature_unavailable"
+	// CodeEmailUnverified means the action requires a verified email address.
+	CodeEmailUnverified Code = "email_unverified"
 )
 
 // AppError is an error carrying a Code, a message safe to show to clients and
