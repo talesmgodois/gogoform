@@ -28,8 +28,11 @@ type Form struct {
 	// AcceptAnonymous forms store submissions without the submitter's
 	// identity. Public forms always accept anonymous submissions.
 	AcceptAnonymous bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// NotifyOnSubmission sends the tenant owner an email on each new
+	// submission. A pro-only feature; see plans.Limits.EmailNotifications.
+	NotifyOnSubmission bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // FormDetails is a Form together with the name of its tenant.
@@ -76,6 +79,9 @@ type CreateFormInput struct {
 	// form that does not accept anonymous submissions is rejected.
 	PublicAvailable *bool
 	AcceptAnonymous *bool
+	// NotifyOnSubmission defaults to false. Enabling it requires the tenant's
+	// plan to include EmailNotifications.
+	NotifyOnSubmission bool
 }
 
 // UpdateFormInput holds the full new state of an existing form. ID and
@@ -94,6 +100,8 @@ type UpdateFormInput struct {
 	// CreateFormInput.
 	PublicAvailable *bool
 	AcceptAnonymous *bool
+	// NotifyOnSubmission, as in CreateFormInput.
+	NotifyOnSubmission bool
 }
 
 // ListFormsFilter selects the forms of a tenant.

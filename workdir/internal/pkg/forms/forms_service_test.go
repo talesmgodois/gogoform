@@ -127,7 +127,7 @@ func assertCode(t *testing.T, err error, want apperrors.Code) {
 func TestCreate(t *testing.T) {
 	in := CreateFormInput{
 		TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
-		StartDate: &now, Content: content,
+		StartDate: &now, Content: content, NotifyOnSubmission: true,
 	}
 	tests := []struct {
 		name     string
@@ -153,7 +153,7 @@ func TestCreate(t *testing.T) {
 			want := db.CreateFormParams{
 				TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
 				IsActive: ptr(true), StartDate: &now, FormContent: content,
-				PublicAvailable: true, AcceptAnonymous: true,
+				PublicAvailable: true, AcceptAnonymous: true, NotifyOnSubmission: true,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("params = %+v, want %+v", got, want)
@@ -569,7 +569,7 @@ func TestGetOverview(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	in := UpdateFormInput{
 		ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
-		IsActive: false, StartDate: &now, Content: content,
+		IsActive: false, StartDate: &now, Content: content, NotifyOnSubmission: true,
 	}
 	tests := []struct {
 		name     string
@@ -595,7 +595,7 @@ func TestUpdate(t *testing.T) {
 			want := db.UpdateFormParams{
 				ID: 7, TenantID: 3, Title: "Survey", Slug: "survey", Description: &desc,
 				IsActive: ptr(false), StartDate: &now, FormContent: content,
-				PublicAvailable: true, AcceptAnonymous: true,
+				PublicAvailable: true, AcceptAnonymous: true, NotifyOnSubmission: true,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("params = %+v, want %+v", got, want)
