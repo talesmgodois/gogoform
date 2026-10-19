@@ -25,3 +25,15 @@ token_ttl_minutes = 60
 [features]
 # public_tenant_signup = false
 # samples_enabled = false
+
+# Stripe billing for the pro plan. Prefer the STRIPE_* / APP_BASE_URL
+# environment variables for secrets. Billing routes are mounted only when
+# secret_key, webhook_secret and price_id are all set; app_base_url must then
+# be the absolute http(s) origin used for the Checkout/Portal return URLs.
+# Pin the Stripe webhook endpoint (POST /webhooks/stripe) to the API version
+# of the pinned stripe-go SDK (2025-08-27.basil) so payloads decode as expected.
+[stripe]
+# secret_key = ""
+# webhook_secret = ""
+# price_id = ""
+app_base_url = "http://localhost:8080"

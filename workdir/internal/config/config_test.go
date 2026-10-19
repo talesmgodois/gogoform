@@ -133,6 +133,28 @@ func TestFeatureOverrides(t *testing.T) {
 	}
 }
 
+func TestStripeConfig(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Stripe.Enabled() {
+		t.Fatalf("stripe enabled without configuration: %+v", cfg.Stripe)
+	}
+
+	// The file sets part of the section and the environment completes it.
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_123")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_123")
+	cfg, err = Load(writeConfig(t, sample+"\n[stripe]\nprice_id = \"price_123\"\napp_base_url = \"https://forms.example.com\"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Stripe.Enabled() || cfg.Stripe.SecretKey != "sk_test_123" || cfg.Stripe.WebhookSecret != "whsec_123" ||
+		cfg.Stripe.PriceID != "price_123" || cfg.Stripe.AppBaseURL != "https://forms.example.com" {
+		t.Fatalf("stripe config not applied: %+v", cfg.Stripe)
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -149,6 +171,10 @@ func TestLoadErrors(t *testing.T) {
 		{name: "zero token ttl", content: sample, env: map[string]string{"AUTH_TOKEN_TTL_MINUTES": "0"}},
 		{name: "admin username without password", content: sample, env: map[string]string{"AUTH_ADMIN_USERNAME": "admin"}},
 		{name: "invalid feature flag env", content: sample, env: map[string]string{"FEATURE_SAMPLES": "maybe"}},
+		{name: "partial stripe config", content: sample, env: map[string]string{"STRIPE_SECRET_KEY": "sk_test_123", "STRIPE_PRICE_ID": "price_123"}},
+		{name: "stripe without app base url", content: sample, env: stripeEnv("")},
+		{name: "stripe with relative app base url", content: sample, env: stripeEnv("/app")},
+		{name: "stripe with non-http app base url", content: sample, env: stripeEnv("ftp://forms.example.com")},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
 	}
 	for _, tt := range tests {
@@ -160,6 +186,16 @@ func TestLoadErrors(t *testing.T) {
 				t.Fatal("expected error, got nil")
 			}
 		})
+	}
+}
+
+// stripeEnv returns a complete Stripe environment with the given APP_BASE_URL.
+func stripeEnv(baseURL string) map[string]string {
+	return map[string]string{
+		"STRIPE_SECRET_KEY":     "sk_test_123",
+		"STRIPE_WEBHOOK_SECRET": "whsec_123",
+		"STRIPE_PRICE_ID":       "price_123",
+		"APP_BASE_URL":          baseURL,
 	}
 }
 

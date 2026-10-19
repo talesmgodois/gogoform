@@ -31,6 +31,44 @@ type Config struct {
 	Database DatabaseConfig `toml:"database"`
 	Auth     AuthConfig     `toml:"auth"`
 	Features FeaturesConfig `toml:"features"`
+	Stripe   StripeConfig   `toml:"stripe"`
+}
+
+// StripeConfig holds the Stripe billing settings. Billing is enabled only
+// when the secret key, webhook secret and price are all set.
+type StripeConfig struct {
+	SecretKey     string `toml:"secret_key"     env:"STRIPE_SECRET_KEY"`
+	WebhookSecret string `toml:"webhook_secret" env:"STRIPE_WEBHOOK_SECRET"`
+	// PriceID is the recurring price of the pro plan.
+	PriceID string `toml:"price_id" env:"STRIPE_PRICE_ID"`
+	// AppBaseURL is the public origin used to build the Checkout and
+	// Customer Portal return URLs, e.g. "https://forms.example.com".
+	AppBaseURL string `toml:"app_base_url" env:"APP_BASE_URL"`
+}
+
+// Enabled reports whether the billing routes are mounted.
+func (c StripeConfig) Enabled() bool {
+	return c.SecretKey != "" && c.WebhookSecret != "" && c.PriceID != ""
+}
+
+func (c StripeConfig) validate() error {
+	set := 0
+	for _, v := range []string{c.SecretKey, c.WebhookSecret, c.PriceID} {
+		if v != "" {
+			set++
+		}
+	}
+	if set == 0 {
+		return nil
+	}
+	if set != 3 {
+		return fmt.Errorf("secret_key, webhook_secret and price_id must be set together")
+	}
+	u, err := url.Parse(c.AppBaseURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("app_base_url: must be an absolute http(s) URL (or provide APP_BASE_URL)")
+	}
+	return nil
 }
 
 // FeaturesConfig toggles endpoints that are only meant for development. A
@@ -218,6 +256,9 @@ func (c *Config) validate() error {
 	}
 	if (c.Auth.AdminUsername == "") != (c.Auth.AdminPassword == "") {
 		return fmt.Errorf("auth: admin_username and admin_password must be set together")
+	}
+	if err := c.Stripe.validate(); err != nil {
+		return fmt.Errorf("stripe: %w", err)
 	}
 	return nil
 }

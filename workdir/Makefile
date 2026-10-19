@@ -50,7 +50,7 @@ run: build ## Build and execute the compiled binary
 	./$(BIN)
 
 test: ## Run unit/integration tests
-	env -u DATABASE_URL -u AUTH_ADMIN_USERNAME -u AUTH_ADMIN_PASSWORD -u AUTH_JWT_SECRET go test -v ./...
+	env -u DATABASE_URL -u AUTH_ADMIN_USERNAME -u AUTH_ADMIN_PASSWORD -u AUTH_JWT_SECRET -u STRIPE_SECRET_KEY -u STRIPE_WEBHOOK_SECRET -u STRIPE_PRICE_ID -u APP_BASE_URL go test -v ./...
 
 swagger: ## Regenerate Swagger documentation into ./docs
 	swag init -g $(MAIN) -o ./docs
