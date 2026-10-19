@@ -7,12 +7,13 @@ package db
 
 import (
 	"context"
+	"time"
 )
 
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO tenants (name, api_key, owner_user_id)
 VALUES ($1, $2, $3)
-RETURNING id, name, api_key, is_active, created_at, owner_user_id
+RETURNING id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at
 `
 
 type CreateTenantParams struct {
@@ -31,12 +32,18 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Ten
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
 	)
 	return i, err
 }
 
 const getTenantByAPIKey = `-- name: GetTenantByAPIKey :one
-SELECT id, name, api_key, is_active, created_at, owner_user_id FROM tenants
+SELECT id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at FROM tenants
 WHERE api_key = $1 AND is_active
 `
 
@@ -50,12 +57,18 @@ func (q *Queries) GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
 	)
 	return i, err
 }
 
 const getTenantByID = `-- name: GetTenantByID :one
-SELECT id, name, api_key, is_active, created_at, owner_user_id FROM tenants
+SELECT id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at FROM tenants
 WHERE id = $1 AND is_active
 `
 
@@ -69,12 +82,18 @@ func (q *Queries) GetTenantByID(ctx context.Context, id int32) (Tenant, error) {
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
 	)
 	return i, err
 }
 
 const getTenantByOwner = `-- name: GetTenantByOwner :one
-SELECT id, name, api_key, is_active, created_at, owner_user_id FROM tenants
+SELECT id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at FROM tenants
 WHERE owner_user_id = $1::integer AND is_active
 `
 
@@ -88,6 +107,76 @@ func (q *Queries) GetTenantByOwner(ctx context.Context, ownerUserID int32) (Tena
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
+	)
+	return i, err
+}
+
+const getTenantByStripeCustomerID = `-- name: GetTenantByStripeCustomerID :one
+SELECT id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at FROM tenants
+WHERE stripe_customer_id = $1::text AND is_active
+`
+
+func (q *Queries) GetTenantByStripeCustomerID(ctx context.Context, stripeCustomerID string) (Tenant, error) {
+	row := q.db.QueryRow(ctx, getTenantByStripeCustomerID, stripeCustomerID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
+	)
+	return i, err
+}
+
+const linkTenantSubscription = `-- name: LinkTenantSubscription :one
+UPDATE tenants
+SET subscription_status = CASE WHEN stripe_subscription_id = $1::text THEN subscription_status END,
+    current_period_end = CASE WHEN stripe_subscription_id = $1::text THEN current_period_end END,
+    subscription_event_at = CASE WHEN stripe_subscription_id = $1::text THEN subscription_event_at END,
+    stripe_subscription_id = $1::text
+WHERE stripe_customer_id = $2::text AND is_active
+RETURNING id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at
+`
+
+type LinkTenantSubscriptionParams struct {
+	StripeSubscriptionID string `db:"stripe_subscription_id" json:"stripe_subscription_id"`
+	StripeCustomerID     string `db:"stripe_customer_id" json:"stripe_customer_id"`
+}
+
+// Links the tenant of a completed checkout to its subscription. Status,
+// period end and event time are kept when that subscription is already
+// stored, so a subscription event applied first is not overwritten, and
+// cleared otherwise. The plan is left to the subscription events.
+func (q *Queries) LinkTenantSubscription(ctx context.Context, arg LinkTenantSubscriptionParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, linkTenantSubscription, arg.StripeSubscriptionID, arg.StripeCustomerID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
 	)
 	return i, err
 }
@@ -96,7 +185,7 @@ const rotateTenantAPIKey = `-- name: RotateTenantAPIKey :one
 UPDATE tenants
 SET api_key = $1
 WHERE id = $2 AND is_active
-RETURNING id, name, api_key, is_active, created_at, owner_user_id
+RETURNING id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at
 `
 
 type RotateTenantAPIKeyParams struct {
@@ -114,6 +203,96 @@ func (q *Queries) RotateTenantAPIKey(ctx context.Context, arg RotateTenantAPIKey
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
+	)
+	return i, err
+}
+
+const setTenantStripeCustomer = `-- name: SetTenantStripeCustomer :one
+UPDATE tenants
+SET stripe_customer_id = $1::text
+WHERE id = $2 AND is_active
+RETURNING id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at
+`
+
+type SetTenantStripeCustomerParams struct {
+	StripeCustomerID string `db:"stripe_customer_id" json:"stripe_customer_id"`
+	ID               int32  `db:"id" json:"id"`
+}
+
+func (q *Queries) SetTenantStripeCustomer(ctx context.Context, arg SetTenantStripeCustomerParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, setTenantStripeCustomer, arg.StripeCustomerID, arg.ID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
+	)
+	return i, err
+}
+
+const updateTenantSubscriptionByCustomer = `-- name: UpdateTenantSubscriptionByCustomer :one
+UPDATE tenants
+SET stripe_subscription_id = $1,
+    subscription_status = $2,
+    current_period_end = $3,
+    subscription_event_at = $4::timestamp,
+    plan = $5
+WHERE stripe_customer_id = $6::text AND is_active
+  AND (stripe_subscription_id IS DISTINCT FROM $1
+       OR subscription_event_at IS NULL
+       OR subscription_event_at <= $4::timestamp)
+RETURNING id, name, api_key, is_active, created_at, owner_user_id, plan, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_end, subscription_event_at
+`
+
+type UpdateTenantSubscriptionByCustomerParams struct {
+	StripeSubscriptionID *string    `db:"stripe_subscription_id" json:"stripe_subscription_id"`
+	SubscriptionStatus   *string    `db:"subscription_status" json:"subscription_status"`
+	CurrentPeriodEnd     *time.Time `db:"current_period_end" json:"current_period_end"`
+	EventAt              time.Time  `db:"event_at" json:"event_at"`
+	Plan                 TenantPlan `db:"plan" json:"plan"`
+	StripeCustomerID     string     `db:"stripe_customer_id" json:"stripe_customer_id"`
+}
+
+// An update about the stored subscription created before the last one
+// applied matches no row, so events delivered out of order are dropped.
+func (q *Queries) UpdateTenantSubscriptionByCustomer(ctx context.Context, arg UpdateTenantSubscriptionByCustomerParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, updateTenantSubscriptionByCustomer,
+		arg.StripeSubscriptionID,
+		arg.SubscriptionStatus,
+		arg.CurrentPeriodEnd,
+		arg.EventAt,
+		arg.Plan,
+		arg.StripeCustomerID,
+	)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ApiKey,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.OwnerUserID,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.SubscriptionStatus,
+		&i.CurrentPeriodEnd,
+		&i.SubscriptionEventAt,
 	)
 	return i, err
 }

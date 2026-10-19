@@ -46,10 +46,18 @@ type Querier interface {
 	GetTenantByAPIKey(ctx context.Context, apiKey string) (Tenant, error)
 	GetTenantByID(ctx context.Context, id int32) (Tenant, error)
 	GetTenantByOwner(ctx context.Context, ownerUserID int32) (Tenant, error)
+	GetTenantByStripeCustomerID(ctx context.Context, stripeCustomerID string) (Tenant, error)
 	// Emails are stored lowercase; lower() matches the users_email_key index.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int32) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	// InsertStripeEvent affects 0 rows when the event id was already recorded.
+	InsertStripeEvent(ctx context.Context, arg InsertStripeEventParams) (int64, error)
+	// Links the tenant of a completed checkout to its subscription. Status,
+	// period end and event time are kept when that subscription is already
+	// stored, so a subscription event applied first is not overwritten, and
+	// cleared otherwise. The plan is left to the subscription events.
+	LinkTenantSubscription(ctx context.Context, arg LinkTenantSubscriptionParams) (Tenant, error)
 	ListActiveWebhooksByForm(ctx context.Context, formID int32) ([]FormWebhook, error)
 	// Metadata only, across every tenant, for the read-only /app dashboard.
 	ListAllFiles(ctx context.Context, arg ListAllFilesParams) ([]ListAllFilesRow, error)
@@ -65,7 +73,11 @@ type Querier interface {
 	ListSubmissionsByForm(ctx context.Context, arg ListSubmissionsByFormParams) ([]ListSubmissionsByFormRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	RotateTenantAPIKey(ctx context.Context, arg RotateTenantAPIKeyParams) (Tenant, error)
+	SetTenantStripeCustomer(ctx context.Context, arg SetTenantStripeCustomerParams) (Tenant, error)
 	UpdateForm(ctx context.Context, arg UpdateFormParams) (Form, error)
+	// An update about the stored subscription created before the last one
+	// applied matches no row, so events delivered out of order are dropped.
+	UpdateTenantSubscriptionByCustomer(ctx context.Context, arg UpdateTenantSubscriptionByCustomerParams) (Tenant, error)
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error)
 }
 

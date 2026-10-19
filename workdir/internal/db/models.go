@@ -11,6 +11,48 @@ import (
 	"time"
 )
 
+type TenantPlan string
+
+const (
+	TenantPlanFree TenantPlan = "free"
+	TenantPlanPro  TenantPlan = "pro"
+)
+
+func (e *TenantPlan) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TenantPlan(s)
+	case string:
+		*e = TenantPlan(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TenantPlan: %T", src)
+	}
+	return nil
+}
+
+type NullTenantPlan struct {
+	TenantPlan TenantPlan `json:"tenant_plan"`
+	Valid      bool       `json:"valid"` // Valid is true if TenantPlan is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTenantPlan) Scan(value interface{}) error {
+	if value == nil {
+		ns.TenantPlan, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TenantPlan.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTenantPlan) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TenantPlan), nil
+}
+
 type UserRole string
 
 const (
@@ -98,6 +140,12 @@ type FormWebhook struct {
 	CreatedAt   *time.Time `db:"created_at" json:"created_at"`
 }
 
+type StripeEvent struct {
+	ID         string    `db:"id" json:"id"`
+	Type       string    `db:"type" json:"type"`
+	ReceivedAt time.Time `db:"received_at" json:"received_at"`
+}
+
 type SubmissionMetadatum struct {
 	ID                    int32      `db:"id" json:"id"`
 	SubmissionID          int32      `db:"submission_id" json:"submission_id"`
@@ -109,12 +157,18 @@ type SubmissionMetadatum struct {
 }
 
 type Tenant struct {
-	ID          int32      `db:"id" json:"id"`
-	Name        string     `db:"name" json:"name"`
-	ApiKey      string     `db:"api_key" json:"api_key"`
-	IsActive    *bool      `db:"is_active" json:"is_active"`
-	CreatedAt   *time.Time `db:"created_at" json:"created_at"`
-	OwnerUserID *int32     `db:"owner_user_id" json:"owner_user_id"`
+	ID                   int32      `db:"id" json:"id"`
+	Name                 string     `db:"name" json:"name"`
+	ApiKey               string     `db:"api_key" json:"api_key"`
+	IsActive             *bool      `db:"is_active" json:"is_active"`
+	CreatedAt            *time.Time `db:"created_at" json:"created_at"`
+	OwnerUserID          *int32     `db:"owner_user_id" json:"owner_user_id"`
+	Plan                 TenantPlan `db:"plan" json:"plan"`
+	StripeCustomerID     *string    `db:"stripe_customer_id" json:"stripe_customer_id"`
+	StripeSubscriptionID *string    `db:"stripe_subscription_id" json:"stripe_subscription_id"`
+	SubscriptionStatus   *string    `db:"subscription_status" json:"subscription_status"`
+	CurrentPeriodEnd     *time.Time `db:"current_period_end" json:"current_period_end"`
+	SubscriptionEventAt  *time.Time `db:"subscription_event_at" json:"subscription_event_at"`
 }
 
 type User struct {
