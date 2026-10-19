@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/mailer"
 	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
@@ -32,6 +34,9 @@ var testFeatures = featureFlags(true)
 
 // testStripe leaves Stripe unconfigured, so the billing routes are not mounted.
 var testStripe config.StripeConfig
+
+// testApp is the application origin of the absolute links.
+var testApp = config.AppConfig{BaseURL: "https://forms.example.com"}
 
 // featureFlags returns a FeaturesConfig with every flag set to enabled.
 func featureFlags(enabled bool) config.FeaturesConfig {
@@ -526,17 +531,94 @@ func (f *fakeUsers) UpdateRole(_ context.Context, id int32, role auth.Role) (aut
 	return auth.User{}, apperrors.NewNotFound("user not found")
 }
 
+func (f *fakeUsers) MarkEmailVerified(_ context.Context, id int32) (auth.User, error) {
+	for i := range f.users {
+		if f.users[i].ID == id {
+			now := time.Now()
+			f.users[i].EmailVerifiedAt = &now
+			return f.users[i].User, nil
+		}
+	}
+	return auth.User{}, apperrors.NewNotFound("user not found")
+}
+
+func (f *fakeUsers) UpdatePassword(_ context.Context, id int32, passwordHash string) (auth.User, error) {
+	for i := range f.users {
+		if f.users[i].ID == id {
+			f.users[i].PasswordHash = passwordHash
+			return f.users[i].User, nil
+		}
+	}
+	return auth.User{}, apperrors.NewNotFound("user not found")
+}
+
+// fakeTokens is an in-memory auth.TokenRepository.
+type fakeTokens struct {
+	rows map[string]auth.UserToken
+}
+
+func (f *fakeTokens) Create(_ context.Context, userID int32, purpose auth.TokenPurpose, hash []byte, expiresAt time.Time) error {
+	if f.rows == nil {
+		f.rows = map[string]auth.UserToken{}
+	}
+	f.rows[string(hash)] = auth.UserToken{UserID: userID, Purpose: purpose, ExpiresAt: expiresAt, CreatedAt: time.Now()}
+	return nil
+}
+
+func (f *fakeTokens) Consume(_ context.Context, hash []byte, purpose auth.TokenPurpose) (auth.UserToken, error) {
+	ut, ok := f.rows[string(hash)]
+	if !ok || ut.Purpose != purpose || ut.UsedAt != nil || !ut.ExpiresAt.After(time.Now()) {
+		return auth.UserToken{}, apperrors.NewNotFound("token not found")
+	}
+	now := time.Now()
+	ut.UsedAt = &now
+	f.rows[string(hash)] = ut
+	return ut, nil
+}
+
+func (f *fakeTokens) GetByHash(_ context.Context, hash []byte) (auth.UserToken, error) {
+	ut, ok := f.rows[string(hash)]
+	if !ok {
+		return auth.UserToken{}, apperrors.NewNotFound("token not found")
+	}
+	return ut, nil
+}
+
+func (f *fakeTokens) Invalidate(_ context.Context, userID int32, purpose auth.TokenPurpose) error {
+	now := time.Now()
+	for k, ut := range f.rows {
+		if ut.UserID == userID && ut.Purpose == purpose && ut.UsedAt == nil {
+			ut.UsedAt = &now
+			f.rows[k] = ut
+		}
+	}
+	return nil
+}
+
+// authLogMailers maps each auth.Service built by newTestAuth to the
+// LogMailer recording what it sent, so tests can inspect the mail of a given
+// Services (see mailerFor) without widening the production Services struct.
+var (
+	authLogMailersMu sync.Mutex
+	authLogMailers   = map[*auth.Service]*mailer.LogMailer{}
+)
+
 // newTestAuth returns an auth.Service over a fakeUsers holding one user per
 // role: "admin" (ID 1), "creator" (ID 2) and "basic" (ID 3), all with
-// testPassword.
-func newTestAuth() *auth.Service {
+// testPassword. Its notifications go through a LogMailer retrievable with
+// mailerFor.
+func newTestAuth() (*auth.Service, *mailer.LogMailer) {
 	users := &fakeUsers{}
-	svc, err := auth.NewService(users, auth.Options{
+	tokens := &fakeTokens{}
+	logMailer := mailer.NewLogMailer(nil)
+	svc, err := auth.NewService(users, tokens, auth.Options{
 		Secret:       []byte(strings.Repeat("k", auth.MinSecretLen)),
 		PasswordCost: bcrypt.MinCost,
 		Tx:           &database.FakeTxRunner{},
 		UsersFor:     func(db.Querier) auth.Repository { return users },
 		TenantsFor:   func(db.Querier) tenants.Repository { return &fakeTenants{} },
+		TokensFor:    func(db.Querier) auth.TokenRepository { return tokens },
+		Notifier:     auth.NewMailNotifier(logMailer, testApp.BaseURL),
 	})
 	if err != nil {
 		panic(err)
@@ -549,7 +631,18 @@ func newTestAuth() *auth.Service {
 			panic(err)
 		}
 	}
-	return svc
+	authLogMailersMu.Lock()
+	authLogMailers[svc] = logMailer
+	authLogMailersMu.Unlock()
+	return svc, logMailer
+}
+
+// mailerFor returns the LogMailer recording the email svc.auth sent, built
+// by newTestAuth through testServices or appServices.
+func mailerFor(svc Services) *mailer.LogMailer {
+	authLogMailersMu.Lock()
+	defer authLogMailersMu.Unlock()
+	return authLogMailers[svc.auth]
 }
 
 // tokenFor signs in as username and returns the access token.
@@ -562,10 +655,10 @@ func tokenFor(t *testing.T, svc Services, username string) string {
 	return tok.AccessToken
 }
 
-// serve sends req through Routes(svc, testFeatures, testStripe).
+// serve sends req through Routes(svc, testFeatures, testStripe, testApp).
 func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, testStripe).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe, testApp).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -573,8 +666,10 @@ func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 // the users of newTestAuth.
 func testServices(fs ...forms.Form) Services {
 	fakeF, fakeS, fakeFl := newFakeForms(fs...), &fakeSubmissions{}, &fakeFiles{files: map[string]files.File{}}
+	authSvc, logMailer := newTestAuth()
 	return Services{
-		auth:        newTestAuth(),
+		auth:        authSvc,
+		mail:        logMailer,
 		tenants:     &fakeTenants{},
 		forms:       fakeF,
 		submissions: fakeS,
@@ -594,7 +689,7 @@ func appServices(fs ...forms.Form) Services {
 	return svc
 }
 
-// do sends a request with the given body (if any) through Routes(svc, testFeatures, testStripe),
+// do sends a request with the given body (if any) through Routes(svc, testFeatures, testStripe, testApp),
 // authenticated with testAPIKey when auth is true.
 func do(t *testing.T, svc Services, method, path, body string, auth bool) *httptest.ResponseRecorder {
 	t.Helper()
@@ -607,7 +702,7 @@ func do(t *testing.T, svc Services, method, path, body string, auth bool) *httpt
 		req.Header.Set(apiKeyHeader, testAPIKey)
 	}
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, testStripe).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe, testApp).ServeHTTP(rec, req)
 	return rec
 }
 

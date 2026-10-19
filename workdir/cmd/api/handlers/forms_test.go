@@ -169,6 +169,101 @@ func TestUpdateForm(t *testing.T) {
 	assertStatus(t, do(t, svc, http.MethodPut, "/forms/2", `{"title":"a","slug":"a","content":{}}`, true), http.StatusNotFound)
 }
 
+func TestNotifyOnSubmissionPlanGate(t *testing.T) {
+	const createBody = `{"title":"Contact","slug":"contact-notify","content":{"fields":[]},"notify_on_submission":true}`
+	const updateBody = `{"title":"Contact","slug":"contact","content":{"fields":[]},"notify_on_submission":true}`
+
+	t.Run("free create rejected", func(t *testing.T) {
+		svc := testServices()
+		rec := do(t, svc, http.MethodPost, "/forms", createBody, true)
+		assertStatus(t, rec, http.StatusForbidden)
+		if body := decode[apperrors.HTTPErrorResponse](t, rec); body.Code != apperrors.CodePlanFeatureUnavailable || !strings.Contains(body.Message, "Pro") {
+			t.Fatalf("body = %+v", body)
+		}
+		if created := svc.forms.(*fakeForms).created; created.Slug != "" {
+			t.Fatalf("form created without the plan feature: %+v", created)
+		}
+	})
+
+	t.Run("free update rejected", func(t *testing.T) {
+		svc := testServices(ownForm)
+		rec := do(t, svc, http.MethodPut, "/forms/1", updateBody, true)
+		assertStatus(t, rec, http.StatusForbidden)
+		if body := decode[apperrors.HTTPErrorResponse](t, rec); body.Code != apperrors.CodePlanFeatureUnavailable {
+			t.Fatalf("code = %q, want %q", body.Code, apperrors.CodePlanFeatureUnavailable)
+		}
+		if updated := svc.forms.(*fakeForms).updated; updated.ID != 0 {
+			t.Fatalf("form updated without the plan feature: %+v", updated)
+		}
+	})
+
+	t.Run("pro create saved", func(t *testing.T) {
+		svc := testServices()
+		svc.tenants = &fakeTenants{owned: map[int32]tenants.Tenant{proTenant.ID: proTenant}}
+		rec := doAs(svc, proTenant.APIKey, http.MethodPost, "/forms", createBody)
+		assertStatus(t, rec, http.StatusCreated)
+		if created := svc.forms.(*fakeForms).created; !created.NotifyOnSubmission {
+			t.Fatalf("notify_on_submission = %v, want true", created.NotifyOnSubmission)
+		}
+	})
+
+	t.Run("pro update saved", func(t *testing.T) {
+		proForm := ownForm
+		proForm.TenantID = proTenant.ID
+		svc := testServices(proForm)
+		svc.tenants = &fakeTenants{owned: map[int32]tenants.Tenant{proTenant.ID: proTenant}}
+		rec := doAs(svc, proTenant.APIKey, http.MethodPut, "/forms/1", updateBody)
+		assertStatus(t, rec, http.StatusOK)
+		if updated := svc.forms.(*fakeForms).updated; !updated.NotifyOnSubmission {
+			t.Fatalf("notify_on_submission = %v, want true", updated.NotifyOnSubmission)
+		}
+	})
+}
+
+func TestFormPublishRequiresVerifiedEmail(t *testing.T) {
+	const email = "dana@example.com"
+	draftForm := forms.Form{ID: 10, TenantID: 50, Title: "Draft", Slug: "contact-draft", Content: []byte(`{"fields":[]}`)}
+	svc := testServices(draftForm)
+
+	rec := serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"`+email+`","password":"`+testPassword+`"}`, ""))
+	assertStatus(t, rec, http.StatusCreated)
+	signUp := decode[SignUpResponse](t, rec)
+
+	svc.tenants = &fakeTenants{owned: map[int32]tenants.Tenant{
+		signUp.ID: {ID: 50, Name: "Dana", APIKey: "dana-key", IsActive: true, OwnerUserID: &signUp.ID},
+	}}
+
+	signin := serve(svc, userRequest(http.MethodPost, "/app/signin", "", basicHeader(email, testPassword)))
+	assertStatus(t, signin, http.StatusOK)
+	cookie := signin.Result().Cookies()[0]
+
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.AddCookie(cookie)
+		return serve(svc, req)
+	}
+
+	// Publishing (is_active true, the default) is rejected while unverified.
+	rec = send(http.MethodPost, "/forms", `{"title":"Contact","slug":"contact-active","content":{"fields":[]}}`)
+	assertStatus(t, rec, http.StatusForbidden)
+	if body := decode[apperrors.HTTPErrorResponse](t, rec); body.Code != apperrors.CodeEmailUnverified {
+		t.Fatalf("code = %q, want %q", body.Code, apperrors.CodeEmailUnverified)
+	}
+
+	// Saving a draft (is_active false) is unaffected.
+	assertStatus(t, send(http.MethodPost, "/forms", `{"title":"Draft","slug":"contact-draft-2","content":{"fields":[]},"is_active":false}`), http.StatusCreated)
+
+	// Activating an existing draft through an update is rejected too.
+	assertStatus(t, send(http.MethodPut, "/forms/10", `{"title":"Draft","slug":"contact-draft","content":{"fields":[]},"is_active":true}`), http.StatusForbidden)
+
+	// Once verified, both creating and activating succeed.
+	token := lastVerificationToken(t, svc, email)
+	assertStatus(t, serve(svc, httptest.NewRequest(http.MethodGet, "/app/verify?token="+token, nil)), http.StatusOK)
+
+	assertStatus(t, send(http.MethodPut, "/forms/10", `{"title":"Draft","slug":"contact-draft","content":{"fields":[]},"is_active":true}`), http.StatusOK)
+	assertStatus(t, send(http.MethodPost, "/forms", `{"title":"Contact","slug":"contact-verified","content":{"fields":[]}}`), http.StatusCreated)
+}
+
 func TestDeleteForm(t *testing.T) {
 	svc := testServices(ownForm, otherForm)
 	assertStatus(t, do(t, svc, http.MethodDelete, "/forms/2", "", true), http.StatusNotFound)

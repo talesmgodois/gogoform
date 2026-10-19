@@ -61,10 +61,10 @@ func TestAppBuilderEditForm(t *testing.T) {
 
 	assertStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
-	inactive := false
+	inactive, notify := false, false
 	want := builderDraft{
 		Title: "Survey", Slug: "survey", Description: &desc, IsActive: &inactive, StartDate: f.StartDate,
-		Content: f.Content, AcceptAnonymous: true,
+		Content: f.Content, AcceptAnonymous: true, NotifyOnSubmission: &notify,
 	}
 	if got := pageDraft(t, body); !reflect.DeepEqual(got, want) {
 		t.Fatalf("draft = %+v, want %+v", got, want)

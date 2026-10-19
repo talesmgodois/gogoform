@@ -40,6 +40,10 @@ type appFormPage struct {
 	// Exports tells whether the page offers the CSV and JSON downloads: always
 	// in an admin view, else only when the workspace's plan includes them.
 	Exports bool
+	// EmailNotifications tells whether the workspace's plan allows enabling
+	// the per-submission email notification toggle, shown only in a
+	// workspace (not admin) view.
+	EmailNotifications bool
 }
 
 // pager is the position of a page of submissions within all of them.
@@ -132,14 +136,15 @@ func (c *appController) renderForm(w http.ResponseWriter, r *http.Request, v app
 	}
 	p.listed(offset, len(subs))
 	page := appFormPage{
-		appLayout: appLayout{Active: v.navKey()},
-		appView:   v,
-		Origin:    requestOrigin(r),
-		Form:      f,
-		Table:     newSubmissionTable(f.Content, subs),
-		JSON:      string(body),
-		Pager:     p,
-		Exports:   canExport(r, v),
+		appLayout:          appLayout{Active: v.navKey()},
+		appView:            v,
+		Origin:             requestOrigin(r),
+		Form:               f,
+		Table:              newSubmissionTable(f.Content, subs),
+		JSON:               string(body),
+		Pager:              p,
+		Exports:            canExport(r, v),
+		EmailNotifications: !v.Admin && plans.For(tenantFrom(r.Context()).Plan).EmailNotifications,
 	}
 	renderAppPage(w, r, appFormTemplate, &page)
 }

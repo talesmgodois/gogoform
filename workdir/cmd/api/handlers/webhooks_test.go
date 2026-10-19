@@ -24,7 +24,7 @@ func proServices() Services {
 	return svc
 }
 
-// doAs sends a request through Routes(svc, testFeatures, testStripe),
+// doAs sends a request through Routes(svc, testFeatures, testStripe, testApp),
 // authenticated with apiKey.
 func doAs(svc Services, apiKey, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))

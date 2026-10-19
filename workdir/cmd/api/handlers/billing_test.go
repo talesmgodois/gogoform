@@ -18,7 +18,9 @@ import (
 	"app/internal/database"
 	"app/internal/db"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/auth"
 	"app/internal/pkg/billing"
+	"app/internal/pkg/mailer"
 	"app/internal/pkg/tenants"
 )
 
@@ -79,13 +81,29 @@ func (f *fakeEventLog) MarkProcessed(_ context.Context, id, eventType string) (b
 // testTenant so lookups by ID find it.
 const billingTenantID int32 = 8
 
+// billingOwnerEmail is the email of the owner of billingTenantID in
+// newBillingEnv, unless the test clears OwnerUserID.
+const billingOwnerEmail = "owner@example.com"
+
 // billingEnv is appServices with a billing service over fakes. appUser owns
-// tenant billingTenantID, on the free plan unless changed.
+// tenant billingTenantID, on the free plan unless changed. mail records the
+// payment-failed emails the billing service sends.
 type billingEnv struct {
 	svc     Services
 	tenants *fakeTenants
 	gateway *fakeGateway
 	events  *fakeEventLog
+	mail    *mailer.LogMailer
+}
+
+// fakeBillingUsers is a billing.Users over a fixed set of users by ID.
+type fakeBillingUsers map[int32]auth.User
+
+func (f fakeBillingUsers) GetByID(_ context.Context, id int32) (auth.User, error) {
+	if u, ok := f[id]; ok {
+		return u, nil
+	}
+	return auth.User{}, apperrors.NewNotFound("user not found")
 }
 
 func newBillingEnv(t *testing.T, change func(*tenants.Tenant)) billingEnv {
@@ -96,6 +114,7 @@ func newBillingEnv(t *testing.T, change func(*tenants.Tenant)) billingEnv {
 		tenants: svc.tenants.(*fakeTenants),
 		gateway: &fakeGateway{},
 		events:  &fakeEventLog{seen: map[string]string{}},
+		mail:    mailer.NewLogMailer(nil),
 	}
 	tenant := env.tenants.owned[2]
 	tenant.ID, tenant.APIKey, tenant.Plan = billingTenantID, "billing-key", tenants.PlanFree
@@ -103,11 +122,17 @@ func newBillingEnv(t *testing.T, change func(*tenants.Tenant)) billingEnv {
 		change(&tenant)
 	}
 	env.tenants.owned[2] = tenant
+	users := fakeBillingUsers{}
+	if tenant.OwnerUserID != nil {
+		users[*tenant.OwnerUserID] = auth.User{ID: *tenant.OwnerUserID, Email: billingOwnerEmail}
+	}
 	billingSvc, err := billing.NewService(env.gateway, env.tenants, billing.Options{
 		PriceID:    billingTestStripe.PriceID,
 		Tx:         &database.FakeTxRunner{},
 		TenantsFor: func(db.Querier) tenants.Repository { return env.tenants },
 		EventsFor:  func(db.Querier) billing.EventLog { return env.events },
+		UsersFor:   func(db.Querier) billing.Users { return users },
+		Notifier:   billing.NewMailNotifier(env.mail, testApp.BaseURL),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +144,7 @@ func newBillingEnv(t *testing.T, change func(*tenants.Tenant)) billingEnv {
 // serve sends req through the routes with Stripe enabled.
 func (e billingEnv) serve(req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	Routes(e.svc, testFeatures, billingTestStripe).ServeHTTP(rec, req)
+	Routes(e.svc, testFeatures, billingTestStripe, testApp).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -288,6 +313,29 @@ func TestStripeWebhookPaymentFailed(t *testing.T) {
 	}
 }
 
+func TestStripeWebhookPaymentFailedNotifiesOwner(t *testing.T) {
+	env := newBillingEnv(t, func(tn *tenants.Tenant) {
+		tn.Plan, tn.StripeCustomerID, tn.StripeSubscriptionID, tn.SubscriptionStatus = tenants.PlanPro, "cus_1", "sub_1", "active"
+	})
+	assertStatus(t, env.sendEvent(t, stripeEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
+		invoiceObject("cus_1", "sub_1", 0))), http.StatusOK)
+	if sent := env.mail.Sent(); len(sent) != 1 || sent[0].To != billingOwnerEmail {
+		t.Fatalf("sent = %+v, want one payment-failed email to %s", sent, billingOwnerEmail)
+	}
+}
+
+func TestStripeWebhookPaymentFailedNoOwnerNoEmail(t *testing.T) {
+	env := newBillingEnv(t, func(tn *tenants.Tenant) {
+		tn.Plan, tn.StripeCustomerID, tn.StripeSubscriptionID, tn.SubscriptionStatus = tenants.PlanPro, "cus_1", "sub_1", "active"
+		tn.OwnerUserID = nil
+	})
+	assertStatus(t, env.sendEvent(t, stripeEvent(t, "evt_1", stripe.EventTypeInvoicePaymentFailed,
+		invoiceObject("cus_1", "sub_1", 0))), http.StatusOK)
+	if sent := env.mail.Sent(); len(sent) != 0 {
+		t.Fatalf("sent = %+v, want none: tenant has no owner", sent)
+	}
+}
+
 func TestStripeWebhookAcceptsOtherAPIVersion(t *testing.T) {
 	env := newBillingEnv(t, withCustomer)
 	raw, err := json.Marshal(map[string]any{
@@ -368,7 +416,7 @@ func TestBillingRoutesNotFoundWithoutStripe(t *testing.T) {
 				svc.billing = nil
 			}
 			rec := httptest.NewRecorder()
-			Routes(svc, testFeatures, c.stripe).ServeHTTP(rec, req())
+			Routes(svc, testFeatures, c.stripe, testApp).ServeHTTP(rec, req())
 			if rec.Code != http.StatusNotFound {
 				t.Errorf("%s: %s = %d, want 404", c.name, name, rec.Code)
 			}

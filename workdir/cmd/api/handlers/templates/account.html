@@ -17,7 +17,13 @@
             {{.Username}}
             <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-xs font-medium text-indigo-300 ring-1 ring-inset ring-indigo-500/20">{{.Role}}</span>
           </h1>
-          {{with .Email}}<p class="mt-1 font-mono text-sm text-slate-300">{{.}}</p>{{end}}
+          {{with .Email}}
+          <p class="mt-1 flex items-center gap-2 font-mono text-sm text-slate-300">
+            {{.}}
+            {{if $.User.EmailVerified}}<span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/20">Verified</span>
+            {{else}}<span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-500/20">Unverified</span>{{end}}
+          </p>
+          {{end}}
           <p class="mt-1 text-xs text-slate-500">User #{{.ID}} · member since {{datetime .CreatedAt}}</p>
         </div>
         <button type="button" data-signout class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Sign out</button>

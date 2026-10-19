@@ -53,6 +53,24 @@
     }
   </script>
   {{end}}
+  {{if and .User .User.Email (not .User.EmailVerified)}}
+  <div class="border-b border-amber-500/20 bg-amber-500/10 px-6 py-2 text-center text-xs text-amber-200">
+    Verify your email address to publish forms.
+    <button type="button" id="verify-resend" class="ml-2 rounded-lg border border-amber-400/40 px-2 py-1 font-semibold hover:bg-amber-400/10">Resend verification email</button>
+    <span id="verify-resend-status" class="ml-2 hidden"></span>
+  </div>
+  <script nonce="{{.Nonce}}">
+    document.getElementById("verify-resend").addEventListener("click", (event) => {
+      const button = event.currentTarget;
+      const status = document.getElementById("verify-resend-status");
+      button.disabled = true;
+      fetch("/app/verify/resend", { method: "POST", credentials: "same-origin" })
+        .then((res) => { status.textContent = res.ok ? "Verification email sent." : "Could not send the email. Try again later."; })
+        .catch(() => { status.textContent = "Could not reach the server."; })
+        .finally(() => { status.classList.remove("hidden"); button.disabled = false; });
+    });
+  </script>
+  {{end}}
 {{end}}
 
 {{/* form-actions is the Activate/Deactivate and Delete behavior of the form
@@ -167,6 +185,7 @@
               content: form.content,
               public_available: form.public_available,
               accept_anonymous: form.accept_anonymous,
+              notify_on_submission: form.notify_on_submission,
             }),
           )
           .then((form) => render(row, form))
@@ -199,6 +218,37 @@
           counter.textContent = "Showing " + shown + " of " + total + ", newest first";
         }
       };
+
+      const notifyToggle = document.getElementById("notify-toggle");
+      if (notifyToggle) {
+        notifyToggle.addEventListener("change", () => {
+          const row = notifyToggle.closest("[data-form-row]");
+          const id = row.dataset.formId;
+          const checked = notifyToggle.checked;
+          notifyToggle.disabled = true;
+          clearError();
+          api("GET", id)
+            .then((form) =>
+              api("PUT", id, {
+                title: form.title,
+                slug: form.slug,
+                description: form.description,
+                is_active: form.is_active,
+                start_date: form.start_date,
+                end_date: form.end_date,
+                content: form.content,
+                public_available: form.public_available,
+                accept_anonymous: form.accept_anonymous,
+                notify_on_submission: checked,
+              }),
+            )
+            .catch((err) => {
+              notifyToggle.checked = !checked;
+              showError(err.message);
+            })
+            .finally(() => (notifyToggle.disabled = false));
+        });
+      }
 
       document.addEventListener("click", (event) => {
         const button = event.target.closest("[data-form-toggle], [data-form-delete]");

@@ -2,17 +2,22 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	apperrors "app/internal/errors"
+	authpkg "app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/mailer"
 	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
+	"app/internal/pkg/tenants"
 )
 
 // Messages of the submission validation errors.
@@ -65,6 +70,12 @@ type submissionsController struct {
 	submissions submissions.Repository
 	files       files.Repository
 	plans       *plans.Enforcer
+	// tenants, auth, mail and baseURL support the new-submission
+	// notification email; see notifyNewSubmission.
+	tenants tenants.Repository
+	auth    *authpkg.Service
+	mail    mailer.Mailer
+	baseURL string
 }
 
 // Create stores a submission of a public form.
@@ -146,7 +157,33 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 	} else {
 		sub.Metadata = &meta
 	}
+	if f.NotifyOnSubmission && plans.For(f.TenantPlan).EmailNotifications {
+		c.notifyOwner(r.Context(), f.Form)
+	}
 	writeJSON(w, r, http.StatusCreated, toSubmissionResponse(sub))
+}
+
+// notifyOwner emails f's tenant owner that f received a new submission, when
+// the tenant has an owner with an email address. Failures are logged, never
+// returned: the caller's response must not depend on email delivery, and the
+// mailer (normally mailer.Async) already sends without blocking.
+func (c *submissionsController) notifyOwner(ctx context.Context, f forms.Form) {
+	tenant, err := c.tenants.GetByID(ctx, f.TenantID)
+	if err != nil || tenant.OwnerUserID == nil {
+		return
+	}
+	owner, err := c.auth.GetUser(ctx, *tenant.OwnerUserID)
+	if err != nil || owner.Email == "" {
+		return
+	}
+	r, err := mailer.RenderNewSubmissionNotification(c.baseURL, strconv.Itoa(int(f.ID)), f.Title, time.Now())
+	if err != nil {
+		slog.ErrorContext(ctx, "render new submission notification", "form_id", f.ID, "error", err)
+		return
+	}
+	if err := c.mail.Send(ctx, mailer.Message{To: owner.Email, Subject: r.Subject, Text: r.Text, HTML: r.HTML}); err != nil {
+		slog.ErrorContext(ctx, "send new submission notification", "form_id", f.ID, "error", err)
+	}
 }
 
 // checkSubmissionLimit checks that f's tenant may receive another submission

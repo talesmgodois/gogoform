@@ -11,6 +11,7 @@ import (
 	apperrors "app/internal/errors"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/mailer"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
 )
@@ -58,7 +59,7 @@ func TestCreateSubmission(t *testing.T) {
 	req.Header.Set("Referer", "https://example.com/contact")
 	req.Header.Set("X-Forwarded-For", "10.0.0.1")
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, testStripe).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe, testApp).ServeHTTP(rec, req)
 	assertStatus(t, rec, http.StatusCreated)
 
 	fake := svc.submissions.(*fakeSubmissions)
@@ -184,6 +185,96 @@ func TestCreateSubmissionAvailability(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/public/forms/private/submissions", strings.NewReader(body))
 	req.Header.Set("Authorization", bearer(tokenFor(t, svc, "basic")))
 	assertStatus(t, serve(svc, req), http.StatusCreated)
+}
+
+// notifyForm is a public form of tenant 60 with NotifyOnSubmission set, for
+// TestCreateSubmissionNotifiesOwner.
+var notifyForm = forms.Form{
+	ID: 50, TenantID: 60, Title: "Contact", Slug: "notify", IsActive: true,
+	PublicAvailable: true, AcceptAnonymous: true, NotifyOnSubmission: true,
+	Content: []byte(`{"fields":[]}`),
+}
+
+// signUpOwner signs up a new user with email through /auth/signup and makes
+// it the owner of a tenant 60 on the given plan, returning svc's new tenants
+// fake so callers can still adjust it (e.g. to downgrade the plan).
+func signUpOwner(t *testing.T, svc Services, email string, plan tenants.Plan) {
+	t.Helper()
+	rec := serve(svc, userRequest(http.MethodPost, "/auth/signup", `{"email":"`+email+`","password":"`+testPassword+`"}`, ""))
+	assertStatus(t, rec, http.StatusCreated)
+	signUp := decode[SignUpResponse](t, rec)
+	svc.tenants.(*fakeTenants).owned = map[int32]tenants.Tenant{
+		signUp.ID: {ID: 60, Name: "Owner", APIKey: "owner-key", IsActive: true, Plan: plan, OwnerUserID: &signUp.ID},
+	}
+}
+
+func TestCreateSubmissionNotifiesOwner(t *testing.T) {
+	const email = "owner@example.com"
+
+	// sentTo reports whether lm recorded a new-submission notification to to;
+	// it ignores the account's own verification email, also sent to to.
+	sentTo := func(lm *mailer.LogMailer, to string) bool {
+		for _, m := range lm.Sent() {
+			if m.To == to && strings.Contains(m.Subject, "New submission") {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("pro with toggle on", func(t *testing.T) {
+		svc := testServices(notifyForm)
+		svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{60: tenants.PlanPro}
+		signUpOwner(t, svc, email, tenants.PlanPro)
+
+		rec := do(t, svc, http.MethodPost, "/public/forms/notify/submissions", `{"payload":{}}`, false)
+		assertStatus(t, rec, http.StatusCreated)
+		if !sentTo(mailerFor(svc), email) {
+			t.Fatal("no email sent to the form owner")
+		}
+	})
+
+	t.Run("toggle off", func(t *testing.T) {
+		off := notifyForm
+		off.ID, off.Slug, off.NotifyOnSubmission = 51, "notify-off", false
+		svc := testServices(off)
+		svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{60: tenants.PlanPro}
+		signUpOwner(t, svc, email, tenants.PlanPro)
+
+		rec := do(t, svc, http.MethodPost, "/public/forms/notify-off/submissions", `{"payload":{}}`, false)
+		assertStatus(t, rec, http.StatusCreated)
+		if sentTo(mailerFor(svc), email) {
+			t.Fatal("email sent although notify_on_submission is off")
+		}
+	})
+
+	t.Run("tenant downgraded to free", func(t *testing.T) {
+		downgraded := notifyForm
+		downgraded.ID, downgraded.Slug = 52, "notify-downgraded"
+		svc := testServices(downgraded)
+		// tenantPlans left empty: fakeForms.plan defaults to PlanFree.
+		signUpOwner(t, svc, email, tenants.PlanFree)
+
+		rec := do(t, svc, http.MethodPost, "/public/forms/notify-downgraded/submissions", `{"payload":{}}`, false)
+		assertStatus(t, rec, http.StatusCreated)
+		if sentTo(mailerFor(svc), email) {
+			t.Fatal("email sent although the tenant's plan no longer includes email notifications")
+		}
+	})
+
+	t.Run("tenant without an owner email", func(t *testing.T) {
+		noEmail := notifyForm
+		noEmail.ID, noEmail.Slug, noEmail.TenantID = 53, "notify-no-email", testTenant.ID
+		svc := testServices(noEmail)
+		svc.forms.(*fakeForms).tenantPlans = map[int32]tenants.Plan{testTenant.ID: tenants.PlanPro}
+		// testTenant has no OwnerUserID: notifyOwner must return without sending.
+
+		rec := do(t, svc, http.MethodPost, "/public/forms/notify-no-email/submissions", `{"payload":{}}`, false)
+		assertStatus(t, rec, http.StatusCreated)
+		if len(mailerFor(svc).Sent()) != 0 {
+			t.Fatalf("sent = %+v, want none", mailerFor(svc).Sent())
+		}
+	})
 }
 
 func TestCreateSubmissionPlanLimit(t *testing.T) {

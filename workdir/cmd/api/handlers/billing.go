@@ -29,6 +29,8 @@ const billingPagePath = "/app/billing"
 type billingController struct {
 	billing *billing.Service
 	stripe  config.StripeConfig
+	// baseURL is the public origin of the Checkout and Portal return URLs.
+	baseURL string
 	// app authenticates the session cookie of the checkout and portal
 	// forms and lists the navigation tabs of their error pages.
 	app *appController
@@ -120,7 +122,7 @@ func (c *billingController) withWorkspace(next http.HandlerFunc) http.HandlerFun
 
 // billingURL returns the absolute URL of the billing page with query.
 func (c *billingController) billingURL(query string) string {
-	u := strings.TrimRight(c.stripe.AppBaseURL, "/") + billingPagePath
+	u := strings.TrimRight(c.baseURL, "/") + billingPagePath
 	if query != "" {
 		u += "?" + query
 	}

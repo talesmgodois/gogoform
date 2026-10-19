@@ -337,6 +337,43 @@ func TestAppExportPlanGate(t *testing.T) {
 	}
 }
 
+func TestAppFormNotifyTogglePlanGate(t *testing.T) {
+	const toggle = `id="notify-toggle"`
+	const upgrade = `Email notifications on new submissions are available on the Pro plan.`
+	tests := []struct {
+		plan      tenants.Plan
+		available bool
+	}{
+		{tenants.PlanFree, false},
+		{tenants.PlanPro, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.plan), func(t *testing.T) {
+			rec := getAppPath(t, onPlan(formWithSubmissions(), tt.plan), "/app/forms/1")
+			assertStatus(t, rec, http.StatusOK)
+			body := rec.Body.String()
+			if strings.Contains(body, toggle) != tt.available {
+				t.Errorf("form page shows the notify toggle = %v, want %v", !tt.available, tt.available)
+			}
+			if strings.Contains(body, upgrade) == tt.available {
+				t.Errorf("form page shows the upgrade hint = %v, want %v", tt.available, !tt.available)
+			}
+		})
+	}
+}
+
+func TestAdminFormHasNoNotifyToggle(t *testing.T) {
+	svc := pagedForm(2*formPageSize + 2)
+	svc.forms.(*fakeForms).forms[1] = forms.Form{ID: 1, TenantID: 8, Title: "Other", Slug: "other", Content: json.RawMessage(`{}`)}
+
+	rec := serve(svc, pageRequest(t, svc, "/app/admin/forms/1?page=2", "admin"))
+
+	assertStatus(t, rec, http.StatusOK)
+	if body := rec.Body.String(); strings.Contains(body, `id="notify-toggle"`) {
+		t.Error("admin form page shows the notify toggle")
+	}
+}
+
 func TestAdminExportIgnoresThePlan(t *testing.T) {
 	// Admin exports are not gated by any workspace plan.
 	svc := formWithSubmissions()

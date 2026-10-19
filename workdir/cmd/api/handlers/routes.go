@@ -16,6 +16,7 @@ import (
 	"app/internal/pkg/billing"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
+	"app/internal/pkg/mailer"
 	"app/internal/pkg/plans"
 	"app/internal/pkg/submissions"
 	"app/internal/pkg/tenants"
@@ -34,12 +35,15 @@ type Services struct {
 	billing *billing.Service
 	// plans enforces plan limits, counting usage through the repositories.
 	plans *plans.Enforcer
+	// mail sends the new-submission notification; typically mailer.Async so
+	// it never blocks a request.
+	mail mailer.Mailer
 }
 
 // NewServices returns the sqlc-backed implementation of every repository and
-// the plan Enforcer over them, along with authSvc, which authenticates users, and billingSvc, which is nil
-// when Stripe is not configured.
-func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Service) Services {
+// the plan Enforcer over them, along with authSvc, which authenticates users, billingSvc, which is nil
+// when Stripe is not configured, and mail, which sends the new-submission notification.
+func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Service, mail mailer.Mailer) Services {
 	formsSvc, submissionsSvc, filesSvc := forms.NewService(q), submissions.NewService(q), files.NewService(q)
 	return Services{
 		auth:        authSvc,
@@ -50,6 +54,7 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 		webhooks:    webhooks.NewService(q),
 		files:       filesSvc,
 		plans:       plans.NewEnforcer(formsSvc, submissionsSvc, filesSvc),
+		mail:        mail,
 	}
 }
 
@@ -62,11 +67,15 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 // listed in app_routes.go, use the session cookie of a signed-in user. The
 // development-only POST /tenants and /samples/* are only mounted when enabled
 // in features. The billing routes (billing.go) are only mounted when stripe is
-// enabled and svc has a billing service, so they 404 otherwise.
-func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig) http.Handler {
+// enabled and svc has a billing service, so they 404 otherwise; their return
+// URLs are built from app.BaseURL.
+func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig) http.Handler {
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
-	formsCtl := &formsController{forms: svc.forms, plans: svc.plans}
-	submissionsCtl := &submissionsController{forms: svc.forms, submissions: svc.submissions, files: svc.files, plans: svc.plans}
+	formsCtl := &formsController{forms: svc.forms, plans: svc.plans, auth: svc.auth}
+	submissionsCtl := &submissionsController{
+		forms: svc.forms, submissions: svc.submissions, files: svc.files, plans: svc.plans,
+		tenants: svc.tenants, auth: svc.auth, mail: svc.mail, baseURL: app.BaseURL,
+	}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
 	filesCtl := &filesController{files: svc.files, forms: svc.forms, plans: svc.plans}
 	authCtl := &authController{auth: svc.auth}
@@ -129,7 +138,7 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	appCtl.mount(mux)
 
 	if billingEnabled {
-		billingCtl := &billingController{billing: svc.billing, stripe: stripe, app: appCtl}
+		billingCtl := &billingController{billing: svc.billing, stripe: stripe, baseURL: app.BaseURL, app: appCtl}
 		billingCtl.mount(mux)
 	}
 	return mux

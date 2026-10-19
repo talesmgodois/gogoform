@@ -31,6 +31,22 @@ type appSignInPage struct {
 	Next string
 }
 
+// appForgotPasswordPage is the data rendered by templates/forgot_password.html.
+type appForgotPasswordPage struct {
+	appLayout
+}
+
+// appResetPasswordPage is the data rendered by templates/reset_password.html.
+type appResetPasswordPage struct {
+	appLayout
+	// Token is the password-reset token carried by the link, resubmitted as a
+	// hidden field so a rejected password can be retried with it.
+	Token string
+	// Error, set when a submitted password was rejected, is shown above the
+	// form.
+	Error string
+}
+
 // appAccountPage is the data rendered by templates/account.html.
 type appAccountPage struct {
 	appLayout
@@ -132,6 +148,71 @@ func (c *appController) SignOut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ForgotPasswordPage renders the form asking for the account's email.
+func (c *appController) ForgotPasswordPage(w http.ResponseWriter, r *http.Request) {
+	renderAppPage(w, r, appForgotPasswordTemplate, &appForgotPasswordPage{appLayout: appLayout{Active: "signin"}})
+}
+
+// ForgotPassword issues a password-reset email for the submitted address when
+// an account has it, and always renders the same confirmation regardless: the
+// response must not reveal which emails are registered.
+func (c *appController) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		renderAppError(w, r, apperrors.NewForbidden("cross-origin request"))
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		renderAppError(w, r, apperrors.NewBadRequest("invalid form data"))
+		return
+	}
+	if err := c.auth.RequestPasswordReset(r.Context(), r.FormValue("email")); err != nil {
+		renderAppError(w, r, err)
+		return
+	}
+	renderAppMessage(w, r, http.StatusOK, "Check your email",
+		"If an account exists for that email, we've sent a link to reset the password.")
+}
+
+// ResetPasswordPage renders the new-password form for the token carried by
+// the link ForgotPassword emailed. It is public: the link is opened from an
+// email, signed in or not.
+func (c *appController) ResetPasswordPage(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		renderAppMessage(w, r, http.StatusBadRequest, "Invalid link", "This password reset link is missing its token.")
+		return
+	}
+	renderAppPage(w, r, appResetPasswordTemplate, &appResetPasswordPage{appLayout: appLayout{Active: "signin"}, Token: token})
+}
+
+// ResetPassword redeems the password-reset token and sets the new password,
+// then sends the viewer to sign in with it. A rejected password re-renders
+// the form with the same token, since it is not consumed until a password
+// that passes validation is supplied; an invalid or expired token shows a
+// message instead.
+func (c *appController) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		renderAppError(w, r, apperrors.NewForbidden("cross-origin request"))
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		renderAppError(w, r, apperrors.NewBadRequest("invalid form data"))
+		return
+	}
+	token := r.FormValue("token")
+	if err := c.auth.ResetPassword(r.Context(), token, r.FormValue("password")); err != nil {
+		if appErr, ok := apperrors.As(err); ok && appErr.Code == apperrors.CodeInvalidArgument {
+			renderAppPageStatus(w, r, http.StatusBadRequest, appResetPasswordTemplate,
+				&appResetPasswordPage{appLayout: appLayout{Active: "signin"}, Token: token, Error: appErr.Message})
+			return
+		}
+		renderAppMessage(w, r, http.StatusBadRequest, "Link expired or already used",
+			"This password reset link is invalid or has expired. Request a new one.")
+		return
+	}
+	http.Redirect(w, r, "/app/signin", http.StatusSeeOther)
+}
+
 // Account renders the signed-in user, their workspace and the access of
 // every /app route: a page to try the route policies out.
 func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +230,38 @@ func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
 		page.Routes = append(page.Routes, appRouteAccess{Pattern: rt.Pattern, Access: describeAccess(rt), Allowed: rt.Access.Allows(u)})
 	}
 	renderAppPage(w, r, appAccountTemplate, &page)
+}
+
+// Verify redeems an email verification token sent to a user's inbox (see
+// ResendVerificationEmail) and shows whether their address is now verified.
+// It is public: the link is opened from an email, signed in or not.
+func (c *appController) Verify(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		renderAppMessage(w, r, http.StatusBadRequest, "Invalid link", "This verification link is missing its token.")
+		return
+	}
+	if _, err := c.auth.VerifyEmail(r.Context(), token); err != nil {
+		renderAppMessage(w, r, http.StatusBadRequest, "Link expired or already used",
+			"This verification link is invalid or has expired. Sign in and resend it from your account page.")
+		return
+	}
+	renderAppMessage(w, r, http.StatusOK, "Email verified", "Your email address is now verified. You can publish forms.")
+}
+
+// ResendVerificationEmail issues and sends a fresh verification token to the
+// signed-in viewer's email; a no-op when it is already verified.
+func (c *appController) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		apperrors.WriteHTTP(w, r, apperrors.NewForbidden("cross-origin request"))
+		return
+	}
+	u := userFrom(r.Context())
+	if err := c.auth.ResendVerification(r.Context(), u.ID); err != nil {
+		apperrors.WriteHTTP(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Users lists the user accounts.
@@ -183,6 +296,9 @@ func renderAppError(w http.ResponseWriter, r *http.Request, err error) {
 	case appErr != nil && appErr.Code == apperrors.CodePlanFeatureUnavailable:
 		page.Title, page.Message = "Upgrade to Pro", appErr.Message
 		page.Href, page.Link = "/app/billing", "See plans"
+	case appErr != nil && appErr.Code == apperrors.CodeEmailUnverified:
+		page.Title, page.Message = "Verify your email", appErr.Message
+		page.Href, page.Link = "/app/account", "Go to your account"
 	case status >= http.StatusInternalServerError:
 		slog.ErrorContext(r.Context(), "request failed", "status", status, "error", err)
 		page.Title, page.Message = "Something went wrong", "We could not load this page. Try again in a moment."

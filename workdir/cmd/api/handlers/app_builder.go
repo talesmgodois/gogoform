@@ -43,6 +43,9 @@ type builderDraft struct {
 	Content         json.RawMessage `json:"content"`
 	PublicAvailable bool            `json:"public_available"`
 	AcceptAnonymous bool            `json:"accept_anonymous"`
+	// NotifyOnSubmission is only set when editing, as IsActive and the dates
+	// are, so saving keeps it; a copy starts with it off.
+	NotifyOnSubmission *bool `json:"notify_on_submission,omitempty"`
 }
 
 // Builder renders the form builder. With ?form={id} it edits that form of
@@ -74,6 +77,7 @@ func (c *appController) Builder(w http.ResponseWriter, r *http.Request) {
 		}
 		if page.Mode == builderModeEdit {
 			d.Slug, d.IsActive, d.StartDate, d.EndDate = f.Slug, &f.IsActive, f.StartDate, f.EndDate
+			d.NotifyOnSubmission = &f.NotifyOnSubmission
 			page.FormID = f.ID
 		}
 		draft, err := json.Marshal(d)

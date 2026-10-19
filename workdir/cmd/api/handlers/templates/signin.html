@@ -25,6 +25,7 @@
             class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none">
           <span id="password-hint" class="hidden text-[11px] text-slate-500">8 to 72 characters.</span>
         </label>
+        <p id="forgot-password-link" class="text-right text-[11px]"><a href="/app/forgot-password" class="text-indigo-400 hover:text-indigo-300">Forgot password?</a></p>
         <p id="signin-error" role="alert" class="hidden rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>
         <button id="signin-submit" type="submit" class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50">Sign in</button>
       </form>
@@ -58,6 +59,7 @@
         $("identifier").autocomplete = m === "signin" ? "username" : "email";
         $("password").autocomplete = m === "signin" ? "current-password" : "new-password";
         $("password-hint").classList.toggle("hidden", m === "signin");
+        $("forgot-password-link").classList.toggle("hidden", m !== "signin");
         showError("");
       };
       const showError = (msg) => {

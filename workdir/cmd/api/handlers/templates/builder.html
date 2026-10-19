@@ -218,7 +218,7 @@
         public_available: state.publicAvailable,
         accept_anonymous: state.publicAvailable || state.acceptAnonymous,
         content: { version: 1, fields: state.fields.map(fieldJSON) },
-      }, save.formID ? { is_active: save.kept.is_active, start_date: save.kept.start_date, end_date: save.kept.end_date } : {});
+      }, save.formID ? { is_active: save.kept.is_active, start_date: save.kept.start_date, end_date: save.kept.end_date, notify_on_submission: save.kept.notify_on_submission } : {});
 
       // toYAML renders a JSON value as block-style YAML. Strings that YAML
       // would read as something else are written as JSON strings, which are
@@ -455,7 +455,7 @@
       // when creating one) and kept holds the parts of it the builder keeps.
       const save = {
         formID: $("builder").dataset.mode === "edit" ? $("builder").dataset.formId : "",
-        kept: { is_active: true, start_date: null, end_date: null },
+        kept: { is_active: true, start_date: null, end_date: null, notify_on_submission: false },
         busy: false,
         result: null,
       };
@@ -648,7 +648,7 @@
       // the next save updates it instead of creating another one.
       const editing = (form) => {
         save.formID = String(form.id);
-        save.kept = { is_active: form.is_active, start_date: form.start_date, end_date: form.end_date };
+        save.kept = { is_active: form.is_active, start_date: form.start_date, end_date: form.end_date, notify_on_submission: form.notify_on_submission };
         const builder = $("builder");
         builder.dataset.mode = "edit";
         builder.dataset.formId = save.formID;
@@ -681,7 +681,7 @@
               }
               dirty = false;
               if (creating) editing(data);
-              else save.kept = { is_active: data.is_active, start_date: data.start_date, end_date: data.end_date };
+              else save.kept = { is_active: data.is_active, start_date: data.start_date, end_date: data.end_date, notify_on_submission: data.notify_on_submission };
               save.result = note("bg-emerald-500/10 text-emerald-300", creating ? "Form created. " : "Changes saved. ",
                 link("/app/forms/" + encodeURIComponent(data.id), "Open the form"), " or ", link("/app", "back to your forms"), ".");
             }),
@@ -855,7 +855,7 @@
         state.description = d.description || "";
         state.publicAvailable = d.public_available !== false;
         state.acceptAnonymous = d.accept_anonymous !== false;
-        if (save.formID) save.kept = { is_active: d.is_active !== false, start_date: d.start_date || null, end_date: d.end_date || null };
+        if (save.formID) save.kept = { is_active: d.is_active !== false, start_date: d.start_date || null, end_date: d.end_date || null, notify_on_submission: !!d.notify_on_submission };
         const fields = d.content && Array.isArray(d.content.fields) ? d.content.fields : [];
         state.fields = fields.map(fromJSON).filter(Boolean);
         if (state.fields.length < fields.length || !(d.content && Array.isArray(d.content.fields))) {

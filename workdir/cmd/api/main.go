@@ -41,6 +41,7 @@ import (
 	"app/internal/logger"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/billing"
+	"app/internal/pkg/mailer"
 	"app/internal/pkg/tenants"
 )
 
@@ -83,11 +84,19 @@ func run() error {
 
 	queries := db.New(pool)
 	txRunner := database.NewTxRunner(pool)
-	authSvc, err := newAuthService(ctx, log, queries, txRunner, cfg.Auth)
+	mail := newMailer(log, cfg.Mail, cfg.Server.Env)
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := mail.Close(closeCtx); err != nil {
+			log.Warn("mailer: did not drain in time", "error", err)
+		}
+	}()
+	authSvc, err := newAuthService(ctx, log, queries, txRunner, cfg.Auth, mail, cfg.App.BaseURL)
 	if err != nil {
 		return err
 	}
-	billingSvc, err := newBillingService(log, queries, txRunner, cfg.Stripe)
+	billingSvc, err := newBillingService(log, queries, txRunner, cfg.Stripe, mail, cfg.App.BaseURL)
 	if err != nil {
 		return err
 	}
@@ -97,7 +106,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc, billingSvc), cfg.Features, cfg.Stripe),
+		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -125,11 +134,37 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
+// newMailer returns the SMTP mailer wrapped in mailer.Async when cfg is
+// enabled, or a log-only mailer otherwise (with a warning outside
+// development, where unconfigured email is most likely a mistake).
+func newMailer(log *slog.Logger, cfg config.MailConfig, env string) *mailer.Async {
+	var next mailer.Mailer
+	if cfg.Enabled() {
+		smtp, err := mailer.NewSMTPMailer(mailer.SMTPConfig{
+			Host: cfg.Host, Port: cfg.Port, User: cfg.User, Password: cfg.Password, From: cfg.From,
+		})
+		if err != nil {
+			log.Error("mailer: invalid SMTP configuration; falling back to logging email", "error", err)
+			next = mailer.NewLogMailer(log)
+		} else {
+			log.Info("mailer: sending email through SMTP", "host", cfg.Host, "port", cfg.Port)
+			next = smtp
+		}
+	} else {
+		if env != "development" {
+			log.Warn("mailer: SMTP is not configured; email is only logged, not delivered")
+		}
+		next = mailer.NewLogMailer(log)
+	}
+	return mailer.NewAsync(next, log, mailer.AsyncOptions{})
+}
+
 // newAuthService builds the user authentication service and creates the
 // bootstrap admin of cfg, if any. tx runs the writes that must be atomic
 // (creating a user together with its tenant). Without a configured secret,
-// tokens are signed with a random one and do not survive a restart.
-func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.AuthConfig) (*auth.Service, error) {
+// tokens are signed with a random one and do not survive a restart. mail
+// sends the email verification and password reset links, built from baseURL.
+func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.AuthConfig, mail mailer.Mailer, baseURL string) (*auth.Service, error) {
 	secret := []byte(cfg.JWTSecret)
 	if len(secret) == 0 {
 		log.Warn("auth: AUTH_JWT_SECRET is not set; using a random secret, so tokens are invalidated on restart")
@@ -138,7 +173,9 @@ func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx data
 			return nil, fmt.Errorf("auth: generate secret: %w", err)
 		}
 	}
-	svc, err := auth.NewService(auth.NewUserStore(q), auth.Options{Secret: secret, TokenTTL: cfg.TokenTTL(), Tx: tx})
+	svc, err := auth.NewService(auth.NewUserStore(q), auth.NewUserTokenStore(q), auth.Options{
+		Secret: secret, TokenTTL: cfg.TokenTTL(), Tx: tx, Notifier: auth.NewMailNotifier(mail, baseURL),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -155,15 +192,17 @@ func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx data
 }
 
 // newBillingService builds the Stripe billing service, or returns nil when
-// Stripe is not configured, which leaves the billing routes unmounted.
-func newBillingService(log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.StripeConfig) (*billing.Service, error) {
+// Stripe is not configured, which leaves the billing routes unmounted. mail
+// sends the payment-failed email, built from baseURL.
+func newBillingService(log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.StripeConfig, mail mailer.Mailer, baseURL string) (*billing.Service, error) {
 	if !cfg.Enabled() {
 		log.Info("billing: Stripe is not configured; billing routes are disabled")
 		return nil, nil
 	}
 	svc, err := billing.NewService(billing.NewStripeGateway(cfg.SecretKey), tenants.NewService(q), billing.Options{
-		PriceID: cfg.PriceID,
-		Tx:      tx,
+		PriceID:  cfg.PriceID,
+		Tx:       tx,
+		Notifier: billing.NewMailNotifier(mail, baseURL),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("billing: %w", err)

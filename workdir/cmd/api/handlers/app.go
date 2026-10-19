@@ -51,14 +51,16 @@ var appFuncs = template.FuncMap{
 }
 
 var (
-	appTemplate        = parseAppPage("app.html")
-	appFormTemplate    = parseAppPage("form.html")
-	appBuilderTemplate = parseAppPage("builder.html")
-	appSignInTemplate  = parseAppPage("signin.html")
-	appAccountTemplate = parseAppPage("account.html")
-	appUsersTemplate   = parseAppPage("users.html")
-	appMessageTemplate = parseAppPage("message.html")
-	appBillingTemplate = parseAppPage("billing.html")
+	appTemplate               = parseAppPage("app.html")
+	appFormTemplate           = parseAppPage("form.html")
+	appBuilderTemplate        = parseAppPage("builder.html")
+	appSignInTemplate         = parseAppPage("signin.html")
+	appAccountTemplate        = parseAppPage("account.html")
+	appForgotPasswordTemplate = parseAppPage("forgot_password.html")
+	appResetPasswordTemplate  = parseAppPage("reset_password.html")
+	appUsersTemplate          = parseAppPage("users.html")
+	appMessageTemplate        = parseAppPage("message.html")
+	appBillingTemplate        = parseAppPage("billing.html")
 )
 
 // parseAppPage parses the page template called name along with the shared

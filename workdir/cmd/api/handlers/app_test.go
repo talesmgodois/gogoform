@@ -226,7 +226,7 @@ func TestAppUsagePanel(t *testing.T) {
 				svc.billing = billingSvc
 			}
 			rec := httptest.NewRecorder()
-			Routes(svc, testFeatures, tt.stripe).ServeHTTP(rec, pageRequest(t, svc, "/app", appUser))
+			Routes(svc, testFeatures, tt.stripe, testApp).ServeHTTP(rec, pageRequest(t, svc, "/app", appUser))
 
 			assertStatus(t, rec, http.StatusOK)
 			body := rec.Body.String()
@@ -368,7 +368,7 @@ func TestFormStatus(t *testing.T) {
 // billingTestStripe is a complete Stripe configuration, which mounts the
 // billing routes.
 var billingTestStripe = config.StripeConfig{
-	SecretKey: "sk_test_x", WebhookSecret: "whsec_test", PriceID: "price_pro", AppBaseURL: "https://forms.example.com",
+	SecretKey: "sk_test_x", WebhookSecret: "whsec_test", PriceID: "price_pro",
 }
 
 // getBilling requests GET /app/billing (with query) as appUser, whose
@@ -389,7 +389,7 @@ func getBilling(t *testing.T, stripe config.StripeConfig, query string, change f
 		svc.billing = billingSvc
 	}
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, stripe).ServeHTTP(rec, pageRequest(t, svc, "/app/billing"+query, appUser))
+	Routes(svc, testFeatures, stripe, testApp).ServeHTTP(rec, pageRequest(t, svc, "/app/billing"+query, appUser))
 	return rec
 }
 
