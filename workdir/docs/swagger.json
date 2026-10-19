@@ -138,6 +138,61 @@
                 }
             }
         },
+        "/billing/checkout": {
+            "post": {
+                "description": "Submitted by the /app/billing page with the session cookie. Creates the workspace's Stripe customer if needed and redirects to a subscription Checkout Session, which returns to /app/billing?checkout=success or ?checkout=cancel. Anonymous users are redirected to the sign-in page; errors render an HTML message page. Only available when Stripe is configured.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Start a pro plan checkout",
+                "responses": {
+                    "303": {
+                        "description": "Redirect to Stripe Checkout, or to /app/signin when signed out"
+                    },
+                    "403": {
+                        "description": "Cross-origin request or no workspace"
+                    },
+                    "404": {
+                        "description": "Stripe is not configured"
+                    },
+                    "409": {
+                        "description": "Workspace already on the pro plan or with a subscription that has not ended"
+                    },
+                    "500": {
+                        "description": "Stripe request failed"
+                    }
+                }
+            }
+        },
+        "/billing/portal": {
+            "post": {
+                "description": "Submitted by the /app/billing page with the session cookie. Redirects to a Customer Portal session of the workspace's Stripe customer, which links back to /app/billing. Anonymous users are redirected to the sign-in page; errors render an HTML message page. Only available when Stripe is configured.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Open the Stripe Customer Portal",
+                "responses": {
+                    "303": {
+                        "description": "Redirect to the Stripe Customer Portal, or to /app/signin when signed out"
+                    },
+                    "403": {
+                        "description": "Cross-origin request or no workspace"
+                    },
+                    "404": {
+                        "description": "Stripe is not configured, or the workspace has no billing account"
+                    },
+                    "500": {
+                        "description": "Stripe request failed"
+                    }
+                }
+            }
+        },
         "/files": {
             "post": {
                 "security": [
@@ -1619,6 +1674,62 @@
                     },
                     "500": {
                         "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/webhooks/stripe": {
+            "post": {
+                "description": "Endpoint called by Stripe. The body must be signed with the configured webhook secret (Stripe-Signature header). Events already processed are acknowledged without being applied again. Only available when Stripe is configured.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Receive a Stripe webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Signature of the body computed by Stripe",
+                        "name": "Stripe-Signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Stripe event",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Event processed or ignored"
+                    },
+                    "400": {
+                        "description": "Body too large, bad signature or malformed event",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Stripe is not configured",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Processing failed; Stripe retries the event",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }

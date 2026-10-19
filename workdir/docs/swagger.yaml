@@ -645,6 +645,52 @@ paths:
       summary: Sign up
       tags:
       - auth
+  /billing/checkout:
+    post:
+      description: Submitted by the /app/billing page with the session cookie. Creates
+        the workspace's Stripe customer if needed and redirects to a subscription
+        Checkout Session, which returns to /app/billing?checkout=success or ?checkout=cancel.
+        Anonymous users are redirected to the sign-in page; errors render an HTML
+        message page. Only available when Stripe is configured.
+      produces:
+      - text/html
+      responses:
+        "303":
+          description: Redirect to Stripe Checkout, or to /app/signin when signed
+            out
+        "403":
+          description: Cross-origin request or no workspace
+        "404":
+          description: Stripe is not configured
+        "409":
+          description: Workspace already on the pro plan or with a subscription that
+            has not ended
+        "500":
+          description: Stripe request failed
+      summary: Start a pro plan checkout
+      tags:
+      - billing
+  /billing/portal:
+    post:
+      description: Submitted by the /app/billing page with the session cookie. Redirects
+        to a Customer Portal session of the workspace's Stripe customer, which links
+        back to /app/billing. Anonymous users are redirected to the sign-in page;
+        errors render an HTML message page. Only available when Stripe is configured.
+      produces:
+      - text/html
+      responses:
+        "303":
+          description: Redirect to the Stripe Customer Portal, or to /app/signin when
+            signed out
+        "403":
+          description: Cross-origin request or no workspace
+        "404":
+          description: Stripe is not configured, or the workspace has no billing account
+        "500":
+          description: Stripe request failed
+      summary: Open the Stripe Customer Portal
+      tags:
+      - billing
   /files:
     post:
       consumes:
@@ -1625,6 +1671,45 @@ paths:
       summary: Change the role of a user
       tags:
       - users
+  /webhooks/stripe:
+    post:
+      consumes:
+      - application/json
+      description: Endpoint called by Stripe. The body must be signed with the configured
+        webhook secret (Stripe-Signature header). Events already processed are acknowledged
+        without being applied again. Only available when Stripe is configured.
+      parameters:
+      - description: Signature of the body computed by Stripe
+        in: header
+        name: Stripe-Signature
+        required: true
+        type: string
+      - description: Stripe event
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Event processed or ignored
+        "400":
+          description: Body too large, bad signature or malformed event
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "404":
+          description: Stripe is not configured
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "500":
+          description: Processing failed; Stripe retries the event
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+      summary: Receive a Stripe webhook
+      tags:
+      - billing
 securityDefinitions:
   ApiKeyAuth:
     description: API key of the tenant, returned when the tenant is created.
