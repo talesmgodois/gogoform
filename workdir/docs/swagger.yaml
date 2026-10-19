@@ -20,6 +20,8 @@ definitions:
     - not_found
     - conflict
     - internal
+    - plan_limit_reached
+    - plan_feature_unavailable
     type: string
     x-enum-varnames:
     - CodeInvalidArgument
@@ -28,6 +30,8 @@ definitions:
     - CodeNotFound
     - CodeConflict
     - CodeInternal
+    - CodePlanLimitReached
+    - CodePlanFeatureUnavailable
   errors.HTTPErrorResponse:
     properties:
       code:
@@ -696,7 +700,9 @@ paths:
       consumes:
       - multipart/form-data
       description: Stores the file sent in the "file" field of a multipart form. Files
-        are limited to 10 MiB and can then be read publicly at the returned url.
+        are limited to 10 MiB and can then be read publicly at the returned url. Fails
+        with plan_limit_reached when the file would take the tenant over its plan's
+        storage limit.
       parameters:
       - description: File to upload
         in: formData
@@ -716,6 +722,10 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
           description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "402":
+          description: Plan storage limit reached
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
@@ -867,7 +877,8 @@ paths:
       description: Creates a form owned by the authenticated tenant. The slug must
         be unique across all forms. Forms are public and accept anonymous submissions
         unless public_available or accept_anonymous is false; a public form must accept
-        anonymous submissions.
+        anonymous submissions. Fails with plan_limit_reached when the tenant's plan
+        allows no more forms.
       parameters:
       - description: Form to create
         in: body
@@ -888,6 +899,10 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
           description: Missing or invalid API key or user credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "402":
+          description: Plan form limit reached
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
@@ -1116,7 +1131,8 @@ paths:
   /forms/{id}/webhooks:
     get:
       description: Lists the active webhooks of one of the authenticated tenant's
-        forms, oldest first.
+        forms, oldest first. Fails with plan_feature_unavailable when the tenant's
+        plan does not include webhooks.
       parameters:
       - description: Form ID
         in: path
@@ -1139,7 +1155,7 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace
+          description: Plan without webhooks, or signed-in user has no workspace
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -1161,7 +1177,8 @@ paths:
       consumes:
       - application/json
       description: Registers an endpoint notified of the form's new submissions. The
-        target must be a public http(s) URL.
+        target must be a public http(s) URL. Fails with plan_feature_unavailable when
+        the tenant's plan does not include webhooks.
       parameters:
       - description: Form ID
         in: path
@@ -1190,8 +1207,8 @@ paths:
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
-          description: Signed-in user has no workspace, or cross-origin request authenticated
-            by the session cookie
+          description: Plan without webhooks, signed-in user has no workspace, or
+            cross-origin request authenticated by the session cookie
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "404":
@@ -1273,7 +1290,8 @@ paths:
         user as for submissions (private forms need a signed-in user, forms that do
         not accept_anonymous too). The file must match the field's accept list and
         be at most its max_size_mb (10 MiB at most). Send the returned id as the field's
-        value in the submission.
+        value in the submission. A form whose tenant would go over its plan's storage
+        limit fails with plan_limit_reached and a generic message.
       parameters:
       - description: Form slug
         in: path
@@ -1304,6 +1322,10 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
           description: Sign-in required, or invalid credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "402":
+          description: 'Form not accepting responses: storage limit reached'
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":
@@ -1337,7 +1359,8 @@ paths:
         required fields must be answered and every answer must match its field''s
         type and options; file fields take IDs of files uploaded to the form. Invalid
         answers get a 400 whose "fields" object maps each offending field name to
-        its error.'
+        its error. A form whose tenant reached its plan''s monthly submission limit
+        fails with plan_limit_reached and a generic message.'
       parameters:
       - description: Form slug
         in: path
@@ -1363,6 +1386,10 @@ paths:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "401":
           description: Sign-in required, or invalid credentials
+          schema:
+            $ref: '#/definitions/errors.HTTPErrorResponse'
+        "402":
+          description: 'Form not accepting responses: monthly submission limit reached'
           schema:
             $ref: '#/definitions/errors.HTTPErrorResponse'
         "403":

@@ -206,7 +206,7 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Stores the file sent in the \"file\" field of a multipart form. Files are limited to 10 MiB and can then be read publicly at the returned url.",
+                "description": "Stores the file sent in the \"file\" field of a multipart form. Files are limited to 10 MiB and can then be read publicly at the returned url. Fails with plan_limit_reached when the file would take the tenant over its plan's storage limit.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -241,6 +241,12 @@
                     },
                     "401": {
                         "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "Plan storage limit reached",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -463,7 +469,7 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions.",
+                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions. Fails with plan_limit_reached when the tenant's plan allows no more forms.",
                 "consumes": [
                     "application/json"
                 ],
@@ -500,6 +506,12 @@
                     },
                     "401": {
                         "description": "Missing or invalid API key or user credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "Plan form limit reached",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -852,7 +864,7 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Lists the active webhooks of one of the authenticated tenant's forms, oldest first.",
+                "description": "Lists the active webhooks of one of the authenticated tenant's forms, oldest first. Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.",
                 "produces": [
                     "application/json"
                 ],
@@ -889,7 +901,7 @@
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace",
+                        "description": "Plan without webhooks, or signed-in user has no workspace",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -920,7 +932,7 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL.",
+                "description": "Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL. Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.",
                 "consumes": [
                     "application/json"
                 ],
@@ -969,7 +981,7 @@
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
+                        "description": "Plan without webhooks, signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1080,7 +1092,7 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Stores the file sent in the \"file\" field of a multipart form, for the file field of the form named by the \"field\" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission.",
+                "description": "Stores the file sent in the \"file\" field of a multipart form, for the file field of the form named by the \"field\" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission. A form whose tenant would go over its plan's storage limit fails with plan_limit_reached and a generic message.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -1134,6 +1146,12 @@
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "402": {
+                        "description": "Form not accepting responses: storage limit reached",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "403": {
                         "description": "Form inactive, not open yet or closed",
                         "schema": {
@@ -1165,7 +1183,7 @@
                         "BasicAuth": []
                     }
                 ],
-                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose \"fields\" object maps each offending field name to its error.",
+                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose \"fields\" object maps each offending field name to its error. A form whose tenant reached its plan's monthly submission limit fails with plan_limit_reached and a generic message.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1210,6 +1228,12 @@
                     },
                     "401": {
                         "description": "Sign-in required, or invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "Form not accepting responses: monthly submission limit reached",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1762,7 +1786,9 @@
                 "forbidden",
                 "not_found",
                 "conflict",
-                "internal"
+                "internal",
+                "plan_limit_reached",
+                "plan_feature_unavailable"
             ],
             "x-enum-varnames": [
                 "CodeInvalidArgument",
@@ -1770,7 +1796,9 @@
                 "CodeForbidden",
                 "CodeNotFound",
                 "CodeConflict",
-                "CodeInternal"
+                "CodeInternal",
+                "CodePlanLimitReached",
+                "CodePlanFeatureUnavailable"
             ]
         },
         "errors.HTTPErrorResponse": {
