@@ -21,7 +21,7 @@ func New(w io.Writer, level, env string) *slog.Logger {
 	} else {
 		h = slog.NewTextHandler(w, opts)
 	}
-	return slog.New(h)
+	return slog.New(requestIDHandler{h})
 }
 
 // ParseLevel maps "debug", "info", "warn" and "error" (case-insensitive) to

@@ -45,12 +45,16 @@ type Services struct {
 	// resolver overrides the DNS resolver checking webhook target hosts;
 	// tests set a fake. nil uses net.DefaultResolver.
 	resolver HostResolver
+	// db is pinged by GET /healthz; nil reports the service UP without
+	// checking a database (tests).
+	db handler.Pinger
 }
 
 // NewServices returns the sqlc-backed implementation of every repository and
 // the plan Enforcer over them, along with authSvc, which authenticates users, billingSvc, which is nil
-// when Stripe is not configured, and mail, which sends the new-submission notification.
-func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Service, mail mailer.Mailer) Services {
+// when Stripe is not configured, mail, which sends the new-submission notification, and pool, the
+// database pinged by the health check.
+func NewServices(q db.Querier, pool handler.Pinger, authSvc *authpkg.Service, billingSvc *billing.Service, mail mailer.Mailer) Services {
 	formsSvc, submissionsSvc, filesSvc := forms.NewService(q), submissions.NewService(q), files.NewService(q)
 	return Services{
 		auth:        authSvc,
@@ -62,6 +66,7 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 		files:       filesSvc,
 		plans:       plans.NewEnforcer(formsSvc, submissionsSvc, filesSvc),
 		mail:        mail,
+		db:          pool,
 	}
 }
 
@@ -79,7 +84,8 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 // sign-in, sign-up, forgot-password and public submission/upload routes, the
 // reverse proxies trusted to supply the respondent's real IP, and the spam
 // checks of public submissions (minimum completion time, Turnstile).
-// Every response carries the securityHeaders.
+// Every response carries the securityHeaders and an X-Request-ID, and every
+// request is written to the access log (requestLog).
 func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig, security config.SecurityConfig) http.Handler {
 	rl := newRateLimiters(security)
 	turnstile := svc.turnstile
@@ -109,7 +115,7 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	guard := authCtl.Guard
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", handler.Health)
+	mux.HandleFunc("GET /healthz", handler.NewHealth(svc.db))
 	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
 	mux.HandleFunc("GET /static/form-render.js", FormRenderScript)
 
@@ -173,5 +179,5 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 		billingCtl := &billingController{billing: svc.billing, stripe: stripe, baseURL: app.BaseURL, app: appCtl}
 		billingCtl.mount(mux)
 	}
-	return securityHeaders(mux)
+	return requestLog(securityHeaders(mux), rl.ip)
 }

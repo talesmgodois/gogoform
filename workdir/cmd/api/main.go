@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -56,6 +57,7 @@ func main() {
 func run() error {
 	configPath := flag.String("config", config.DefaultPath, "path to the TOML configuration file")
 	envPath := flag.String("env", config.DefaultEnvPath, "path to the dotenv file (ignored if missing)")
+	healthcheck := flag.Bool("healthcheck", false, "probe GET /healthz of the running server and exit non-zero unless it is UP (Docker HEALTHCHECK)")
 	flag.Parse()
 
 	// Load .env before the config so its values override config.toml even when
@@ -67,6 +69,9 @@ func run() error {
 	cfg, err := config.Init(*configPath)
 	if err != nil {
 		return err
+	}
+	if *healthcheck {
+		return probeHealth(cfg.Server.Port)
 	}
 
 	log := logger.New(os.Stdout, cfg.Logger.Level, cfg.Server.Env)
@@ -103,11 +108,11 @@ func run() error {
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	docs.SwaggerInfo.Host = fmt.Sprintf("localhost:%d", cfg.Server.Port)
+	setSwaggerHost(cfg.App.BaseURL, cfg.Server.Port)
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App, cfg.Security),
+		Handler:           handlers.Routes(handlers.NewServices(queries, pool, authSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App, cfg.Security),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -133,6 +138,40 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// healthcheckTimeout bounds the -healthcheck probe; Docker kills a slower
+// check anyway.
+const healthcheckTimeout = 5 * time.Second
+
+// probeHealth requests GET /healthz of the server listening on port on the
+// loopback interface and fails unless it answers 200. The runtime image has
+// no shell or curl, so the Docker HEALTHCHECK runs the binary itself with
+// -healthcheck.
+func probeHealth(port int) error {
+	client := &http.Client{Timeout: healthcheckTimeout}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+	if err != nil {
+		return fmt.Errorf("healthcheck: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck: GET /healthz returned %s", resp.Status)
+	}
+	return nil
+}
+
+// setSwaggerHost points the Swagger UI's "Try it out" requests at the public
+// origin baseURL (APP_BASE_URL), falling back to localhost:port when it is
+// unset or not an absolute URL (development).
+func setSwaggerHost(baseURL string, port int) {
+	if u, err := url.Parse(baseURL); err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") {
+		docs.SwaggerInfo.Host = u.Host
+		docs.SwaggerInfo.Schemes = []string{u.Scheme}
+		return
+	}
+	docs.SwaggerInfo.Host = fmt.Sprintf("localhost:%d", port)
+	docs.SwaggerInfo.Schemes = []string{"http"}
 }
 
 // newMailer returns the SMTP mailer wrapped in mailer.Async when cfg is

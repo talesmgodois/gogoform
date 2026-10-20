@@ -1021,7 +1021,7 @@ const docTemplate = `{
         },
         "/healthz": {
             "get": {
-                "description": "Reports whether the service is up and running.",
+                "description": "Reports whether the service is up and its database is reachable.",
                 "produces": [
                     "application/json"
                 ],
@@ -1032,6 +1032,12 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "Service is up",
+                        "schema": {
+                            "$ref": "#/definitions/handler.HealthResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Database unreachable",
                         "schema": {
                             "$ref": "#/definitions/handler.HealthResponse"
                         }

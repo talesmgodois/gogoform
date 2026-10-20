@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -54,5 +55,30 @@ func TestNewRespectsLevel(t *testing.T) {
 	out := buf.String()
 	if strings.Contains(out, "dropped") || !strings.Contains(out, "kept") {
 		t.Fatalf("level filtering failed: %q", out)
+	}
+}
+
+func TestNewAddsRequestIDFromContext(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(&buf, "info", "production").With("component", "test")
+	log.InfoContext(WithRequestID(context.Background(), "abc123"), "hello")
+	log.InfoContext(context.Background(), "no id")
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines: %q", len(lines), buf.String())
+	}
+	var first, second map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatal(err)
+	}
+	if first["request_id"] != "abc123" || first["component"] != "test" {
+		t.Fatalf("first record = %v", first)
+	}
+	if _, ok := second["request_id"]; ok {
+		t.Fatalf("second record has a request_id: %v", second)
 	}
 }
