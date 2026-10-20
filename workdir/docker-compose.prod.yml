@@ -1,0 +1,93 @@
+# Production stack for a single Docker host. Run every command from this
+# directory with the production env file, e.g.:
+#
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+#
+# .env.prod (see .env.example) feeds both the ${...} interpolation below and
+# the app's environment. Only Caddy publishes ports; Postgres and the app are
+# reachable from the compose network alone. On every `up`, the one-shot
+# `migrate` service applies pending migrations (dbmate, shipped in the app
+# image) before the app starts.
+
+x-database-url: &database-url
+  DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@postgres:5432/${POSTGRES_DB:-app_db}?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
+    volumes:
+      # Postgres 18+ keeps data in a versioned subdir, so mount the parent.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [backend]
+    restart: unless-stopped
+
+  migrate:
+    image: ${APP_IMAGE:?set APP_IMAGE in .env.prod}
+    entrypoint: ["/app/dbmate", "--migrations-dir", "/app/db/migrations", "--no-dump-schema", "--wait", "up"]
+    environment:
+      <<: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
+
+  app:
+    image: ${APP_IMAGE:?set APP_IMAGE in .env.prod}
+    env_file: .env.prod
+    environment:
+      <<: *database-url
+      SERVER_ENV: production
+      SERVER_PORT: "8080"
+      APP_BASE_URL: ${APP_BASE_URL:-https://${APP_DOMAIN}}
+      # Caddy is the only proxy in front of the app; trust X-Forwarded-For
+      # from the compose network only.
+      SECURITY_TRUSTED_PROXIES: ${SECURITY_TRUSTED_PROXIES:-${DOCKER_SUBNET:-172.30.0.0/24}}
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks: [backend]
+    restart: unless-stopped
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET:-172.30.0.0/24}
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

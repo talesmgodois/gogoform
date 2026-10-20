@@ -2,6 +2,7 @@
 
 # Tool versions; keep TAILWIND_VERSION in sync with the Makefile.
 ARG TAILWIND_VERSION=v3.4.17
+ARG DBMATE_VERSION=v2.37.0
 
 # ---- css ----
 # Compiles the Tailwind stylesheet the server embeds. The output does not
@@ -21,6 +22,16 @@ COPY tailwind ./tailwind
 COPY cmd/api/handlers ./cmd/api/handlers
 RUN tailwindcss -c tailwind.config.js -i tailwind/input.css -o /out/app.css --minify
 
+# ---- dbmate ----
+# Static dbmate binary, run by the `migrate` service of
+# docker-compose.prod.yml so migrations ship with the image they belong to.
+FROM --platform=$BUILDPLATFORM alpine:3.20 AS dbmate
+ARG DBMATE_VERSION
+ARG TARGETARCH
+RUN wget -qO /dbmate \
+       "https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-${TARGETARCH}" \
+    && chmod +x /dbmate
+
 # ---- build ----
 FROM golang:1.22-alpine AS build
 WORKDIR /src
@@ -38,8 +49,10 @@ FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
 COPY --from=build /out/api /app/api
+COPY --from=dbmate /dbmate /app/dbmate
+COPY db/migrations /app/db/migrations
 # Baseline config; override any value with env vars (SERVER_PORT, SERVER_ENV,
-# LOG_LEVEL, DATABASE_URL) or mount a different file and pass -config.
+# LOG_LEVEL, DATABASE_URL, ...) or mount a different file and pass -config.
 COPY config.toml /app/config.toml
 
 ENV SERVER_ENV=production \
@@ -47,5 +60,9 @@ ENV SERVER_ENV=production \
 
 EXPOSE 8080
 USER nonroot:nonroot
+# The image has no shell or curl: the binary probes its own /healthz, which
+# also pings the database.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD ["/app/api", "-config", "/app/config.toml", "-healthcheck"]
 ENTRYPOINT ["/app/api"]
 CMD ["-config", "/app/config.toml"]

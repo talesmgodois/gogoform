@@ -1,0 +1,29 @@
+# Reverse proxy of docker-compose.prod.yml: obtains and renews the TLS
+# certificate of APP_DOMAIN automatically (Let's Encrypt / ZeroSSL, account
+# ACME_EMAIL), redirects HTTP to HTTPS, compresses responses and forwards
+# everything to the app. Caddy overwrites X-Forwarded-For with the real client
+# IP; the app trusts it from the compose network (SECURITY_TRUSTED_PROXIES).
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# Browsers only ever reach the app over HTTPS from now on. Add
+		# "; preload" once every subdomain is HTTPS too.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	reverse_proxy app:8080 {
+		# Correlates the Caddy access log with the app's (X-Request-ID).
+		header_up X-Request-ID {http.request.uuid}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
