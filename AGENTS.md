@@ -9,7 +9,8 @@ web UI, public form pages, file uploads, webhooks, Stripe billing, plan limits, 
 
 ## Stack
 Go 1.22.4, net/http, pgx v5, sqlc, dbmate, swaggo, Stripe, bcrypt/JWT, `html/template` (embedded via
-`//go:embed`), Tailwind via CDN. Postgres via docker compose.
+`//go:embed`), Tailwind compiled at build time (`make css` → `templates/static/app.css`, gitignored;
+no CDN). Postgres via docker compose; production stack in `docker-compose.prod.yml`.
 
 ## Code map (paths under `workdir/`)
 | Path | What lives there |
@@ -24,6 +25,9 @@ Go 1.22.4, net/http, pgx v5, sqlc, dbmate, swaggo, Stripe, bcrypt/JWT, `html/tem
 | `internal/db/` | **sqlc output — never edit**. Read `querier.go` for the method list |
 | `db/queries/*.sql` | sqlc queries (source of `internal/db`) |
 | `db/migrations/` | dbmate migrations, `YYYYMMDDHHMMSS_name.sql` |
+| `docker-compose.prod.yml`, `deploy/` | prod stack (app, migrate, postgres, caddy, backup); `deploy/Caddyfile`, `deploy/webhook/` (deploy receiver) |
+| `scripts/` | `deploy.sh` (webhook/manual deploy), `backup.sh`, `restore.sh`, `setup_migrations.sh` |
+| `tailwind.config.js`, `tailwind/` | Tailwind sources of `templates/static/app.css` |
 | `docs/` | **generated swagger (~240 KB) — never read; run `make swagger`** |
 
 ## Commands (repo root works too: root Makefile forwards to `workdir/`)
