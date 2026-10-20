@@ -48,7 +48,7 @@ func TestPublicFormPage(t *testing.T) {
 
 	h := rec.Header()
 	csp := h.Get("Content-Security-Policy")
-	for _, want := range []string{"script-src https://cdn.tailwindcss.com 'nonce-", "connect-src 'self'", "form-action 'self'", "frame-ancestors 'none'"} {
+	for _, want := range []string{"script-src 'nonce-", "style-src 'self';", "connect-src 'self'", "form-action 'self'", "frame-ancestors 'none'"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP %q does not contain %q", csp, want)
 		}

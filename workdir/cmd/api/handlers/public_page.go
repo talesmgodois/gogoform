@@ -15,14 +15,14 @@ import (
 )
 
 // publicContentSecurityPolicy is the policy of the public form pages. Like
-// appContentSecurityPolicy it allows the Tailwind Play CDN and the scripts
-// carrying the per-request nonce (the first %s verb); the page script only
+// appContentSecurityPolicy it allows the stylesheet of this origin and the
+// scripts carrying the per-request nonce (the first %s verb); the page script only
 // calls the public form endpoints of this origin. The second %s verb is the
 // frame-ancestors source list: publicFrameAncestors or embedFrameAncestors.
 // The third %s verb is turnstileCSP on a form page with Turnstile enabled,
 // empty otherwise.
-const publicContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%[1]s'%[3]s; " +
-	"style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; " +
+const publicContentSecurityPolicy = "default-src 'none'; script-src 'nonce-%[1]s'%[3]s; " +
+	"style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
 	"base-uri 'none'; form-action 'self'; frame-ancestors %[2]s"
 
 // turnstileCSP extends publicContentSecurityPolicy so the Turnstile widget

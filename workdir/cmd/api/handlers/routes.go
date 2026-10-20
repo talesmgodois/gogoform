@@ -118,6 +118,7 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	mux.HandleFunc("GET /healthz", handler.NewHealth(svc.db))
 	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
 	mux.HandleFunc("GET /static/form-render.js", FormRenderScript)
+	mux.HandleFunc("GET /static/app.css", Stylesheet)
 
 	mux.HandleFunc("POST /auth/signup", rl.limit(rateLimitSignup, authCtl.SignUp))
 	mux.HandleFunc("POST /auth/signin", rl.limit(rateLimitSignin, authCtl.SignIn))

@@ -47,12 +47,12 @@ func TestAppRendersFormsAndFiles(t *testing.T) {
 	}
 	csp := rec.Header().Get("Content-Security-Policy")
 	nonce := regexp.MustCompile(`'nonce-([A-Za-z0-9_=-]{24})'`).FindStringSubmatch(csp)
-	if !strings.Contains(csp, "https://cdn.tailwindcss.com") || nonce == nil {
+	if !strings.Contains(csp, "style-src 'self';") || strings.Contains(csp, "unsafe-inline") || strings.Contains(csp, "https:") || nonce == nil {
 		t.Fatalf("Content-Security-Policy = %q", csp)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"https://cdn.tailwindcss.com",
+		`<link rel="stylesheet" href="/static/app.css">`,
 		// Forms table: title, slug, active status, submissions and created at.
 		">Title</th>", ">Slug</th>", ">Active</th>", ">Submissions</th>", ">Created</th>",
 		"Customer survey", ">customer-survey</td>", "Live", "Inactive", ">3</td>", "2026-09-20 08:30 UTC",

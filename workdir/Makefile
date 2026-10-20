@@ -9,6 +9,12 @@ PKG        := ./cmd/api
 MAIN       := cmd/api/main.go
 COMPOSE    := docker compose
 
+# Tailwind CSS standalone CLI (no Node.js needed), downloaded on first use by
+# `make css`. Keep TAILWIND_VERSION in sync with the Dockerfile.
+TAILWIND_VERSION := v3.4.17
+TAILWIND         := bin/tailwindcss-$(TAILWIND_VERSION)
+CSS_OUT          := cmd/api/handlers/templates/static/app.css
+
 # Database automation (see scripts/setup_migrations.sh). Override on the CLI,
 # e.g. `make generate-schema DBML_INPUT=path/to/schema.dbml`.
 DB_SCRIPT      := scripts/setup_migrations.sh
@@ -23,12 +29,12 @@ export PATH := $(PATH):$(HOME)/.local/bin:$(shell go env GOPATH 2>/dev/null)/bin
 
 .DEFAULT_GOAL := help
 .PHONY: help dev db-up db-down db-logs adminer build run test check swagger \
-        setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
+        css css-watch setup-tools generate-schema migrate-init migrate-new migrate-up migrate-down migrate-status sqlc build-db
 
 help: ## Show commands and descriptions
 	@awk 'BEGIN {FS = ":.*?## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-dev: db-up ## Start the database, wait until healthy, then run the app locally
+dev: db-up css ## Start the database, wait until healthy, build the CSS, then run the app locally
 	go run $(PKG)
 
 db-up: ## Start PostgreSQL in the background and wait for its healthcheck
@@ -43,8 +49,22 @@ db-logs: ## Tail PostgreSQL logs
 adminer: ## Start Adminer (web UI to query PostgreSQL) on ADMINER_PORT (default 8088)
 	$(COMPOSE) up -d --wait adminer
 
-build: ## Compile the API binary to ./bin/api
+build: css ## Compile the API binary to ./bin/api
 	go build -o $(BIN) $(PKG)
+
+css: $(TAILWIND) ## Build the Tailwind stylesheet embedded by the server (templates/static/app.css)
+	$(TAILWIND) -c tailwind.config.js -i tailwind/input.css -o $(CSS_OUT) --minify
+
+css-watch: $(TAILWIND) ## Rebuild the stylesheet whenever a template changes (restart the server to embed it)
+	$(TAILWIND) -c tailwind.config.js -i tailwind/input.css -o $(CSS_OUT) --watch
+
+$(TAILWIND):
+	@mkdir -p bin
+	@os=$$(uname -s | tr A-Z a-z); case "$$os" in darwin) os=macos;; esac; \
+	arch=$$(uname -m); case "$$arch" in x86_64|amd64) arch=x64;; aarch64) arch=arm64;; esac; \
+	echo "downloading tailwindcss $(TAILWIND_VERSION) ($$os-$$arch)"; \
+	curl -fsSL -o $@ "https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-$$os-$$arch"
+	@chmod +x $@
 
 run: build ## Build and execute the compiled binary
 	./$(BIN)

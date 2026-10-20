@@ -14,7 +14,7 @@ Loaded only when working in this directory. Root rules in `/AGENTS.md` still app
 - `app.go` — page templates (`parseAppPage("x.html")` vars), `appLayout` (Nonce, User, Tabs), `renderAppPage`, formatters.
 - `app_*.go` — /app page handlers (auth, billing, builder, forms). `public_page.go` — `/f/{slug}`. `billing.go` — Stripe routes (mounted only when enabled).
 - `httputil.go` — `writeJSON`, `decodeJSON`, `pathID`, `parseID`, `parsePage`. Use them; don't hand-roll.
-- `templates/` — `layout.html` (shared partials) + one file per page; `static/form-render.js` served at `/static/form-render.js`.
+- `templates/` — `layout.html` (shared partials) + one file per page; `static/form-render.js` served at `/static/form-render.js`; `static/app.css` is the Tailwind build (`make css`, gitignored, built by the Dockerfile) served at `/static/app.css`. Page CSPs are `style-src 'self'`: no `style=` attributes or `<style>` (guarded by `TestTemplatesHaveNoInlineStyles`); new classes only appear after `make css`.
 
 ## Rules
 - Controllers are structs holding domain `Repository`/services; methods are `http.HandlerFunc`. No SQL or business rules here.

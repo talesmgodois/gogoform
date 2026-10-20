@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Title}}</title>
-  <script src="https://cdn.tailwindcss.com" nonce="{{.Nonce}}"></script>
+  <link rel="stylesheet" href="/static/app.css">
 </head>
 {{/* Embed mode drops the page background and margins so the card fits the
     host site's iframe. */}}
@@ -22,7 +22,7 @@
 
       {{/* Honeypot: hidden from people and assistive tech, so only bots that
           fill in every input set it; the server rejects such submissions. */}}
-      <div aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">
+      <div aria-hidden="true" class="absolute -left-[10000px] w-px h-px overflow-hidden">
         <label for="hp-website">Website</label>
         <input type="text" id="hp-website" name="website" tabindex="-1" autocomplete="off">
       </div>

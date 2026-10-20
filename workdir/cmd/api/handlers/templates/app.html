@@ -44,7 +44,8 @@
           <dd class="mt-2 text-sm text-slate-200"><span class="font-mono tabular-nums">{{.Used}}</span> <span class="text-slate-500">of</span> <span data-usage-limit class="font-mono tabular-nums">{{.Limit}}</span></dd>
           {{if not .Unlimited}}
           <div role="progressbar" aria-label="{{.Label}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{.Percent}}" class="mt-2 h-2 rounded-full bg-slate-800 overflow-hidden">
-            <div class="h-full rounded-full {{if ge .Percent 100}}bg-rose-500{{else if ge .Percent 80}}bg-amber-500{{else}}bg-indigo-500{{end}}" style="width: {{.Percent}}%"></div>
+            {{/* An SVG rect sizes the bar: the CSP forbids style attributes. */}}
+            <svg class="block h-full w-full" aria-hidden="true"><rect height="100%" width="{{.Percent}}%" rx="4" class="{{if ge .Percent 100}}fill-rose-500{{else if ge .Percent 80}}fill-amber-500{{else}}fill-indigo-500{{end}}"/></svg>
           </div>
           {{end}}
         </div>

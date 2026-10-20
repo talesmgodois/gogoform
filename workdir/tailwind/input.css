@@ -1,0 +1,4 @@
+/* Source of the embedded stylesheet; see tailwind.config.js. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

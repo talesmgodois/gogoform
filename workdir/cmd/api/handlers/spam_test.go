@@ -132,7 +132,7 @@ func TestPublicFormPageTurnstile(t *testing.T) {
 		}
 	}
 	csp := rec.Header().Get("Content-Security-Policy")
-	for _, want := range []string{"script-src https://cdn.tailwindcss.com 'nonce-", " " + turnstileOrigin + ";", "frame-src " + turnstileOrigin, "frame-ancestors 'none'"} {
+	for _, want := range []string{"script-src 'nonce-", " " + turnstileOrigin + ";", "frame-src " + turnstileOrigin, "frame-ancestors 'none'"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP %q does not contain %q", csp, want)
 		}

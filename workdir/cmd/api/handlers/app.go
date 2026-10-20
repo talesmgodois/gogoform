@@ -24,14 +24,14 @@ import (
 // totals are still shown so truncation is visible.
 const appListLimit = 100
 
-// appContentSecurityPolicy lets the pages load the Tailwind Play CDN, which
-// injects the generated CSS as inline <style> tags, and run the inline scripts
-// carrying the per-request nonce (the %s verb). The file viewer embeds files
+// appContentSecurityPolicy lets the pages load the stylesheet of this origin
+// (/static/app.css; no inline styles, not even style attributes) and run the
+// inline scripts carrying the per-request nonce (the %s verb). The file viewer embeds files
 // from /files/{id}: images, audio/video, PDFs in a frame and text via fetch;
 // the form builder and the form actions call the /forms API. The second %s
 // verb is the form-action source list (appLayout.formAction).
-const appContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%s'; " +
-	"style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; " +
+const appContentSecurityPolicy = "default-src 'none'; script-src 'nonce-%s'; " +
+	"style-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; " +
 	"base-uri 'none'; form-action %s; frame-ancestors 'none'"
 
 // defaultFormAction forbids form submissions; the pages call the API with

@@ -6,3 +6,4 @@ dbml-error.log
 docker-compose.yml
 Dockerfile
 .dockerignore
+cmd/api/handlers/templates/static/app.css
