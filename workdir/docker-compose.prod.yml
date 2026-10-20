@@ -81,6 +81,38 @@ services:
     networks: [backend]
     restart: unless-stopped
 
+  # Daily pg_dump at BACKUP_TIME (UTC) into BACKUP_DIR on the host, keeping
+  # BACKUP_RETENTION_DAYS days, uploaded to S3_BUCKET when set. See
+  # scripts/backup.sh (run one now: `... run --rm backup run`) and
+  # scripts/restore.sh.
+  backup:
+    build: ./deploy/backup
+    image: gogoform-backup:local
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    command: ["daemon"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      PGDATABASE: ${POSTGRES_DB:-app_db}
+      BACKUP_DIR: /backups
+      BACKUP_TIME: ${BACKUP_TIME:-03:00}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    restart: unless-stopped
+
 networks:
   backend:
     ipam:

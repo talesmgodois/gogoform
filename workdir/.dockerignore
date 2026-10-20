@@ -7,3 +7,4 @@ docker-compose.yml
 Dockerfile
 .dockerignore
 cmd/api/handlers/templates/static/app.css
+backups/
