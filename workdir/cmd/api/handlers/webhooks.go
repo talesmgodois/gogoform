@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -44,12 +45,20 @@ type WebhookListResponse struct {
 type webhooksController struct {
 	forms    forms.Repository
 	webhooks webhooks.Repository
+	// resolver resolves the target hosts of new webhooks; see validateTargetURL.
+	resolver HostResolver
+}
+
+// HostResolver resolves a host name to its IP addresses; *net.Resolver
+// implements it.
+type HostResolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
 // Create registers a webhook on one of the authenticated tenant's forms.
 //
 //	@Summary		Create a webhook
-//	@Description	Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL. Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.
+//	@Description	Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL: a host name must resolve, and only to public addresses (no loopback, private, link-local, carrier-grade NAT or other internal range). Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.
 //	@Tags			webhooks
 //	@Accept			json
 //	@Produce		json
@@ -76,7 +85,7 @@ func (c *webhooksController) Create(w http.ResponseWriter, r *http.Request) {
 		apperrors.WriteHTTP(w, r, err)
 		return
 	}
-	target, err := validateTargetURL(req.TargetURL)
+	target, err := validateTargetURL(r.Context(), c.resolver, req.TargetURL)
 	if err != nil {
 		apperrors.WriteHTTP(w, r, err)
 		return
@@ -162,10 +171,12 @@ func checkWebhooksAllowed(t tenants.Tenant) error {
 }
 
 // validateTargetURL checks that raw is an absolute http(s) URL without
-// credentials whose host is not obviously internal, and returns it
-// normalized. Host names are not resolved here, so deliveries must still
-// check the resolved address before connecting.
-func validateTargetURL(raw string) (string, error) {
+// credentials whose host is public, and returns it normalized. A host name is
+// resolved with resolver and refused when it does not resolve or any of its
+// addresses is internal (see isPublicAddr), so a webhook cannot be aimed at
+// the server's own network (SSRF). DNS can change after the webhook is saved,
+// so deliveries must still check the resolved address before connecting.
+func validateTargetURL(ctx context.Context, resolver HostResolver, raw string) (string, error) {
 	invalid := apperrors.NewBadRequest("target_url must be a public http or https URL")
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
@@ -176,13 +187,49 @@ func validateTargetURL(raw string) (string, error) {
 		return "", invalid
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
-		ip = ip.Unmap()
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		if !isPublicAddr(ip) {
+			return "", invalid
+		}
+		return u.String(), nil
+	}
+	addrs, err := resolver.LookupNetIP(ctx, "ip", host)
+	if err != nil || len(addrs) == 0 {
+		return "", apperrors.NewBadRequest("target_url host does not resolve")
+	}
+	for _, ip := range addrs {
+		if !isPublicAddr(ip) {
 			return "", invalid
 		}
 	}
 	return u.String(), nil
+}
+
+// nonPublicPrefixes are the special-purpose ranges the netip predicates of
+// isPublicAddr do not cover.
+var nonPublicPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),     // "this network"
+	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT
+	netip.MustParsePrefix("192.0.0.0/24"),  // IETF protocol assignments
+	netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
+	netip.MustParsePrefix("240.0.0.0/4"),   // reserved, broadcast
+	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64, may embed an internal IPv4
+}
+
+// isPublicAddr reports whether ip, IPv4-mapped IPv6 included, is a public
+// unicast address: not loopback, private, link-local, unspecified,
+// multicast, carrier-grade NAT or another nonPublicPrefixes range.
+func isPublicAddr(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	for _, p := range nonPublicPrefixes {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 func toWebhookResponse(h webhooks.Webhook) WebhookResponse {

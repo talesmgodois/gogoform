@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -24,7 +26,7 @@ func proServices() Services {
 	return svc
 }
 
-// doAs sends a request through Routes(svc, testFeatures, testStripe, testApp),
+// doAs sends a request through Routes(svc, testFeatures, testStripe, testApp, testSecurity),
 // authenticated with apiKey.
 func doAs(svc Services, apiKey, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -63,9 +65,21 @@ func TestCreateWebhookInvalid(t *testing.T) {
 }
 
 func TestValidateTargetURL(t *testing.T) {
-	valid := []string{"https://example.com/hook", "http://203.0.113.7:8080/x", " https://api.example.com "}
+	addr := netip.MustParseAddr
+	resolver := fakeResolver{
+		"internal.example.com": {addr("10.0.0.5")},
+		"mixed.example.com":    {addr("203.0.113.20"), addr("127.0.0.1")},
+		"cgnat.example.com":    {addr("100.64.1.1")},
+		"mapped.example.com":   {addr("::ffff:192.168.1.1")},
+		"v6.example.com":       {addr("2001:db8::1"), addr("203.0.113.21")},
+		"nxdomain.example.com": {},
+	}
+	valid := []string{
+		"https://example.com/hook", "http://203.0.113.7:8080/x", " https://api.example.com ",
+		"https://v6.example.com/hook", "http://[2001:db8::1]/x",
+	}
 	for _, raw := range valid {
-		if _, err := validateTargetURL(raw); err != nil {
+		if _, err := validateTargetURL(context.Background(), resolver, raw); err != nil {
 			t.Errorf("validateTargetURL(%q) = %v, want nil", raw, err)
 		}
 	}
@@ -74,11 +88,24 @@ func TestValidateTargetURL(t *testing.T) {
 		"http://localhost:8080", "http://LOCALHOST.", "http://app.localhost",
 		"http://127.0.0.1", "http://10.1.2.3", "http://192.168.0.1", "http://169.254.169.254/latest",
 		"http://0.0.0.0", "http://[::1]", "http://[::ffff:127.0.0.1]", "http://[fe80::1]", "http://[fd00::1]",
+		"http://100.64.0.1", "http://255.255.255.255", "http://224.0.0.1", "http://[64:ff9b::a00:1]",
+		"https://internal.example.com/hook", "https://mixed.example.com", "https://cgnat.example.com",
+		"https://mapped.example.com", "https://nxdomain.example.com",
 	}
 	for _, raw := range invalid {
-		if _, err := validateTargetURL(raw); err == nil {
+		if _, err := validateTargetURL(context.Background(), resolver, raw); err == nil {
 			t.Errorf("validateTargetURL(%q) = nil, want error", raw)
 		}
+	}
+}
+
+func TestCreateWebhookRejectsHostResolvingToPrivateIP(t *testing.T) {
+	svc := proServices()
+	svc.resolver = fakeResolver{"metadata.example.com": {netip.MustParseAddr("169.254.169.254")}}
+	rec := doAs(svc, proTenant.APIKey, http.MethodPost, "/forms/1/webhooks", `{"target_url":"http://metadata.example.com/latest"}`)
+	assertStatus(t, rec, http.StatusBadRequest)
+	if in := svc.webhooks.(*fakeWebhooks).created; in.TargetURL != "" {
+		t.Fatalf("webhook created: %+v", in)
 	}
 }
 

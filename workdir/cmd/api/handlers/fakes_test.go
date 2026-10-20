@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -681,7 +683,22 @@ func testServices(fs ...forms.Form) Services {
 		webhooks:    &fakeWebhooks{},
 		files:       fakeFl,
 		plans:       plans.NewEnforcer(fakeF, fakeS, fakeFl),
+		resolver:    fakeResolver{},
 	}
+}
+
+// fakeResolver resolves the host names listed in it and every other name
+// to the public documentation address 203.0.113.10, without any DNS query.
+type fakeResolver map[string][]netip.Addr
+
+func (f fakeResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {
+	if addrs, ok := f[host]; ok {
+		if len(addrs) == 0 {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		return addrs, nil
+	}
+	return []netip.Addr{netip.MustParseAddr("203.0.113.10")}, nil
 }
 
 // appServices is testServices where appUser owns testTenant, so the /app

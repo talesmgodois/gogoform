@@ -3,6 +3,7 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
 
 	httpSwagger "github.com/swaggo/http-swagger/v2"
@@ -41,6 +42,9 @@ type Services struct {
 	// turnstile overrides the Cloudflare Turnstile verifier built from the
 	// security config; tests set a fake. nil uses the real one.
 	turnstile TurnstileVerifier
+	// resolver overrides the DNS resolver checking webhook target hosts;
+	// tests set a fake. nil uses net.DefaultResolver.
+	resolver HostResolver
 }
 
 // NewServices returns the sqlc-backed implementation of every repository and
@@ -94,7 +98,11 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 		tenants: svc.tenants, auth: svc.auth, mail: svc.mail, baseURL: app.BaseURL, ip: rl.ip,
 		spam: spamGuard{minSeconds: int32(security.MinFormSeconds), turnstile: turnstile, ip: rl.ip},
 	}
-	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
+	resolver := svc.resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks, resolver: resolver}
 	filesCtl := &filesController{files: svc.files, forms: svc.forms, plans: svc.plans}
 	authCtl := &authController{auth: svc.auth}
 	auth := tenantOrUser(svc.tenants, authCtl)
