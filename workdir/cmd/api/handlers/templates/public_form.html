@@ -20,6 +20,15 @@
 
       <div id="form-fields" class="space-y-6"></div>
 
+      {{/* Honeypot: hidden from people and assistive tech, so only bots that
+          fill in every input set it; the server rejects such submissions. */}}
+      <div aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">
+        <label for="hp-website">Website</label>
+        <input type="text" id="hp-website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+
+      {{with .TurnstileSiteKey}}<div class="cf-turnstile mt-6" data-sitekey="{{.}}" data-theme="dark"></div>{{end}}
+
       <p id="form-status" role="alert" class="mt-6 hidden rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"></p>
 
       <div class="mt-8 flex justify-end">
@@ -30,6 +39,7 @@
 {{template "powered-by" .PoweredBy}}
   </main>
 
+  {{if .TurnstileSiteKey}}<script nonce="{{.Nonce}}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{{end}}
   <script nonce="{{.Nonce}}" src="/static/form-render.js"></script>
   <script nonce="{{.Nonce}}">
     (() => {
@@ -127,6 +137,13 @@
         return new Error(res.status >= 500 ? "The server could not " + action + " the form. Try again later." : "Could not " + action + " the form: " + detail + ".");
       };
 
+      // turnstileToken returns the token of the Turnstile widget, which it
+      // stores in a hidden input of the form; "" when Turnstile is disabled.
+      const turnstileToken = () => {
+        const el = form.querySelector('[name="cf-turnstile-response"]');
+        return el ? el.value : "";
+      };
+
       // upload stores one file of a file field and resolves to its ID.
       const upload = async (f, file) => {
         const body = new FormData();
@@ -171,9 +188,18 @@
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({ payload: payload, completion_time_seconds: Math.round((Date.now() - startedAt) / 1000) }),
+            body: JSON.stringify({
+              payload: payload,
+              completion_time_seconds: Math.round((Date.now() - startedAt) / 1000),
+              website: document.getElementById("hp-website").value,
+              turnstile_token: turnstileToken(),
+            }),
           });
-          if (!res.ok) throw await failure(res, "submit");
+          if (!res.ok) {
+            // A Turnstile token is single-use: get a fresh one for the retry.
+            if (window.turnstile) window.turnstile.reset();
+            throw await failure(res, "submit");
+          }
           // The button stays disabled while the thank-you page loads.
           location.assign(page + "/thanks" + (embed ? "?embed=1" : ""));
         } catch (err) {

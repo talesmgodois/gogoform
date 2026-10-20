@@ -36,6 +36,12 @@ type CreateSubmissionRequest struct {
 	Payload json.RawMessage `json:"payload" swaggertype:"object"`
 	// CompletionTimeSeconds is how long the respondent took to fill the form in.
 	CompletionTimeSeconds *int32 `json:"completion_time_seconds" example:"95" minimum:"0"`
+	// Website is the honeypot field of the form page: hidden from people, so
+	// any value marks the submission as automated. Leave it empty.
+	Website string `json:"website" example:""`
+	// TurnstileToken is the Cloudflare Turnstile response token, required
+	// when Turnstile is enabled on the server.
+	TurnstileToken string `json:"turnstile_token" example:""`
 }
 
 // SubmissionResponse is a submission as returned by the API.
@@ -78,12 +84,14 @@ type submissionsController struct {
 	// ip resolves the respondent's IP for submission metadata, trusting
 	// X-Forwarded-For only from a configured reverse proxy.
 	ip clientIPResolver
+	// spam runs the honeypot, minimum completion time and Turnstile checks.
+	spam spamGuard
 }
 
 // Create stores a submission of a public form.
 //
 //	@Summary		Submit a form
-//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose "fields" object maps each offending field name to its error. A form whose tenant reached its plan's monthly submission limit fails with plan_limit_reached and a generic message.
+//	@Description	Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Spam checks run first: a non-empty website honeypot, a completion_time_seconds missing or below the configured minimum, or (when Turnstile is enabled) a missing or rejected turnstile_token give a 400. Invalid answers get a 400 whose "fields" object maps each offending field name to its error. A form whose tenant reached its plan's monthly submission limit fails with plan_limit_reached and a generic message.
 //	@Tags			submissions,public
 //	@Accept			json
 //	@Produce		json
@@ -92,7 +100,7 @@ type submissionsController struct {
 //	@Param			slug	path		string						true	"Form slug"
 //	@Param			body	body		CreateSubmissionRequest		true	"Answers"
 //	@Success		201		{object}	SubmissionResponse			"Submission stored"
-//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request, or invalid answers listed in fields"
+//	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid request, failed spam check, or invalid answers listed in fields"
 //	@Failure		401		{object}	errors.HTTPErrorResponse	"Sign-in required, or invalid credentials"
 //	@Failure		402		{object}	errors.HTTPErrorResponse	"Form not accepting responses: monthly submission limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
@@ -116,6 +124,10 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	case req.CompletionTimeSeconds != nil && *req.CompletionTimeSeconds < 0:
 		apperrors.WriteHTTP(w, r, apperrors.NewBadRequest("completion_time_seconds must be >= 0"))
+		return
+	}
+	if err := c.spam.check(r, req); err != nil {
+		apperrors.WriteHTTP(w, r, err)
 		return
 	}
 

@@ -38,6 +38,9 @@ type Services struct {
 	// mail sends the new-submission notification; typically mailer.Async so
 	// it never blocks a request.
 	mail mailer.Mailer
+	// turnstile overrides the Cloudflare Turnstile verifier built from the
+	// security config; tests set a fake. nil uses the real one.
+	turnstile TurnstileVerifier
 }
 
 // NewServices returns the sqlc-backed implementation of every repository and
@@ -69,16 +72,26 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 // in features. The billing routes (billing.go) are only mounted when stripe is
 // enabled and svc has a billing service, so they 404 otherwise; their return
 // URLs are built from app.BaseURL. security configures the rate limits of the
-// sign-in, sign-up, forgot-password and public submission/upload routes, and
-// the reverse proxies trusted to supply the respondent's real IP.
+// sign-in, sign-up, forgot-password and public submission/upload routes, the
+// reverse proxies trusted to supply the respondent's real IP, and the spam
+// checks of public submissions (minimum completion time, Turnstile).
 func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig, security config.SecurityConfig) http.Handler {
 	rl := newRateLimiters(security)
+	turnstile := svc.turnstile
+	if turnstile == nil && security.TurnstileSecret != "" {
+		turnstile = newCloudflareTurnstile(security.TurnstileSecret)
+	}
+	turnstileSiteKey := ""
+	if turnstile != nil {
+		turnstileSiteKey = security.TurnstileSiteKey
+	}
 
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
 	formsCtl := &formsController{forms: svc.forms, plans: svc.plans, auth: svc.auth}
 	submissionsCtl := &submissionsController{
 		forms: svc.forms, submissions: svc.submissions, files: svc.files, plans: svc.plans,
 		tenants: svc.tenants, auth: svc.auth, mail: svc.mail, baseURL: app.BaseURL, ip: rl.ip,
+		spam: spamGuard{minSeconds: int32(security.MinFormSeconds), turnstile: turnstile, ip: rl.ip},
 	}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
 	filesCtl := &filesController{files: svc.files, forms: svc.forms, plans: svc.plans}
@@ -134,7 +147,7 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	mux.HandleFunc("POST /public/forms/{slug}/files",
 		rl.limit(rateLimitPublicUpload, authCtl.PublicForm(filesCtl.PublicCreate)))
 
-	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth, plans: svc.plans}
+	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth, plans: svc.plans, turnstileSiteKey: turnstileSiteKey}
 	mux.HandleFunc("GET /f/{slug}", publicPageCtl.Form)
 	mux.HandleFunc("GET /f/{slug}/thanks", publicPageCtl.Thanks)
 

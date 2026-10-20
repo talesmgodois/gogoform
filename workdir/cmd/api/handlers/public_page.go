@@ -19,9 +19,16 @@ import (
 // carrying the per-request nonce (the first %s verb); the page script only
 // calls the public form endpoints of this origin. The second %s verb is the
 // frame-ancestors source list: publicFrameAncestors or embedFrameAncestors.
-const publicContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%s'; " +
+// The third %s verb is turnstileCSP on a form page with Turnstile enabled,
+// empty otherwise.
+const publicContentSecurityPolicy = "default-src 'none'; script-src https://cdn.tailwindcss.com 'nonce-%[1]s'%[3]s; " +
 	"style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; " +
-	"base-uri 'none'; form-action 'self'; frame-ancestors %s"
+	"base-uri 'none'; form-action 'self'; frame-ancestors %[2]s"
+
+// turnstileCSP extends publicContentSecurityPolicy so the Turnstile widget
+// can load its script and challenge iframe: it ends the script-src
+// directive with turnstileOrigin and adds a frame-src one.
+const turnstileCSP = " " + turnstileOrigin + "; frame-src " + turnstileOrigin
 
 const (
 	// publicFrameAncestors forbids framing the regular public pages.
@@ -53,6 +60,10 @@ type publicLayout struct {
 	// Embed renders the minimal layout of a page framed by another site and
 	// lets any site frame it (see isEmbed).
 	Embed bool
+	// TurnstileSiteKey renders the Cloudflare Turnstile widget on the form
+	// page and allows its origin in the Content-Security-Policy; empty when
+	// Turnstile is disabled and on the message pages.
+	TurnstileSiteKey string
 }
 
 // isEmbed reports whether r asks for the embed mode of a public page, the
@@ -91,6 +102,9 @@ type publicPageController struct {
 	forms forms.Repository
 	auth  *auth.Service
 	plans *plans.Enforcer
+	// turnstileSiteKey is the Cloudflare Turnstile site key; empty when
+	// Turnstile is disabled.
+	turnstileSiteKey string
 }
 
 // Form renders the form of the slug path value for respondents. The page
@@ -145,6 +159,7 @@ func (c *publicPageController) Form(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	layout.TurnstileSiteKey = c.turnstileSiteKey
 	renderPublicPage(w, r, http.StatusOK, publicFormTemplate, &publicFormPage{
 		publicLayout: layout,
 		Title:        f.Title,
@@ -251,7 +266,11 @@ func renderPublicPage(w http.ResponseWriter, r *http.Request, status int, t *tem
 	if layout.Embed {
 		ancestors = embedFrameAncestors
 	}
-	h.Set("Content-Security-Policy", fmt.Sprintf(publicContentSecurityPolicy, nonce, ancestors))
+	extra := ""
+	if layout.TurnstileSiteKey != "" {
+		extra = turnstileCSP
+	}
+	h.Set("Content-Security-Policy", fmt.Sprintf(publicContentSecurityPolicy, nonce, ancestors, extra))
 	setAppNoStoreHeaders(h)
 	w.WriteHeader(status)
 	buf.WriteTo(w)
