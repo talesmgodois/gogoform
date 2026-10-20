@@ -83,6 +83,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "429": {
+                        "description": "Too many requests from this IP; retry after the Retry-After header seconds",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal error",
                         "schema": {
@@ -131,6 +137,12 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Email already registered, or username already taken",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many requests from this IP; retry after the Retry-After header seconds",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -475,7 +487,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions. Fails with plan_limit_reached when the tenant's plan allows no more forms.",
+                "description": "Creates a form owned by the authenticated tenant. The slug must be unique across all forms. Forms are public and accept anonymous submissions unless public_available or accept_anonymous is false; a public form must accept anonymous submissions. Fails with plan_limit_reached when the tenant's plan allows no more forms, and plan_feature_unavailable when notify_on_submission is true on a plan without email notifications.",
                 "consumes": [
                     "application/json"
                 ],
@@ -523,7 +535,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
+                        "description": "Signed-in user has no workspace, cross-origin request authenticated by the session cookie, the tenant owner's email is not verified and is_active is true, or notify_on_submission is true on a plan without email notifications",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -624,7 +636,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true.",
+                "description": "Replaces every field of one of the authenticated tenant's forms. Omitted optional fields are cleared; an omitted is_active, public_available or accept_anonymous is true. Fails with plan_feature_unavailable when notify_on_submission is true on a plan without email notifications.",
                 "consumes": [
                     "application/json"
                 ],
@@ -673,7 +685,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Signed-in user has no workspace, or cross-origin request authenticated by the session cookie",
+                        "description": "Signed-in user has no workspace, cross-origin request authenticated by the session cookie, the tenant owner's email is not verified and is_active is true, or notify_on_submission is true on a plan without email notifications",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -938,7 +950,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL. Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.",
+                "description": "Registers an endpoint notified of the form's new submissions. The target must be a public http(s) URL: a host name must resolve, and only to public addresses (no loopback, private, link-local, carrier-grade NAT or other internal range). Fails with plan_feature_unavailable when the tenant's plan does not include webhooks.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1037,7 +1049,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window; otherwise a 403 tells which. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.",
+                "description": "Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window; otherwise a 403 tells which. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise. Cross-origin requests are allowed from any origin (CORS, without cookies).",
                 "produces": [
                     "application/json"
                 ],
@@ -1098,7 +1110,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Stores the file sent in the \"file\" field of a multipart form, for the file field of the form named by the \"field\" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission. A form whose tenant would go over its plan's storage limit fails with plan_limit_reached and a generic message.",
+                "description": "Stores the file sent in the \"file\" field of a multipart form, for the file field of the form named by the \"field\" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission. A form whose tenant would go over its plan's storage limit fails with plan_limit_reached and a generic message. Cross-origin requests are allowed from any origin (CORS, without cookies).",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -1170,6 +1182,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
                     },
+                    "429": {
+                        "description": "Too many requests from this IP; retry after the Retry-After header seconds",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal error",
                         "schema": {
@@ -1189,7 +1207,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Invalid answers get a 400 whose \"fields\" object maps each offending field name to its error. A form whose tenant reached its plan's monthly submission limit fails with plan_limit_reached and a generic message.",
+                "description": "Stores the answers to a form that can currently be filled in, along with the client's IP address, user agent and referer. Forms that are not public_available require a signed-in user (bearer token or Basic credentials). The submitter's user ID is recorded only by forms that do not accept_anonymous. The payload is validated against the form definition: unknown keys are rejected, required fields must be answered and every answer must match its field's type and options; file fields take IDs of files uploaded to the form. Spam checks run first: a non-empty website honeypot, a completion_time_seconds missing or below the configured minimum, or (when Turnstile is enabled) a missing or rejected turnstile_token give a 400. Invalid answers get a 400 whose \"fields\" object maps each offending field name to its error. A form whose tenant reached its plan's monthly submission limit fails with plan_limit_reached and a generic message. Cross-origin requests are allowed from any origin (CORS, without cookies).",
                 "consumes": [
                     "application/json"
                 ],
@@ -1227,7 +1245,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid request, or invalid answers listed in fields",
+                        "description": "Invalid request, failed spam check, or invalid answers listed in fields",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1252,6 +1270,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Form not found",
+                        "schema": {
+                            "$ref": "#/definitions/errors.HTTPErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many requests from this IP; retry after the Retry-After header seconds",
                         "schema": {
                             "$ref": "#/definitions/errors.HTTPErrorResponse"
                         }
@@ -1794,7 +1818,9 @@ const docTemplate = `{
                 "conflict",
                 "internal",
                 "plan_limit_reached",
-                "plan_feature_unavailable"
+                "plan_feature_unavailable",
+                "email_unverified",
+                "rate_limited"
             ],
             "x-enum-varnames": [
                 "CodeInvalidArgument",
@@ -1804,7 +1830,9 @@ const docTemplate = `{
                 "CodeConflict",
                 "CodeInternal",
                 "CodePlanLimitReached",
-                "CodePlanFeatureUnavailable"
+                "CodePlanFeatureUnavailable",
+                "CodeEmailUnverified",
+                "CodeRateLimited"
             ]
         },
         "errors.HTTPErrorResponse": {
@@ -1856,6 +1884,16 @@ const docTemplate = `{
                 "payload": {
                     "description": "Payload holds the answers: a JSON object keyed by the names of the\nform's input fields. File fields take the IDs returned by\nPOST /public/forms/{slug}/files.",
                     "type": "object"
+                },
+                "turnstile_token": {
+                    "description": "TurnstileToken is the Cloudflare Turnstile response token, required\nwhen Turnstile is enabled on the server.",
+                    "type": "string",
+                    "example": ""
+                },
+                "website": {
+                    "description": "Website is the honeypot field of the form page: hidden from people, so\nany value marks the submission as automated. Leave it empty.",
+                    "type": "string",
+                    "example": ""
                 }
             }
         },
@@ -1947,6 +1985,10 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "notify_on_submission": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "public_available": {
                     "type": "boolean",
                     "example": true
@@ -2025,6 +2067,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "notify_on_submission": {
+                    "description": "NotifyOnSubmission emails the tenant owner on each new submission;\ndefaults to false. Enabling it requires a plan with email\nnotifications and fails with plan_feature_unavailable otherwise.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "public_available": {
                     "description": "PublicAvailable forms can be read and filled in without signing in;\ndefaults to true.",
                     "type": "boolean",
@@ -2073,6 +2120,10 @@ const docTemplate = `{
                 "is_active": {
                     "type": "boolean",
                     "example": true
+                },
+                "notify_on_submission": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "public_available": {
                     "type": "boolean",
@@ -2129,6 +2180,10 @@ const docTemplate = `{
                 "is_active": {
                     "type": "boolean",
                     "example": true
+                },
+                "notify_on_submission": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "public_available": {
                     "type": "boolean",
