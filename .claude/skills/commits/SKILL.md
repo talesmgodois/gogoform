@@ -14,6 +14,9 @@ Extra instructions from the caller (may be empty): $ARGUMENTS
 
 ## 1. Inspect
 
+If $ARGUMENTS already lists the changed files (the runner passes `git status` output), skip the
+status discovery below and go straight to reading the diffs of those paths.
+
 Run these and read the output carefully:
 
 ```bash
