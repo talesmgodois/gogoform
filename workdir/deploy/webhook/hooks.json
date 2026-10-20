@@ -1,0 +1,22 @@
+[
+  {
+    "id": "deploy",
+    "execute-command": "{{ getenv \"APP_DIR\" }}/scripts/deploy.sh",
+    "command-working-directory": "{{ getenv \"APP_DIR\" }}",
+    "http-methods": ["POST"],
+    "pass-environment-to-command": [
+      { "source": "raw-request-body", "envname": "DEPLOY_PAYLOAD" },
+      { "source": "header", "name": "X-Hub-Signature-256", "envname": "DEPLOY_SIGNATURE" }
+    ],
+    "include-command-output-in-response": true,
+    "include-command-output-in-response-on-error": true,
+    "trigger-rule": {
+      "match": {
+        "type": "payload-hmac-sha256",
+        "secret": "{{ getenv \"DEPLOY_WEBHOOK_SECRET\" }}",
+        "parameter": { "source": "header", "name": "X-Hub-Signature-256" }
+      }
+    },
+    "trigger-rule-mismatch-http-response-code": 403
+  }
+]

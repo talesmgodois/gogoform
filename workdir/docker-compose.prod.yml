@@ -68,6 +68,9 @@ services:
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env.prod}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+      # Deploy webhook receiver on the host (deploy/webhook/), reached at the
+      # gateway of the compose network.
+      DEPLOY_HOOK_UPSTREAM: ${DEPLOY_HOOK_UPSTREAM:-172.30.0.1:9000}
     ports:
       - "80:80"
       - "443:443"

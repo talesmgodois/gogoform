@@ -1,0 +1,33 @@
+# systemd unit of the deploy webhook receiver (https://github.com/adnanh/webhook,
+# `apt install webhook`, >= 2.8 for raw-request-body). It serves
+# POST /hooks/deploy on the gateway address of the compose network, where only
+# Caddy reaches it (DEPLOY_WEBHOOK_URL = https://$APP_DOMAIN/hooks/deploy),
+# checks the X-Hub-Signature-256 HMAC and runs scripts/deploy.sh with the
+# request body. Install:
+#
+#   sudo cp deploy/webhook/gogoform-deploy.service /etc/systemd/system/
+#   sudo install -m 600 -o deploy /dev/null /etc/gogoform/deploy.env  # then edit it
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gogoform-deploy
+#
+# /etc/gogoform/deploy.env holds:
+#   APP_DIR=/opt/gogoform/workdir           # checkout on the server
+#   DEPLOY_WEBHOOK_SECRET=<same value as the GitHub secret>
+#   WEBHOOK_IP=172.30.0.1                   # gateway of DOCKER_SUBNET
+#
+# User= must own APP_DIR/.env.prod and belong to the docker group; it also
+# needs `docker login ghcr.io` when the image is private.
+[Unit]
+Description=GoGoForm deploy webhook
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+User=deploy
+EnvironmentFile=/etc/gogoform/deploy.env
+# The address only exists once the compose network is up; retry until then.
+ExecStart=/usr/bin/webhook -hooks ${APP_DIR}/deploy/webhook/hooks.json -template -ip ${WEBHOOK_IP} -port 9000 -verbose
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

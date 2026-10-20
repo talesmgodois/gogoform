@@ -17,9 +17,18 @@
 		-Server
 	}
 
-	reverse_proxy app:8080 {
-		# Correlates the Caddy access log with the app's (X-Request-ID).
-		header_up X-Request-ID {http.request.uuid}
+	# Deploy webhook (DEPLOY_WEBHOOK_URL = https://$APP_DOMAIN/hooks/deploy):
+	# adnanh/webhook on the host, listening on the compose network gateway
+	# (deploy/webhook/). It checks the signature and runs scripts/deploy.sh.
+	handle /hooks/* {
+		reverse_proxy {$DEPLOY_HOOK_UPSTREAM:172.30.0.1:9000}
+	}
+
+	handle {
+		reverse_proxy app:8080 {
+			# Correlates the Caddy access log with the app's (X-Request-ID).
+			header_up X-Request-ID {http.request.uuid}
+		}
 	}
 
 	log {
