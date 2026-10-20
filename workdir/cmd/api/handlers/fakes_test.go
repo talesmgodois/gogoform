@@ -38,6 +38,11 @@ var testStripe config.StripeConfig
 // testApp is the application origin of the absolute links.
 var testApp = config.AppConfig{BaseURL: "https://forms.example.com"}
 
+// testSecurity is the zero value: every rate limit group is left unlimited
+// (see newRateLimiters) and no reverse proxy is trusted, matching
+// development without a config file.
+var testSecurity config.SecurityConfig
+
 // featureFlags returns a FeaturesConfig with every flag set to enabled.
 func featureFlags(enabled bool) config.FeaturesConfig {
 	return config.FeaturesConfig{PublicTenantSignup: &enabled, Samples: &enabled}
@@ -655,10 +660,10 @@ func tokenFor(t *testing.T, svc Services, username string) string {
 	return tok.AccessToken
 }
 
-// serve sends req through Routes(svc, testFeatures, testStripe, testApp).
+// serve sends req through Routes(svc, testFeatures, testStripe, testApp, testSecurity).
 func serve(svc Services, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, testStripe, testApp).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe, testApp, testSecurity).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -689,7 +694,7 @@ func appServices(fs ...forms.Form) Services {
 	return svc
 }
 
-// do sends a request with the given body (if any) through Routes(svc, testFeatures, testStripe, testApp),
+// do sends a request with the given body (if any) through Routes(svc, testFeatures, testStripe, testApp, testSecurity),
 // authenticated with testAPIKey when auth is true.
 func do(t *testing.T, svc Services, method, path, body string, auth bool) *httptest.ResponseRecorder {
 	t.Helper()
@@ -702,7 +707,7 @@ func do(t *testing.T, svc Services, method, path, body string, auth bool) *httpt
 		req.Header.Set(apiKeyHeader, testAPIKey)
 	}
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, testStripe, testApp).ServeHTTP(rec, req)
+	Routes(svc, testFeatures, testStripe, testApp, testSecurity).ServeHTTP(rec, req)
 	return rec
 }
 

@@ -107,7 +107,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App),
+		Handler:           handlers.Routes(handlers.NewServices(queries, authSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App, cfg.Security),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

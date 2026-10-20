@@ -116,6 +116,7 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 //	@Failure		402		{object}	errors.HTTPErrorResponse	"Form not accepting responses: storage limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
+//	@Failure		429		{object}	errors.HTTPErrorResponse	"Too many requests from this IP; retry after the Retry-After header seconds"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug}/files [post]
 func (c *filesController) PublicCreate(w http.ResponseWriter, r *http.Request) {

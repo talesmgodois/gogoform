@@ -191,6 +191,8 @@ type appController struct {
 	// billingEnabled tells whether the /billing routes are mounted, so the
 	// billing page can offer checkout and the customer portal.
 	billingEnabled bool
+	// limiter rate limits sign-in and password reset; see app_routes.go.
+	limiter *rateLimiters
 	// mounted are the routes registered by mount.
 	mounted []appRoute
 }

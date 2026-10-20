@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -76,6 +75,9 @@ type submissionsController struct {
 	auth    *authpkg.Service
 	mail    mailer.Mailer
 	baseURL string
+	// ip resolves the respondent's IP for submission metadata, trusting
+	// X-Forwarded-For only from a configured reverse proxy.
+	ip clientIPResolver
 }
 
 // Create stores a submission of a public form.
@@ -95,6 +97,7 @@ type submissionsController struct {
 //	@Failure		402		{object}	errors.HTTPErrorResponse	"Form not accepting responses: monthly submission limit reached"
 //	@Failure		403		{object}	errors.HTTPErrorResponse	"Form inactive, not open yet or closed"
 //	@Failure		404		{object}	errors.HTTPErrorResponse	"Form not found"
+//	@Failure		429		{object}	errors.HTTPErrorResponse	"Too many requests from this IP; retry after the Retry-After header seconds"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/public/forms/{slug}/submissions [post]
 func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +150,7 @@ func (c *submissionsController) Create(w http.ResponseWriter, r *http.Request) {
 	// The submission is already stored: failing to record its metadata must
 	// not make the client resend it, so only log the error.
 	meta, err := c.submissions.AddMetadata(r.Context(), sub.ID, submissions.Metadata{
-		IPAddress:             clientIP(r),
+		IPAddress:             c.ip.resolvePtr(r),
 		UserAgent:             headerPtr(r, "User-Agent"),
 		CompletionTimeSeconds: req.CompletionTimeSeconds,
 		Referer:               headerPtr(r, "Referer"),
@@ -287,16 +290,6 @@ func (c *submissionsController) List(w http.ResponseWriter, r *http.Request) {
 		resp.Items[i] = toSubmissionResponse(s)
 	}
 	writeJSON(w, r, http.StatusOK, resp)
-}
-
-// clientIP returns the IP address of the peer. Forwarding headers are
-// ignored since they can be forged by the client.
-func clientIP(r *http.Request) *string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil || host == "" {
-		return nil
-	}
-	return &host
 }
 
 // headerPtr returns the value of the named request header, or nil when empty.

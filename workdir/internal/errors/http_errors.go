@@ -64,6 +64,11 @@ func NewEmailUnverified(message string) *AppError {
 	return New(CodeEmailUnverified, message)
 }
 
+// NewRateLimited returns an AppError that maps to 429 Too Many Requests.
+func NewRateLimited(message string) *AppError {
+	return New(CodeRateLimited, message)
+}
+
 // NewInternal returns an AppError that wraps err and maps to 500 Internal Server Error.
 func NewInternal(err error) *AppError {
 	return Wrap(err, CodeInternal, internalMessage)
@@ -89,6 +94,8 @@ func HTTPStatus(err error) int {
 		return http.StatusConflict
 	case CodePlanLimitReached:
 		return http.StatusPaymentRequired
+	case CodeRateLimited:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}

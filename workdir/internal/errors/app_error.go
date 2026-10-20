@@ -24,6 +24,9 @@ const (
 	CodePlanFeatureUnavailable Code = "plan_feature_unavailable"
 	// CodeEmailUnverified means the action requires a verified email address.
 	CodeEmailUnverified Code = "email_unverified"
+	// CodeRateLimited means the caller sent too many requests to a rate
+	// limited route and should retry later.
+	CodeRateLimited Code = "rate_limited"
 )
 
 // AppError is an error carrying a Code, a message safe to show to clients and

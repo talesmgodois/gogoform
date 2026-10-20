@@ -78,6 +78,7 @@ type authController struct {
 //	@Success		201		{object}	SignUpResponse				"Account created"
 //	@Failure		400		{object}	errors.HTTPErrorResponse	"Invalid email, username or password"
 //	@Failure		409		{object}	errors.HTTPErrorResponse	"Email already registered, or username already taken"
+//	@Failure		429		{object}	errors.HTTPErrorResponse	"Too many requests from this IP; retry after the Retry-After header seconds"
 //	@Failure		500		{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/auth/signup [post]
 func (c *authController) SignUp(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +104,7 @@ func (c *authController) SignUp(w http.ResponseWriter, r *http.Request) {
 //	@Security		BasicAuth
 //	@Success		200	{object}	TokenResponse				"Signed in"
 //	@Failure		401	{object}	errors.HTTPErrorResponse	"Missing or invalid credentials"
+//	@Failure		429	{object}	errors.HTTPErrorResponse	"Too many requests from this IP; retry after the Retry-After header seconds"
 //	@Failure		500	{object}	errors.HTTPErrorResponse	"Internal error"
 //	@Router			/auth/signin [post]
 func (c *authController) SignIn(w http.ResponseWriter, r *http.Request) {

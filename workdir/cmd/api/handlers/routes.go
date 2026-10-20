@@ -68,13 +68,17 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 // development-only POST /tenants and /samples/* are only mounted when enabled
 // in features. The billing routes (billing.go) are only mounted when stripe is
 // enabled and svc has a billing service, so they 404 otherwise; their return
-// URLs are built from app.BaseURL.
-func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig) http.Handler {
+// URLs are built from app.BaseURL. security configures the rate limits of the
+// sign-in, sign-up, forgot-password and public submission/upload routes, and
+// the reverse proxies trusted to supply the respondent's real IP.
+func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig, security config.SecurityConfig) http.Handler {
+	rl := newRateLimiters(security)
+
 	tenantsCtl := &tenantsController{tenants: svc.tenants}
 	formsCtl := &formsController{forms: svc.forms, plans: svc.plans, auth: svc.auth}
 	submissionsCtl := &submissionsController{
 		forms: svc.forms, submissions: svc.submissions, files: svc.files, plans: svc.plans,
-		tenants: svc.tenants, auth: svc.auth, mail: svc.mail, baseURL: app.BaseURL,
+		tenants: svc.tenants, auth: svc.auth, mail: svc.mail, baseURL: app.BaseURL, ip: rl.ip,
 	}
 	webhooksCtl := &webhooksController{forms: svc.forms, webhooks: svc.webhooks}
 	filesCtl := &filesController{files: svc.files, forms: svc.forms, plans: svc.plans}
@@ -87,8 +91,8 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
 	mux.HandleFunc("GET /static/form-render.js", FormRenderScript)
 
-	mux.HandleFunc("POST /auth/signup", authCtl.SignUp)
-	mux.HandleFunc("POST /auth/signin", authCtl.SignIn)
+	mux.HandleFunc("POST /auth/signup", rl.limit(rateLimitSignup, authCtl.SignUp))
+	mux.HandleFunc("POST /auth/signin", rl.limit(rateLimitSignin, authCtl.SignIn))
 	mux.HandleFunc("GET /auth/me", guard(authpkg.SignedIn(), authCtl.Me))
 	mux.HandleFunc("GET /users", guard(authpkg.SignedIn(authpkg.RoleAdmin), authCtl.ListUsers))
 	mux.HandleFunc("PUT /users/{id}/role", guard(authpkg.SignedIn(authpkg.RoleAdmin), authCtl.SetRole))
@@ -125,8 +129,10 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	// Credentials are optional: private forms check the user themselves.
 	// The session cookie lets the /f page submit private forms.
 	mux.HandleFunc("GET /public/forms/{slug}", authCtl.PublicForm(formsCtl.GetPublic))
-	mux.HandleFunc("POST /public/forms/{slug}/submissions", authCtl.PublicForm(submissionsCtl.Create))
-	mux.HandleFunc("POST /public/forms/{slug}/files", authCtl.PublicForm(filesCtl.PublicCreate))
+	mux.HandleFunc("POST /public/forms/{slug}/submissions",
+		rl.limit(rateLimitPublicSubmission, authCtl.PublicForm(submissionsCtl.Create)))
+	mux.HandleFunc("POST /public/forms/{slug}/files",
+		rl.limit(rateLimitPublicUpload, authCtl.PublicForm(filesCtl.PublicCreate)))
 
 	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth, plans: svc.plans}
 	mux.HandleFunc("GET /f/{slug}", publicPageCtl.Form)
@@ -134,7 +140,7 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 
 	billingEnabled := stripe.Enabled() && svc.billing != nil
 	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth,
-		plans: svc.plans, billingEnabled: billingEnabled}
+		plans: svc.plans, billingEnabled: billingEnabled, limiter: rl}
 	appCtl.mount(mux)
 
 	if billingEnabled {

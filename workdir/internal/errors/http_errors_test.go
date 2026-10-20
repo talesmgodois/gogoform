@@ -24,6 +24,7 @@ func TestHTTPStatus(t *testing.T) {
 		{"plan limit reached", NewPlanLimitReached("limit"), http.StatusPaymentRequired},
 		{"plan feature unavailable", NewPlanFeatureUnavailable("pro only"), http.StatusForbidden},
 		{"email unverified", NewEmailUnverified("verify your email"), http.StatusForbidden},
+		{"rate limited", NewRateLimited("too many requests"), http.StatusTooManyRequests},
 		{"internal", NewInternal(stderrors.New("db down")), http.StatusInternalServerError},
 		{"unknown code", New(Code("weird"), "?"), http.StatusInternalServerError},
 		{"plain error", stderrors.New("boom"), http.StatusInternalServerError},

@@ -144,7 +144,7 @@ func newBillingEnv(t *testing.T, change func(*tenants.Tenant)) billingEnv {
 // serve sends req through the routes with Stripe enabled.
 func (e billingEnv) serve(req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	Routes(e.svc, testFeatures, billingTestStripe, testApp).ServeHTTP(rec, req)
+	Routes(e.svc, testFeatures, billingTestStripe, testApp, testSecurity).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -416,7 +416,7 @@ func TestBillingRoutesNotFoundWithoutStripe(t *testing.T) {
 				svc.billing = nil
 			}
 			rec := httptest.NewRecorder()
-			Routes(svc, testFeatures, c.stripe, testApp).ServeHTTP(rec, req())
+			Routes(svc, testFeatures, c.stripe, testApp, testSecurity).ServeHTTP(rec, req())
 			if rec.Code != http.StatusNotFound {
 				t.Errorf("%s: %s = %d, want 404", c.name, name, rec.Code)
 			}

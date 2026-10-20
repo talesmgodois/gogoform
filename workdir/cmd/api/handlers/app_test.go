@@ -226,7 +226,7 @@ func TestAppUsagePanel(t *testing.T) {
 				svc.billing = billingSvc
 			}
 			rec := httptest.NewRecorder()
-			Routes(svc, testFeatures, tt.stripe, testApp).ServeHTTP(rec, pageRequest(t, svc, "/app", appUser))
+			Routes(svc, testFeatures, tt.stripe, testApp, testSecurity).ServeHTTP(rec, pageRequest(t, svc, "/app", appUser))
 
 			assertStatus(t, rec, http.StatusOK)
 			body := rec.Body.String()
@@ -389,7 +389,7 @@ func getBilling(t *testing.T, stripe config.StripeConfig, query string, change f
 		svc.billing = billingSvc
 	}
 	rec := httptest.NewRecorder()
-	Routes(svc, testFeatures, stripe, testApp).ServeHTTP(rec, pageRequest(t, svc, "/app/billing"+query, appUser))
+	Routes(svc, testFeatures, stripe, testApp, testSecurity).ServeHTTP(rec, pageRequest(t, svc, "/app/billing"+query, appUser))
 	return rec
 }
 
