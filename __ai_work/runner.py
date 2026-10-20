@@ -168,6 +168,9 @@ FIX_RESULT_RE = re.compile(r"^FIX_RESULT:\s*(FIXED|PARTIAL|NOTHING_TO_FIX|FAILED
 # How many /code-review-fixer rounds to run on a failing review before giving up.
 MAX_FIX_ATTEMPTS = int(os.environ.get("MAX_FIX_ATTEMPTS", "1"))
 
+# RUNNER_SKIP_REVIEW=1 skips the code-review stage for every task (as if all were .ncr.md).
+RUNNER_SKIP_REVIEW = os.environ.get("RUNNER_SKIP_REVIEW", "0") == "1"
+
 # Optional guardrails for every claude call (opencode has no equivalent); unset means no limit.
 MAX_TURNS = os.environ.get("MAX_TURNS") or None
 MAX_BUDGET_USD = os.environ.get("MAX_BUDGET_USD") or None
@@ -259,6 +262,8 @@ def _run_claude(prompt, command, args, cwd, plan, resume, fork, model, effort):
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "text" and block.get("text"):
                     print(block["text"], flush=True)
+                elif block.get("type") == "thinking" and block.get("thinking"):
+                    print(f"💭 {block['thinking']}", flush=True)
         elif event.get("type") == "result":
             final = event
 
@@ -320,6 +325,9 @@ def _run_opencode(prompt, command, args, cwd, plan, resume, fork, model, effort)
             texts.append(part["text"])
             if AGENT_CLI_STDOUT:
                 print(part["text"], flush=True)
+        elif (kind in ("reasoning", "thinking") or part.get("type") in ("reasoning", "thinking")) and part.get("text"):
+            if AGENT_CLI_STDOUT:
+                print(f"💭 {part['text']}", flush=True)
         elif kind == "tool_use" and AGENT_CLI_STDOUT:
             print(f"🔧 {part.get('tool')}", flush=True)
         elif kind == "step_finish":
@@ -460,6 +468,11 @@ def run_grouped_commits(task_name=None, plan=None):
     """
     print("\n📦 Grouping and committing changes via /commits skill...")
     args_parts = []
+    # Hand the agent the changed-file list so it skips re-discovering the tree.
+    changed = git_status()
+    if changed:
+        files = "; ".join(line[3:] for line in changed.splitlines() if len(line) > 3)
+        args_parts.append(f"Changed files to group (from git status; use this list instead of re-running discovery): {files}")
     if task_name:
         trailer = TASK_TRAILER.format(task_id=extract_task_id(task_name))
         args_parts.append(f'Add the trailer line "{trailer}" as the last line of every commit message footer.')
@@ -871,6 +884,8 @@ def run_task(tracker, name):
         tracker.set_current(name, "review")
         if name.endswith(".ncr.md"):
             print(f"⏭️  Skipping code review for {name} (.ncr.md)")
+        elif RUNNER_SKIP_REVIEW:
+            print(f"⏭️  Skipping code review for {name} (RUNNER_SKIP_REVIEW=1)")
         else:
             review_passed, reason = review_with_fixes(tracker, name, name)
             if not review_passed:
