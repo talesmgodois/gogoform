@@ -165,6 +165,7 @@ func TestGetByAPIKey(t *testing.T) {
 		{"ok", dbTenant, nil, "", tenant},
 		{"null columns", db.Tenant{ID: 3, Name: "Acme", ApiKey: "key-1"}, nil, "", Tenant{ID: 3, Name: "Acme", APIKey: "key-1"}},
 		{"unknown or inactive", db.Tenant{}, pgx.ErrNoRows, apperrors.CodeNotFound, Tenant{}},
+		{"key mismatch", db.Tenant{ID: 3, Name: "Acme", ApiKey: "KEY-1"}, nil, apperrors.CodeNotFound, Tenant{}},
 		{"db failure", db.Tenant{}, errDB, apperrors.CodeInternal, Tenant{}},
 	}
 	for _, tt := range tests {

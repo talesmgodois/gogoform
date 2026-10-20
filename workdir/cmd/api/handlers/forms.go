@@ -355,7 +355,7 @@ func (c *formsController) Delete(w http.ResponseWriter, r *http.Request) {
 // GetPublic returns a form that can currently be filled in.
 //
 //	@Summary		Get a form to fill in
-//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window; otherwise a 403 tells which. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise.
+//	@Description	Returns the form with the given slug if it is active, its tenant is active and now is inside its availability window; otherwise a 403 tells which. Forms that are not public_available require a signed-in user (bearer token or Basic credentials); credentials are optional otherwise. Cross-origin requests are allowed from any origin (CORS, without cookies).
 //	@Tags			public
 //	@Produce		json
 //	@Security		BearerAuth

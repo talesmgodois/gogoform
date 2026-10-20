@@ -101,7 +101,7 @@ func (c *filesController) Create(w http.ResponseWriter, r *http.Request) {
 // storing it under the form's tenant.
 //
 //	@Summary		Upload a file to a form
-//	@Description	Stores the file sent in the "file" field of a multipart form, for the file field of the form named by the "field" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission. A form whose tenant would go over its plan's storage limit fails with plan_limit_reached and a generic message.
+//	@Description	Stores the file sent in the "file" field of a multipart form, for the file field of the form named by the "field" value, which must be sent before the file. No API key is needed; the form must be open to the request's user as for submissions (private forms need a signed-in user, forms that do not accept_anonymous too). The file must match the field's accept list and be at most its max_size_mb (10 MiB at most). Send the returned id as the field's value in the submission. A form whose tenant would go over its plan's storage limit fails with plan_limit_reached and a generic message. Cross-origin requests are allowed from any origin (CORS, without cookies).
 //	@Tags			files,public
 //	@Accept			multipart/form-data
 //	@Produce		json

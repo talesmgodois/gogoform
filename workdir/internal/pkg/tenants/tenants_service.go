@@ -2,6 +2,7 @@ package tenants
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 
 	"github.com/jackc/pgx/v5"
@@ -52,9 +53,18 @@ func (s *Service) Create(ctx context.Context, in CreateTenantInput) (Tenant, err
 	return toTenant(row), nil
 }
 
-// GetByAPIKey returns the active tenant owning apiKey.
+// GetByAPIKey returns the active tenant owning apiKey. The key found by the
+// lookup is compared again in constant time, so a match never depends on a
+// byte-by-byte comparison whose duration leaks how much of the key is right.
 func (s *Service) GetByAPIKey(ctx context.Context, apiKey string) (Tenant, error) {
-	return toTenantResult(s.q.GetTenantByAPIKey(ctx, apiKey))
+	t, err := toTenantResult(s.q.GetTenantByAPIKey(ctx, apiKey))
+	if err != nil {
+		return Tenant{}, err
+	}
+	if subtle.ConstantTimeCompare([]byte(t.APIKey), []byte(apiKey)) != 1 {
+		return Tenant{}, apperrors.NewNotFound(msgNotFound)
+	}
+	return t, nil
 }
 
 // GetByID returns the active tenant with the given ID.

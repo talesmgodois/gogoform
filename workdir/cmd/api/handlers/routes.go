@@ -75,6 +75,7 @@ func NewServices(q db.Querier, authSvc *authpkg.Service, billingSvc *billing.Ser
 // sign-in, sign-up, forgot-password and public submission/upload routes, the
 // reverse proxies trusted to supply the respondent's real IP, and the spam
 // checks of public submissions (minimum completion time, Turnstile).
+// Every response carries the securityHeaders.
 func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig, security config.SecurityConfig) http.Handler {
 	rl := newRateLimiters(security)
 	turnstile := svc.turnstile
@@ -140,12 +141,16 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 	mux.HandleFunc("DELETE /files/{id}", auth(filesCtl.Delete))
 
 	// Credentials are optional: private forms check the user themselves.
-	// The session cookie lets the /f page submit private forms.
-	mux.HandleFunc("GET /public/forms/{slug}", authCtl.PublicForm(formsCtl.GetPublic))
+	// The session cookie lets the /f page submit private forms. These are the
+	// only cross-origin (CORS) routes; see publicCORS.
+	mux.HandleFunc("GET /public/forms/{slug}", publicCORS(authCtl.PublicForm(formsCtl.GetPublic)))
+	mux.HandleFunc("OPTIONS /public/forms/{slug}", publicCORSPreflight("GET"))
 	mux.HandleFunc("POST /public/forms/{slug}/submissions",
-		rl.limit(rateLimitPublicSubmission, authCtl.PublicForm(submissionsCtl.Create)))
+		publicCORS(rl.limit(rateLimitPublicSubmission, authCtl.PublicForm(submissionsCtl.Create))))
+	mux.HandleFunc("OPTIONS /public/forms/{slug}/submissions", publicCORSPreflight("POST"))
 	mux.HandleFunc("POST /public/forms/{slug}/files",
-		rl.limit(rateLimitPublicUpload, authCtl.PublicForm(filesCtl.PublicCreate)))
+		publicCORS(rl.limit(rateLimitPublicUpload, authCtl.PublicForm(filesCtl.PublicCreate))))
+	mux.HandleFunc("OPTIONS /public/forms/{slug}/files", publicCORSPreflight("POST"))
 
 	publicPageCtl := &publicPageController{forms: svc.forms, auth: svc.auth, plans: svc.plans, turnstileSiteKey: turnstileSiteKey}
 	mux.HandleFunc("GET /f/{slug}", publicPageCtl.Form)
@@ -160,5 +165,5 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 		billingCtl := &billingController{billing: svc.billing, stripe: stripe, baseURL: app.BaseURL, app: appCtl}
 		billingCtl.mount(mux)
 	}
-	return mux
+	return securityHeaders(mux)
 }
