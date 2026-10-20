@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +48,7 @@ func TestEnvOverridesFile(t *testing.T) {
 	t.Setenv("SERVER_ENV", "production")
 	t.Setenv("LOG_LEVEL", "error")
 	t.Setenv("DATABASE_URL", "postgresql://app:secret@db:5433/other")
+	t.Setenv("AUTH_JWT_SECRET", strings.Repeat("s", minJWTSecretLen))
 
 	cfg, err := Load(writeConfig(t, sample))
 	if err != nil {
@@ -96,6 +98,7 @@ func TestFeatureDefaults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.env, func(t *testing.T) {
 			t.Setenv("SERVER_ENV", tt.env)
+			t.Setenv("AUTH_JWT_SECRET", strings.Repeat("s", minJWTSecretLen))
 			cfg, err := Load(writeConfig(t, sample))
 			if err != nil {
 				t.Fatalf("Load: %v", err)
@@ -122,6 +125,7 @@ func TestFeatureOverrides(t *testing.T) {
 
 	// The environment enables them in production, over the file.
 	t.Setenv("SERVER_ENV", "production")
+	t.Setenv("AUTH_JWT_SECRET", strings.Repeat("s", minJWTSecretLen))
 	t.Setenv("FEATURE_PUBLIC_TENANT_SIGNUP", "true")
 	t.Setenv("FEATURE_SAMPLES", "1")
 	cfg, err = Load(writeConfig(t, sample+"\n[features]\nsamples_enabled = false\n"))
@@ -182,6 +186,60 @@ func TestMailConfig(t *testing.T) {
 	}
 }
 
+func TestSecurityDefaults(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Security.MinFormSeconds != 2 {
+		t.Fatalf("MinFormSeconds = %d, want 2", cfg.Security.MinFormSeconds)
+	}
+	if cfg.Security.RateLimit.Signin != (RateLimitGroupConfig{PerMinute: 5, Burst: 5}) {
+		t.Fatalf("Signin = %+v", cfg.Security.RateLimit.Signin)
+	}
+	if cfg.Security.RateLimit.PublicSubmission != (RateLimitGroupConfig{PerMinute: 20, Burst: 20}) {
+		t.Fatalf("PublicSubmission = %+v", cfg.Security.RateLimit.PublicSubmission)
+	}
+	if prefixes, err := cfg.Security.TrustedProxyPrefixes(); err != nil || len(prefixes) != 0 {
+		t.Fatalf("TrustedProxyPrefixes = %v, %v, want none", prefixes, err)
+	}
+}
+
+func TestSecurityOverrides(t *testing.T) {
+	content := sample + "\n[security.rate_limit.signup]\nper_minute = 1\nburst = 2\n"
+	t.Setenv("SECURITY_TRUSTED_PROXIES", " 10.0.0.0/8 , 192.168.1.5 ")
+	t.Setenv("SECURITY_MIN_FORM_SECONDS", "5")
+	t.Setenv("TURNSTILE_SECRET", "secret")
+	t.Setenv("TURNSTILE_SITE_KEY", "site-key")
+
+	cfg, err := Load(writeConfig(t, content))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Security.MinFormSeconds != 5 || cfg.Security.TurnstileSecret != "secret" || cfg.Security.TurnstileSiteKey != "site-key" {
+		t.Fatalf("security overrides not applied: %+v", cfg.Security)
+	}
+	if cfg.Security.RateLimit.Signup != (RateLimitGroupConfig{PerMinute: 1, Burst: 2}) {
+		t.Fatalf("Signup = %+v", cfg.Security.RateLimit.Signup)
+	}
+
+	prefixes, err := cfg.Security.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatalf("TrustedProxyPrefixes: %v", err)
+	}
+	if len(prefixes) != 2 {
+		t.Fatalf("TrustedProxyPrefixes = %v, want 2 entries", prefixes)
+	}
+	addr := netip.MustParseAddr("10.1.2.3")
+	if !prefixes[0].Contains(addr) {
+		t.Fatalf("%v does not contain %v", prefixes[0], addr)
+	}
+	bareHost := netip.MustParseAddr("192.168.1.5")
+	if !prefixes[1].Contains(bareHost) || prefixes[1].Bits() != 32 {
+		t.Fatalf("bare IP prefix = %v, want a /32 containing %v", prefixes[1], bareHost)
+	}
+}
+
 func TestAppBaseURLOptionalWithoutStripeOrMail(t *testing.T) {
 	t.Setenv("APP_BASE_URL", "not a url")
 	if _, err := Load(writeConfig(t, sample)); err != nil {
@@ -202,6 +260,8 @@ func TestLoadErrors(t *testing.T) {
 		{name: "missing database uri", content: "[server]\nport = 8080\n"},
 		{name: "unsupported database scheme", content: sample, env: map[string]string{"DATABASE_URL": "mysql://u:p@localhost/db"}},
 		{name: "short jwt secret", content: sample, env: map[string]string{"AUTH_JWT_SECRET": "too-short"}},
+		{name: "production without jwt secret", content: sample, env: map[string]string{"SERVER_ENV": "production"}},
+		{name: "staging without jwt secret", content: sample, env: map[string]string{"SERVER_ENV": "staging"}},
 		{name: "zero token ttl", content: sample, env: map[string]string{"AUTH_TOKEN_TTL_MINUTES": "0"}},
 		{name: "admin username without password", content: sample, env: map[string]string{"AUTH_ADMIN_USERNAME": "admin"}},
 		{name: "invalid feature flag env", content: sample, env: map[string]string{"FEATURE_SAMPLES": "maybe"}},
@@ -218,6 +278,11 @@ func TestLoadErrors(t *testing.T) {
 		}},
 		{name: "invalid smtp port env", content: sample, env: map[string]string{"SMTP_PORT": "abc"}},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
+		{name: "invalid trusted proxy", content: sample, env: map[string]string{"SECURITY_TRUSTED_PROXIES": "not-an-ip"}},
+		{name: "negative min form seconds", content: sample, env: map[string]string{"SECURITY_MIN_FORM_SECONDS": "-1"}},
+		{name: "turnstile secret without site key", content: sample, env: map[string]string{"TURNSTILE_SECRET": "secret"}},
+		{name: "rate limit per_minute zero", content: sample + "\n[security.rate_limit.signin]\nper_minute = 0\nburst = 5\n"},
+		{name: "rate limit burst zero", content: sample + "\n[security.rate_limit.signup]\nper_minute = 3\nburst = 0\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

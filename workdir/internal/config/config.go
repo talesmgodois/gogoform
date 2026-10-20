@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"net/mail"
+	"net/netip"
 	"net/url"
 	"os"
 	"reflect"
@@ -35,6 +36,7 @@ type Config struct {
 	Features FeaturesConfig `toml:"features"`
 	Stripe   StripeConfig   `toml:"stripe"`
 	Mail     MailConfig     `toml:"mail"`
+	Security SecurityConfig `toml:"security"`
 }
 
 // AppConfig holds settings shared by the features that build absolute links
@@ -171,6 +173,119 @@ type DatabaseConfig struct {
 	URI string `toml:"uri" env:"DATABASE_URL"` // e.g. "postgres://user:pass@host:5432/db?sslmode=disable"
 }
 
+// SecurityConfig holds the abuse-protection settings: the rate limits of the
+// sensitive routes, the reverse proxies trusted to supply the real client
+// IP, and the public-form spam checks (minimum fill time, Cloudflare
+// Turnstile). It has no bearing on authorization, only on abuse.
+type SecurityConfig struct {
+	// TrustedProxies is a comma-separated list of CIDR ranges (or bare IPs,
+	// treated as a single-host range), e.g. "10.0.0.0/8,172.16.0.0/12". Its
+	// X-Forwarded-For header is trusted to carry the real client IP only
+	// when the direct peer (RemoteAddr) matches one of these ranges;
+	// otherwise the header is attacker-controlled and trivial to forge, so
+	// it is ignored both for rate limiting and for submission metadata.
+	// Leave unset unless a reverse proxy you control sits in front of the app.
+	TrustedProxies string `toml:"trusted_proxies" env:"SECURITY_TRUSTED_PROXIES"`
+	// RateLimit holds the token-bucket settings of every rate-limited route
+	// group. These are tuning knobs, not secrets, so they are only read from
+	// the TOML file, not the environment.
+	RateLimit RateLimitConfig `toml:"rate_limit"`
+	// MinFormSeconds is the minimum time a respondent must take to fill a
+	// public form in; a submission completed faster is rejected as
+	// automated.
+	MinFormSeconds int `toml:"min_form_seconds" env:"SECURITY_MIN_FORM_SECONDS"`
+	// TurnstileSecret enables server-side verification of Cloudflare
+	// Turnstile on public form submissions when set. TurnstileSiteKey is the
+	// matching public key, rendered on the form page to collect the token.
+	TurnstileSecret  string `toml:"turnstile_secret"   env:"TURNSTILE_SECRET"`
+	TurnstileSiteKey string `toml:"turnstile_site_key" env:"TURNSTILE_SITE_KEY"`
+}
+
+// TrustedProxyPrefixes parses TrustedProxies into CIDR prefixes. A bare IP
+// (no "/") is treated as a single-host range (a /32 or /128 prefix).
+func (c SecurityConfig) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	var prefixes []netip.Prefix
+	for _, raw := range strings.Split(c.TrustedProxies, ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if !strings.Contains(raw, "/") {
+			addr, err := netip.ParseAddr(raw)
+			if err != nil {
+				return nil, fmt.Errorf("invalid address %q", raw)
+			}
+			prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+			continue
+		}
+		p, err := netip.ParsePrefix(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q", raw)
+		}
+		prefixes = append(prefixes, p)
+	}
+	return prefixes, nil
+}
+
+func (c SecurityConfig) validate() error {
+	if _, err := c.TrustedProxyPrefixes(); err != nil {
+		return fmt.Errorf("trusted_proxies: %w", err)
+	}
+	if err := c.RateLimit.validate(); err != nil {
+		return err
+	}
+	if c.MinFormSeconds < 0 {
+		return fmt.Errorf("min_form_seconds: must be >= 0")
+	}
+	if (c.TurnstileSecret == "") != (c.TurnstileSiteKey == "") {
+		return fmt.Errorf("turnstile_secret and turnstile_site_key must be set together")
+	}
+	return nil
+}
+
+// RateLimitConfig holds the token-bucket settings of every rate-limited
+// route group: user sign-in (API and /app), sign-up, password reset
+// requests, and the public form submission and file upload endpoints.
+type RateLimitConfig struct {
+	Signin           RateLimitGroupConfig `toml:"signin"`
+	Signup           RateLimitGroupConfig `toml:"signup"`
+	ForgotPassword   RateLimitGroupConfig `toml:"forgot_password"`
+	PublicSubmission RateLimitGroupConfig `toml:"public_submission"`
+	PublicUpload     RateLimitGroupConfig `toml:"public_upload"`
+}
+
+func (c RateLimitConfig) validate() error {
+	for _, g := range []struct {
+		name string
+		cfg  RateLimitGroupConfig
+	}{
+		{"signin", c.Signin}, {"signup", c.Signup}, {"forgot_password", c.ForgotPassword},
+		{"public_submission", c.PublicSubmission}, {"public_upload", c.PublicUpload},
+	} {
+		if err := g.cfg.validate(g.name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RateLimitGroupConfig is a token bucket: Burst requests may be made at
+// once by a client IP, refilling at PerMinute requests per minute.
+type RateLimitGroupConfig struct {
+	PerMinute int `toml:"per_minute"`
+	Burst     int `toml:"burst"`
+}
+
+func (c RateLimitGroupConfig) validate(name string) error {
+	if c.PerMinute < 1 {
+		return fmt.Errorf("rate_limit.%s.per_minute: must be >= 1", name)
+	}
+	if c.Burst < 1 {
+		return fmt.Errorf("rate_limit.%s.burst: must be >= 1", name)
+	}
+	return nil
+}
+
 var (
 	once     sync.Once
 	instance *Config
@@ -228,6 +343,14 @@ func defaults() *Config {
 	cfg.Logger.Level = "info"
 	cfg.Auth.TokenTTLMinutes = 60
 	cfg.Mail.Port = 587
+	cfg.Security.MinFormSeconds = 2
+	cfg.Security.RateLimit = RateLimitConfig{
+		Signin:           RateLimitGroupConfig{PerMinute: 5, Burst: 5},
+		Signup:           RateLimitGroupConfig{PerMinute: 3, Burst: 3},
+		ForgotPassword:   RateLimitGroupConfig{PerMinute: 3, Burst: 3},
+		PublicSubmission: RateLimitGroupConfig{PerMinute: 20, Burst: 20},
+		PublicUpload:     RateLimitGroupConfig{PerMinute: 30, Burst: 30},
+	}
 	return cfg
 }
 
@@ -291,7 +414,10 @@ func (c *Config) validate() error {
 	if err := validateDatabaseURI(c.Database.URI); err != nil {
 		return fmt.Errorf("database.uri: %w", err)
 	}
-	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < minJWTSecretLen {
+	switch {
+	case c.Auth.JWTSecret == "" && !strings.EqualFold(c.Server.Env, "development"):
+		return fmt.Errorf("auth.jwt_secret: must be set (via AUTH_JWT_SECRET) when server.env is not \"development\"")
+	case c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < minJWTSecretLen:
 		return fmt.Errorf("auth.jwt_secret: must be at least %d bytes", minJWTSecretLen)
 	}
 	if c.Auth.TokenTTLMinutes < 1 {
@@ -305,6 +431,9 @@ func (c *Config) validate() error {
 	}
 	if err := c.Mail.validate(); err != nil {
 		return fmt.Errorf("mail: %w", err)
+	}
+	if err := c.Security.validate(); err != nil {
+		return fmt.Errorf("security: %w", err)
 	}
 	// The Checkout/Portal return URLs and the links in emails are absolute.
 	if c.Stripe.Enabled() || c.Mail.Enabled() {

@@ -15,14 +15,53 @@ base_url = "http://localhost:8080"
 uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"
 
 # User accounts (JWT and HTTP Basic). Prefer the AUTH_* environment variables
-# for secrets. Without a jwt_secret (at least 32 bytes) a random one is
-# generated at startup, so tokens do not survive a restart.
+# for secrets. In development, a random jwt_secret is generated at startup
+# when unset, so tokens do not survive a restart; outside development
+# (server.env != "development") a jwt_secret of at least 32 bytes is
+# required and the server refuses to start without one.
 [auth]
 token_ttl_minutes = 60
 # jwt_secret = ""
 # Bootstrap ADMIN account, created at startup when the username is free.
 # admin_username = "admin"
 # admin_password = "change-me-now"
+
+# Abuse protection. trusted_proxies is a comma-separated list of CIDR ranges
+# (or bare IPs) whose X-Forwarded-For header is trusted to carry the real
+# client IP, for rate limiting and submission metadata; leave unset unless a
+# reverse proxy you control sits in front of the app. Each
+# [security.rate_limit.<group>] is a token bucket: burst requests may be made
+# at once by a client IP, refilling at per_minute requests per minute; these
+# are tuning knobs, not secrets, so they are TOML-only. min_form_seconds
+# rejects a public form submission filled in faster than a human plausibly
+# could. Cloudflare Turnstile is verified on public form submissions when
+# TURNSTILE_SECRET is set; TURNSTILE_SITE_KEY is the matching public key
+# rendered on the form page.
+[security]
+# trusted_proxies = "10.0.0.0/8"
+min_form_seconds = 2
+# turnstile_secret = ""
+# turnstile_site_key = ""
+
+[security.rate_limit.signin]
+per_minute = 5
+burst = 5
+
+[security.rate_limit.signup]
+per_minute = 3
+burst = 3
+
+[security.rate_limit.forgot_password]
+per_minute = 3
+burst = 3
+
+[security.rate_limit.public_submission]
+per_minute = 20
+burst = 20
+
+[security.rate_limit.public_upload]
+per_minute = 30
+burst = 30
 
 # Development-only endpoints: the unauthenticated POST /tenants and the
 # /samples/* policy examples. Unset flags default to true when server.env is

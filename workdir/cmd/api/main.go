@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -92,7 +93,7 @@ func run() error {
 			log.Warn("mailer: did not drain in time", "error", err)
 		}
 	}()
-	authSvc, err := newAuthService(ctx, log, queries, txRunner, cfg.Auth, mail, cfg.App.BaseURL)
+	authSvc, err := newAuthService(ctx, log, queries, txRunner, cfg.Auth, mail, cfg.App.BaseURL, cfg.Server.Env)
 	if err != nil {
 		return err
 	}
@@ -161,12 +162,18 @@ func newMailer(log *slog.Logger, cfg config.MailConfig, env string) *mailer.Asyn
 
 // newAuthService builds the user authentication service and creates the
 // bootstrap admin of cfg, if any. tx runs the writes that must be atomic
-// (creating a user together with its tenant). Without a configured secret,
-// tokens are signed with a random one and do not survive a restart. mail
+// (creating a user together with its tenant). Config.validate already
+// refuses to load a configuration without a secret outside development, so
+// the random-secret fallback below only ever fires in development, where
+// tokens not surviving a restart is an acceptable trade-off; the env check
+// here is a defensive backstop in case that invariant is ever bypassed. mail
 // sends the email verification and password reset links, built from baseURL.
-func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.AuthConfig, mail mailer.Mailer, baseURL string) (*auth.Service, error) {
+func newAuthService(ctx context.Context, log *slog.Logger, q db.Querier, tx database.TxRunner, cfg config.AuthConfig, mail mailer.Mailer, baseURL, env string) (*auth.Service, error) {
 	secret := []byte(cfg.JWTSecret)
 	if len(secret) == 0 {
+		if !strings.EqualFold(env, "development") {
+			return nil, fmt.Errorf("auth: AUTH_JWT_SECRET must be set outside development")
+		}
 		log.Warn("auth: AUTH_JWT_SECRET is not set; using a random secret, so tokens are invalidated on restart")
 		secret = make([]byte, auth.MinSecretLen)
 		if _, err := rand.Read(secret); err != nil {
