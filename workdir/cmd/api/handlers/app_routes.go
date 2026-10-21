@@ -47,6 +47,9 @@ func (c *appController) routes() []appRoute {
 		{Pattern: "GET /app/reset-password", Handler: c.ResetPasswordPage, Access: auth.Public},
 		{Pattern: "POST /app/reset-password", Handler: c.ResetPassword, Access: auth.Public},
 		{Pattern: "GET /app/account", Handler: c.Account, Access: auth.SignedIn(), Nav: &navTab{Key: "account", Label: "Account"}},
+		{Pattern: "POST /app/account/email", Handler: c.limiter.limit(rateLimitSignin, c.ChangeEmail), Access: auth.SignedIn()},
+		{Pattern: "POST /app/account/password", Handler: c.limiter.limit(rateLimitSignin, c.ChangePassword), Access: auth.SignedIn()},
+		{Pattern: "POST /app/account/delete", Handler: c.DeleteAccount, Access: auth.SignedIn()},
 		{Pattern: "GET /app/billing", Handler: c.Billing, Access: auth.SignedIn(), Workspace: true, Nav: &navTab{Key: "billing", Label: "Billing"}},
 		{Pattern: "GET /app/admin", Handler: c.AdminIndex, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "admin", Label: "All tenants"}},
 		{Pattern: "GET /app/admin/forms/{id}", Handler: c.AdminForm, Access: auth.SignedIn(auth.RoleAdmin)},
@@ -120,27 +123,6 @@ func routePath(pattern string) string {
 		return path
 	}
 	return pattern
-}
-
-// describeAccess renders who may open rt, for the account page.
-func describeAccess(rt appRoute) string {
-	var s string
-	switch roles := rt.Access.Roles(); {
-	case rt.Access.IsPublic():
-		s = "Public"
-	case len(roles) == 0:
-		s = "Signed in"
-	default:
-		names := make([]string, len(roles))
-		for i, r := range roles {
-			names[i] = string(r)
-		}
-		s = "Roles: " + strings.Join(names, ", ")
-	}
-	if rt.Workspace {
-		s += " · own workspace"
-	}
-	return s
 }
 
 // appViewKey is the context key of the tabs set by guardPage.

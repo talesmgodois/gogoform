@@ -12,6 +12,7 @@ import (
 	"time"
 
 	apperrors "app/internal/errors"
+	"app/internal/pkg/accounts"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
@@ -61,6 +62,10 @@ var (
 	appUsersTemplate          = parseAppPage("users.html")
 	appMessageTemplate        = parseAppPage("message.html")
 	appBillingTemplate        = parseAppPage("billing.html")
+	siteLandingTemplate       = parseAppPage("landing.html")
+	sitePricingTemplate       = parseAppPage("pricing.html")
+	siteTermsTemplate         = parseAppPage("terms.html")
+	sitePrivacyTemplate       = parseAppPage("privacy.html")
 )
 
 // parseAppPage parses the page template called name along with the shared
@@ -84,6 +89,9 @@ type appLayout struct {
 	User *auth.User
 	// Tabs are the navigation entries the viewer may open.
 	Tabs []navTab
+	// SupportEmail is the contact address linked from the footer; empty
+	// hides the link. See withSupportEmail.
+	SupportEmail string
 	// formAction is the form-action source list of the page's
 	// Content-Security-Policy; defaultFormAction when empty.
 	formAction string
@@ -186,6 +194,8 @@ type appController struct {
 	files       files.Repository
 	submissions submissions.Repository
 	auth        *auth.Service
+	// accounts deletes the viewer's account from the account page.
+	accounts *accounts.Service
 	// plans measures the workspace's usage for the dashboard.
 	plans *plans.Enforcer
 	// billingEnabled tells whether the /billing routes are mounted, so the
@@ -244,6 +254,7 @@ func renderAppPageStatus(w http.ResponseWriter, r *http.Request, status int, t *
 	}
 	l := page.layout()
 	l.Nonce, l.User, l.Tabs = nonce, userFrom(r.Context()), tabsFrom(r.Context())
+	l.SupportEmail = supportEmailFrom(r.Context())
 	// Render to a buffer first so a template error still yields a clean 500.
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, page); err != nil {

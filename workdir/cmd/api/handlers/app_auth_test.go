@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"app/internal/pkg/auth"
 	"app/internal/pkg/forms"
 )
 
@@ -62,22 +61,6 @@ func TestAppInvalidSessionIsCleared(t *testing.T) {
 	assertStatus(t, rec, http.StatusSeeOther)
 	if c := rec.Result().Cookies(); len(c) != 1 || c[0].Name != sessionCookie || c[0].MaxAge >= 0 {
 		t.Fatalf("cookies = %+v, want the session cleared", c)
-	}
-}
-
-func TestAppAccountListsRoutes(t *testing.T) {
-	svc := testServices()
-	rec := serve(svc, pageRequest(t, svc, "/app/account", "creator"))
-	assertStatus(t, rec, http.StatusOK)
-	body := rec.Body.String()
-	for _, want := range []string{"creator", "FORM_CREATOR", "GET /app/users", "Roles: ADMIN", "Signed in · own workspace"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("account page misses %q", want)
-		}
-	}
-	// Tabs only list the pages the viewer may open.
-	if !strings.Contains(body, `href="/app/account"`) || strings.Contains(body, `href="/app/users"`) {
-		t.Error("nav tabs do not follow the route access")
 	}
 }
 
@@ -205,23 +188,6 @@ func TestSafeNext(t *testing.T) {
 	for in, want := range tests {
 		if got := safeNext(in); got != want {
 			t.Errorf("safeNext(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestDescribeAccess(t *testing.T) {
-	tests := []struct {
-		rt   appRoute
-		want string
-	}{
-		{appRoute{Access: auth.Public}, "Public"},
-		{appRoute{Access: auth.SignedIn()}, "Signed in"},
-		{appRoute{Access: auth.SignedIn(auth.RoleFormCreator, auth.RoleBasic)}, "Roles: FORM_CREATOR, BASIC"},
-		{appRoute{Access: auth.SignedIn(), Workspace: true}, "Signed in · own workspace"},
-	}
-	for _, tt := range tests {
-		if got := describeAccess(tt.rt); got != tt.want {
-			t.Errorf("describeAccess = %q, want %q", got, tt.want)
 		}
 	}
 }

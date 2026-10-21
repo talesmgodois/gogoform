@@ -9,7 +9,6 @@ import (
 
 	apperrors "app/internal/errors"
 	"app/internal/pkg/auth"
-	"app/internal/pkg/tenants"
 )
 
 // sessionCookie holds the JWT of the user signed in to the /app pages. It is
@@ -29,6 +28,9 @@ type appSignInPage struct {
 	appLayout
 	// Next is the local page to open once signed in.
 	Next string
+	// Mode is the tab shown first: "signup" (?mode=signup, linked from the
+	// product pages) or "signin".
+	Mode string
 }
 
 // appForgotPasswordPage is the data rendered by templates/forgot_password.html.
@@ -45,20 +47,6 @@ type appResetPasswordPage struct {
 	// Error, set when a submitted password was rejected, is shown above the
 	// form.
 	Error string
-}
-
-// appAccountPage is the data rendered by templates/account.html.
-type appAccountPage struct {
-	appLayout
-	// Workspace is the viewer's tenant; nil when they have none.
-	Workspace *tenants.Tenant
-	Routes    []appRouteAccess
-}
-
-// appRouteAccess describes an /app route and whether the viewer may open it.
-type appRouteAccess struct {
-	Pattern, Access string
-	Allowed         bool
 }
 
 // appUsersPage is the data rendered by templates/users.html.
@@ -104,7 +92,11 @@ func (c *appController) SignInPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
 	}
-	renderAppPage(w, r, appSignInTemplate, &appSignInPage{appLayout: appLayout{Active: "signin"}, Next: next})
+	mode := "signin"
+	if r.URL.Query().Get("mode") == "signup" {
+		mode = "signup"
+	}
+	renderAppPage(w, r, appSignInTemplate, &appSignInPage{appLayout: appLayout{Active: "signin"}, Next: next, Mode: mode})
 }
 
 // SignIn checks the HTTP Basic credentials sent by the sign-in page and
@@ -211,25 +203,6 @@ func (c *appController) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/app/signin", http.StatusSeeOther)
-}
-
-// Account renders the signed-in user, their workspace and the access of
-// every /app route: a page to try the route policies out.
-func (c *appController) Account(w http.ResponseWriter, r *http.Request) {
-	u := userFrom(r.Context())
-	page := appAccountPage{appLayout: appLayout{Active: "account"}}
-	t, err := c.tenants.GetByOwner(r.Context(), u.ID)
-	switch {
-	case err == nil:
-		page.Workspace = &t
-	case !isNotFound(err):
-		renderAppError(w, r, err)
-		return
-	}
-	for _, rt := range c.mounted {
-		page.Routes = append(page.Routes, appRouteAccess{Pattern: rt.Pattern, Access: describeAccess(rt), Allowed: rt.Access.Allows(u)})
-	}
-	renderAppPage(w, r, appAccountTemplate, &page)
 }
 
 // Verify redeems an email verification token sent to a user's inbox (see
