@@ -2,7 +2,7 @@
 
 Loaded only when working here. Root rules in `/AGENTS.md` still apply.
 
-Packages: auth (users, JWT, sessions, user tokens, notifier), billing (Stripe gateway + webhook events),
+Packages: accounts (account deletion: cancels Stripe, then deletes tenant data + user in one tx), auth (users, JWT, sessions, user tokens, email/password change, notifier), billing (Stripe gateway + webhook events),
 files, forms (content, validation, availability windows), mailer (SMTP/log/async + templates),
 plans (limits `Enforcer`), submissions, tenants, webhooks.
 

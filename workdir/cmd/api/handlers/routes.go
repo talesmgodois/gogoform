@@ -13,6 +13,7 @@ import (
 	"app/internal/config"
 	"app/internal/db"
 	"app/internal/handler"
+	"app/internal/pkg/accounts"
 	authpkg "app/internal/pkg/auth"
 	"app/internal/pkg/billing"
 	"app/internal/pkg/files"
@@ -32,6 +33,8 @@ type Services struct {
 	webhooks    webhooks.Repository
 	files       files.Repository
 	auth        *authpkg.Service
+	// accounts deletes user accounts with their workspace.
+	accounts *accounts.Service
 	// billing is nil when Stripe is not configured.
 	billing *billing.Service
 	// plans enforces plan limits, counting usage through the repositories.
@@ -51,13 +54,14 @@ type Services struct {
 }
 
 // NewServices returns the sqlc-backed implementation of every repository and
-// the plan Enforcer over them, along with authSvc, which authenticates users, billingSvc, which is nil
-// when Stripe is not configured, mail, which sends the new-submission notification, and pool, the
-// database pinged by the health check.
-func NewServices(q db.Querier, pool handler.Pinger, authSvc *authpkg.Service, billingSvc *billing.Service, mail mailer.Mailer) Services {
+// the plan Enforcer over them, along with authSvc, which authenticates users, accountsSvc, which
+// deletes accounts, billingSvc, which is nil when Stripe is not configured, mail, which sends the
+// new-submission notification, and pool, the database pinged by the health check.
+func NewServices(q db.Querier, pool handler.Pinger, authSvc *authpkg.Service, accountsSvc *accounts.Service, billingSvc *billing.Service, mail mailer.Mailer) Services {
 	formsSvc, submissionsSvc, filesSvc := forms.NewService(q), submissions.NewService(q), files.NewService(q)
 	return Services{
 		auth:        authSvc,
+		accounts:    accountsSvc,
 		billing:     billingSvc,
 		tenants:     tenants.NewService(q),
 		forms:       formsSvc,
@@ -84,6 +88,8 @@ func NewServices(q db.Querier, pool handler.Pinger, authSvc *authpkg.Service, bi
 // sign-in, sign-up, forgot-password and public submission/upload routes, the
 // reverse proxies trusted to supply the respondent's real IP, and the spam
 // checks of public submissions (minimum completion time, Turnstile).
+// The public product pages (site.go) live at /, /pricing, /terms and
+// /privacy; every page footer links app.SupportEmail.
 // Every response carries the securityHeaders and an X-Request-ID, and every
 // request is written to the access log (requestLog).
 func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeConfig, app config.AppConfig, security config.SecurityConfig) http.Handler {
@@ -173,12 +179,14 @@ func Routes(svc Services, features config.FeaturesConfig, stripe config.StripeCo
 
 	billingEnabled := stripe.Enabled() && svc.billing != nil
 	appCtl := &appController{tenants: svc.tenants, forms: svc.forms, files: svc.files, submissions: svc.submissions, auth: svc.auth,
-		plans: svc.plans, billingEnabled: billingEnabled, limiter: rl}
+		accounts: svc.accounts, plans: svc.plans, billingEnabled: billingEnabled, limiter: rl}
 	appCtl.mount(mux)
+	siteCtl := &siteController{auth: svc.auth}
+	siteCtl.mount(mux)
 
 	if billingEnabled {
 		billingCtl := &billingController{billing: svc.billing, stripe: stripe, baseURL: app.BaseURL, app: appCtl}
 		billingCtl.mount(mux)
 	}
-	return requestLog(securityHeaders(mux), rl.ip)
+	return requestLog(securityHeaders(withSupportEmail(mux, app.SupportEmail)), rl.ip)
 }

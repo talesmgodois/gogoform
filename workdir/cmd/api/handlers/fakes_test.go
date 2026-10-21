@@ -19,6 +19,7 @@ import (
 	"app/internal/database"
 	"app/internal/db"
 	apperrors "app/internal/errors"
+	"app/internal/pkg/accounts"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/files"
 	"app/internal/pkg/forms"
@@ -559,6 +560,21 @@ func (f *fakeUsers) UpdatePassword(_ context.Context, id int32, passwordHash str
 	return auth.User{}, apperrors.NewNotFound("user not found")
 }
 
+func (f *fakeUsers) UpdateEmail(_ context.Context, id int32, email string) (auth.User, error) {
+	for _, u := range f.users {
+		if u.ID != id && u.Email != "" && u.Email == email {
+			return auth.User{}, apperrors.NewConflict("email already registered")
+		}
+	}
+	for i := range f.users {
+		if f.users[i].ID == id {
+			f.users[i].Email, f.users[i].EmailVerifiedAt = email, nil
+			return f.users[i].User, nil
+		}
+	}
+	return auth.User{}, apperrors.NewNotFound("user not found")
+}
+
 // fakeTokens is an in-memory auth.TokenRepository.
 type fakeTokens struct {
 	rows map[string]auth.UserToken
@@ -744,4 +760,53 @@ func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, want int) {
 	if rec.Code != want {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, want, rec.Body.String())
 	}
+}
+
+// fakeAccountStore is an accounts.Store recording the deletions.
+type fakeAccountStore struct {
+	deletedTenants, deletedUsers []int32
+}
+
+func (f *fakeAccountStore) DeleteTenantData(_ context.Context, tenantID int32) error {
+	f.deletedTenants = append(f.deletedTenants, tenantID)
+	return nil
+}
+
+func (f *fakeAccountStore) DeleteUser(_ context.Context, userID int32) error {
+	f.deletedUsers = append(f.deletedUsers, userID)
+	return nil
+}
+
+// fakeSubscriptions is an accounts.Subscriptions recording the subscription
+// IDs it cancels.
+type fakeSubscriptions struct {
+	canceled []string
+	err      error
+}
+
+func (f *fakeSubscriptions) CancelSubscription(_ context.Context, t tenants.Tenant) error {
+	if f.err != nil {
+		return f.err
+	}
+	if t.StripeSubscriptionID != "" {
+		f.canceled = append(f.canceled, t.StripeSubscriptionID)
+	}
+	return nil
+}
+
+// withAccounts sets an accounts.Service over the tenants of svc, the fakes
+// it returns and a FakeTxRunner on svc.
+func withAccounts(t *testing.T, svc *Services) (*fakeAccountStore, *fakeSubscriptions) {
+	t.Helper()
+	store, subs := &fakeAccountStore{}, &fakeSubscriptions{}
+	accountsSvc, err := accounts.NewService(svc.tenants, accounts.Options{
+		Tx:            &database.FakeTxRunner{},
+		StoreFor:      func(db.Querier) accounts.Store { return store },
+		Subscriptions: subs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.accounts = accountsSvc
+	return store, subs
 }

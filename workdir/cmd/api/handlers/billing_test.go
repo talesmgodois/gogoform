@@ -33,6 +33,7 @@ type fakeGateway struct {
 	customers []string // emails passed to CreateCustomer
 	checkouts []string // customer IDs passed to CreateCheckoutSession
 	portals   []string // customer IDs passed to CreatePortalSession
+	cancels   []string // subscription IDs passed to CancelSubscription
 	urls      billing.CheckoutURLs
 	returnURL string
 	err       error
@@ -62,6 +63,14 @@ func (g *fakeGateway) CreatePortalSession(_ context.Context, customerID, returnU
 	g.portals = append(g.portals, customerID)
 	g.returnURL = returnURL
 	return "https://portal.stripe.test/" + customerID, nil
+}
+
+func (g *fakeGateway) CancelSubscription(_ context.Context, subscriptionID string) error {
+	if g.err != nil {
+		return g.err
+	}
+	g.cancels = append(g.cancels, subscriptionID)
+	return nil
 }
 
 // fakeEventLog is a billing.EventLog remembering the processed event ids.

@@ -12,7 +12,8 @@ Loaded only when working in this directory. Root rules in `/AGENTS.md` still app
 - `spam.go` — `spamGuard` checks public submissions (`website` honeypot, `min_form_seconds`, Turnstile via the `TurnstileVerifier` port; tests set `svc.turnstile` to `fakeTurnstile` from `spam_test.go`).
 - `app_routes.go` — `/app` pages as an `[]appRoute{Pattern, Handler, Access, Workspace, Nav}` table; add a page by adding a row.
 - `app.go` — page templates (`parseAppPage("x.html")` vars), `appLayout` (Nonce, User, Tabs), `renderAppPage`, formatters.
-- `app_*.go` — /app page handlers (auth, billing, builder, forms). `public_page.go` — `/f/{slug}`. `billing.go` — Stripe routes (mounted only when enabled).
+- `app_*.go` — /app page handlers (auth, account, billing, builder, forms). `app_account.go` — `/app/account` settings + `POST /app/account/{email,password,delete}` (JSON, session cookie, `sameOrigin`). `public_page.go` — `/f/{slug}`.
+- `site.go` — public product pages `/`, `/pricing` (rows built from `plans.For`, never hard-code limits), `/terms`, `/privacy`; `withSupportEmail` feeds `appLayout.SupportEmail` to the `footer` partial in `layout.html` (`site-head`/`site-nav` are the public-page head/top bar). `billing.go` — Stripe routes (mounted only when enabled).
 - `httputil.go` — `writeJSON`, `decodeJSON`, `pathID`, `parseID`, `parsePage`. Use them; don't hand-roll.
 - `templates/` — `layout.html` (shared partials) + one file per page; `static/form-render.js` served at `/static/form-render.js`; `static/app.css` is the Tailwind build (`make css`, gitignored, built by the Dockerfile) served at `/static/app.css`. Page CSPs are `style-src 'self'`: no `style=` attributes or `<style>` (guarded by `TestTemplatesHaveNoInlineStyles`); new classes only appear after `make css`.
 
