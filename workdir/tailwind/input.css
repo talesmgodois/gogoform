@@ -2,3 +2,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Rendered markdown of the manual (help/*.md, see help.go): goldmark emits
+   bare elements, so they are styled here. */
+@layer components {
+  .help-prose { @apply text-sm leading-relaxed text-slate-300; }
+  .help-prose h1 { @apply mb-3 text-lg font-bold tracking-tight text-white; }
+  .help-prose h2 { @apply mb-2 mt-6 scroll-mt-4 rounded-lg text-base font-semibold text-slate-100; }
+  .help-prose h3 { @apply mb-1 mt-4 scroll-mt-4 rounded-lg text-sm font-semibold text-slate-100; }
+  .help-prose p { @apply my-2; }
+  .help-prose ul { @apply my-2 list-disc space-y-1 pl-5; }
+  .help-prose ol { @apply my-2 list-decimal space-y-1 pl-5; }
+  .help-prose a { @apply text-indigo-300 underline decoration-indigo-500/40 hover:text-indigo-200; }
+  .help-prose code { @apply rounded bg-slate-800 px-1 py-0.5 font-mono text-xs text-slate-200; }
+  .help-prose pre { @apply my-3 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-3; }
+  .help-prose pre code { @apply bg-transparent p-0; }
+  .help-prose strong { @apply font-semibold text-slate-100; }
+  .help-prose blockquote { @apply my-3 border-l-2 border-indigo-500/50 pl-3 text-slate-400; }
+  .help-prose table { @apply my-3 w-full text-left text-xs; }
+  .help-prose th { @apply border-b border-slate-700 py-1 pr-3 font-semibold text-slate-200; }
+  .help-prose td { @apply border-b border-slate-800 py-1 pr-3 align-top; }
+  .help-prose .help-highlight { @apply bg-indigo-500/10 px-2 py-1 ring-1 ring-indigo-500/40; }
+}
