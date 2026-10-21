@@ -49,6 +49,7 @@ var appFuncs = template.FuncMap{
 	"status":   formStatus,
 	"access":   formAccess,
 	"add":      func(a, b int) int { return a + b },
+	"helpIcon": helpIcon,
 }
 
 var (
@@ -62,6 +63,7 @@ var (
 	appUsersTemplate          = parseAppPage("users.html")
 	appMessageTemplate        = parseAppPage("message.html")
 	appBillingTemplate        = parseAppPage("billing.html")
+	appHelpTemplate           = parseAppPage("help.html")
 	siteLandingTemplate       = parseAppPage("landing.html")
 	sitePricingTemplate       = parseAppPage("pricing.html")
 	siteTermsTemplate         = parseAppPage("terms.html")

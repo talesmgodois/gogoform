@@ -56,6 +56,8 @@ func (c *appController) routes() []appRoute {
 		{Pattern: "GET /app/admin/forms/{id}/submissions.json", Handler: c.AdminExportJSON, Access: auth.SignedIn(auth.RoleAdmin)},
 		{Pattern: "GET /app/admin/forms/{id}/submissions.csv", Handler: c.AdminExportCSV, Access: auth.SignedIn(auth.RoleAdmin)},
 		{Pattern: "GET /app/users", Handler: c.Users, Access: auth.SignedIn(auth.RoleAdmin), Nav: &navTab{Key: "users", Label: "Users"}},
+		{Pattern: "GET /app/help", Handler: c.Help, Access: auth.Public, Nav: &navTab{Key: "help", Label: "Help"}},
+		{Pattern: "GET /app/help/{path...}", Handler: c.HelpFragment, Access: auth.Public},
 	}
 }
 
