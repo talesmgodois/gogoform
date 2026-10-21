@@ -47,6 +47,7 @@ As mais importantes:
 | `SERVER_ENV`, `SERVER_PORT`, `LOG_LEVEL` | ambiente (`development`/`production`), porta, nível de log |
 | `DATABASE_URL` | conexão com o Postgres |
 | `APP_BASE_URL` | origem pública: links em e-mails/Stripe e host do Swagger |
+| `SUPPORT_EMAIL` | e-mail de contato no rodapé das páginas (opcional; sem ele o link some) |
 | `AUTH_JWT_SECRET` | obrigatório fora de `development` (`openssl rand -hex 32`) |
 | `AUTH_ADMIN_USERNAME`, `AUTH_ADMIN_PASSWORD` | conta ADMIN criada na inicialização |
 | `SECURITY_TRUSTED_PROXIES` | proxies cujo `X-Forwarded-For` é confiável |

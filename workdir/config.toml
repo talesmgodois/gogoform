@@ -7,9 +7,12 @@ level = "debug"
 
 # Public origin of the application, used for absolute links (Stripe return
 # URLs, links in emails). Required when Stripe or SMTP is configured.
-# Overridable with APP_BASE_URL.
+# Overridable with APP_BASE_URL. support_email is the contact address linked
+# from the footer of the pages (no link when unset); overridable with
+# SUPPORT_EMAIL.
 [app]
 base_url = "http://localhost:8080"
+# support_email = "support@example.com"
 
 [database]
 uri = "postgres://postgres:postgres@localhost:5432/app_db?sslmode=disable"

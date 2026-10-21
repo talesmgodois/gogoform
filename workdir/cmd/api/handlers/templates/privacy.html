@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "site-head" "Privacy policy"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "site-nav" .}}
+
+  <main class="mx-auto max-w-3xl px-6 py-16">
+    {{template "legal-placeholder" .}}
+    <h1 class="mt-8 text-3xl font-bold tracking-tight">Privacy policy</h1>
+    <div class="mt-8 space-y-6 text-sm leading-relaxed text-slate-300">
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">1. Account data</h2>
+        <p class="mt-2">When you sign up we store your email address, a hash of your password and your workspace settings, to run your account and send you service emails such as address verification, password resets and payment notices.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">2. Form responses</h2>
+        <p class="mt-2">Responses and files submitted to a form are stored on behalf of the form owner, who decides what the form collects and what happens to the responses. We act as a processor for that data: if you responded to a form, contact its owner about your data. Along with a response we keep technical metadata such as the IP address and user agent, for spam protection.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">3. Payments</h2>
+        <p class="mt-2">Payments for the Pro plan are processed by Stripe. Your card details go directly to Stripe and never reach our servers; we only keep the Stripe customer and subscription identifiers and the subscription status. See Stripe's privacy policy for how Stripe handles your data.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">4. Other processors</h2>
+        <p class="mt-2">We use an email delivery provider to send service emails and, when enabled on a form, Cloudflare Turnstile for spam protection.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">5. Cookies</h2>
+        <p class="mt-2">We only set the session cookie that keeps you signed in. There are no advertising or tracking cookies.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">6. Retention and deletion</h2>
+        <p class="mt-2">Your data is kept while your account exists. Deleting your account from your account settings cancels your subscription and deletes your workspace, forms, responses and files; database backups containing them expire within a few weeks.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">7. Your rights</h2>
+        <p class="mt-2">You can access, export, correct or delete your data from the app, or ask us to do it{{with .SupportEmail}} by writing to <a href="mailto:{{.}}" class="text-indigo-400 hover:text-indigo-300">{{.}}</a>{{end}}.</p>
+      </section>
+    </div>
+  </main>
+
+{{template "footer" .}}
+</body>
+</html>

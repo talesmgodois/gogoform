@@ -247,6 +247,20 @@ func TestAppBaseURLOptionalWithoutStripeOrMail(t *testing.T) {
 	}
 }
 
+func TestSupportEmail(t *testing.T) {
+	cfg, err := Load(writeConfig(t, sample+"\n[app]\nsupport_email = \"help@example.com\"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.App.SupportEmail != "help@example.com" {
+		t.Fatalf("support email = %q", cfg.App.SupportEmail)
+	}
+	t.Setenv("SUPPORT_EMAIL", "contact@example.com")
+	if cfg, err = Load(writeConfig(t, sample)); err != nil || cfg.App.SupportEmail != "contact@example.com" {
+		t.Fatalf("SUPPORT_EMAIL not applied: %q, %v", cfg.App.SupportEmail, err)
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -276,6 +290,8 @@ func TestLoadErrors(t *testing.T) {
 		{name: "mail port out of range", content: sample, env: map[string]string{
 			"SMTP_HOST": "smtp.example.com", "SMTP_PORT": "0", "MAIL_FROM": "no-reply@example.com", "APP_BASE_URL": "https://forms.example.com",
 		}},
+		{name: "support email with display name", content: sample, env: map[string]string{"SUPPORT_EMAIL": "Help <help@example.com>"}},
+		{name: "invalid support email", content: sample, env: map[string]string{"SUPPORT_EMAIL": "not an address"}},
 		{name: "invalid smtp port env", content: sample, env: map[string]string{"SMTP_PORT": "abc"}},
 		{name: "database uri without host", content: sample, env: map[string]string{"DATABASE_URL": "postgres:///app_db"}},
 		{name: "invalid trusted proxy", content: sample, env: map[string]string{"SECURITY_TRUSTED_PROXIES": "not-an-ip"}},

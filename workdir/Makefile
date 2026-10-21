@@ -70,7 +70,7 @@ run: build ## Build and execute the compiled binary
 	./$(BIN)
 
 test: ## Run tests quietly (failures only). Narrow/verbose: make test PKGS=./internal/pkg/auth/... RUN=TestLogin V=1
-	env -u DATABASE_URL -u AUTH_ADMIN_USERNAME -u AUTH_ADMIN_PASSWORD -u AUTH_JWT_SECRET -u STRIPE_SECRET_KEY -u STRIPE_WEBHOOK_SECRET -u STRIPE_PRICE_ID -u APP_BASE_URL -u SMTP_HOST -u SMTP_PORT -u SMTP_USER -u SMTP_PASSWORD -u MAIL_FROM go test $(if $(V),-v) $(if $(RUN),-run '$(RUN)') $(or $(PKGS),./...)
+	env -u DATABASE_URL -u AUTH_ADMIN_USERNAME -u AUTH_ADMIN_PASSWORD -u AUTH_JWT_SECRET -u STRIPE_SECRET_KEY -u STRIPE_WEBHOOK_SECRET -u STRIPE_PRICE_ID -u APP_BASE_URL -u SMTP_HOST -u SMTP_PORT -u SMTP_USER -u SMTP_PASSWORD -u MAIL_FROM -u SUPPORT_EMAIL go test $(if $(V),-v) $(if $(RUN),-run '$(RUN)') $(or $(PKGS),./...)
 
 check: ## Fast compile + vet of every package (no tests); cheapest sanity check after edits
 	go build ./... && go vet ./...

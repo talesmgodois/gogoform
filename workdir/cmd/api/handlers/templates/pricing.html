@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "site-head" "Pricing"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "site-nav" .}}
+
+  <main class="mx-auto max-w-5xl px-6 py-16">
+    <div class="text-center">
+      <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">Simple pricing</h1>
+      <p class="mt-3 text-sm text-slate-400">Start free. Upgrade to Pro for unlimited forms, webhooks, exports and notifications.</p>
+    </div>
+
+    <div class="mt-12 grid gap-6 md:grid-cols-2">
+      <section data-plan="free" class="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <h2 class="text-lg font-semibold">Free</h2>
+        <p class="mt-2"><span class="text-3xl font-bold">0 USD</span> <span class="text-sm text-slate-400">forever</span></p>
+        <p class="mt-2 text-sm text-slate-400">For trying GoGoForm out and small forms.</p>
+        <ul class="mt-6 flex-1 space-y-3 text-sm">
+          {{template "pricing-lines" .Free}}
+        </ul>
+        {{if .User}}
+        <a href="/app" data-plan-cta="free" class="mt-8 rounded-lg border border-slate-700 px-4 py-2 text-center text-sm font-semibold text-slate-200 hover:bg-slate-800">Go to your forms</a>
+        {{else}}
+        <a href="/app/signin?mode=signup" data-plan-cta="free" class="mt-8 rounded-lg border border-slate-700 px-4 py-2 text-center text-sm font-semibold text-slate-200 hover:bg-slate-800">Sign up free</a>
+        {{end}}
+      </section>
+
+      <section data-plan="pro" class="flex flex-col rounded-2xl border border-indigo-500/40 bg-indigo-500/5 p-6 shadow-xl shadow-indigo-950/40">
+        <h2 class="flex items-center gap-2 text-lg font-semibold">Pro <span class="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-300 ring-1 ring-inset ring-indigo-500/20">Popular</span></h2>
+        <p class="mt-2"><span class="text-3xl font-bold">{{.ProPrice}}</span> <span class="text-sm text-slate-400">per month</span></p>
+        <p class="mt-2 text-sm text-slate-400">For teams that run their business on forms. Cancel anytime.</p>
+        <ul class="mt-6 flex-1 space-y-3 text-sm">
+          {{template "pricing-lines" .Pro}}
+        </ul>
+        {{if .User}}
+        <a href="/app/billing" data-plan-cta="pro" class="mt-8 rounded-lg bg-indigo-600 px-4 py-2 text-center text-sm font-semibold text-white shadow hover:bg-indigo-500">Upgrade to Pro</a>
+        {{else}}
+        <a href="/app/signin?mode=signup&amp;next=%2Fapp%2Fbilling" data-plan-cta="pro" class="mt-8 rounded-lg bg-indigo-600 px-4 py-2 text-center text-sm font-semibold text-white shadow hover:bg-indigo-500">Get Pro</a>
+        {{end}}
+      </section>
+    </div>
+
+    <p class="mt-8 text-center text-xs text-slate-500">Payments are processed by Stripe. Submission limits reset on the first day of each month (UTC).</p>
+  </main>
+
+{{template "footer" .}}
+</body>
+</html>
+
+{{/* pricing-lines lists the pricingLines of a plan card. */}}
+{{define "pricing-lines"}}
+  {{range .}}
+  <li data-pricing="{{.Key}}" class="flex items-start gap-3 {{if .Included}}text-slate-200{{else}}text-slate-500{{end}}">
+    {{if .Included}}<span aria-hidden="true" class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-[10px] text-emerald-400">✓</span>{{else}}<span aria-hidden="true" class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-slate-500/15 text-[10px] text-slate-500">–</span>{{end}}
+    <span>{{if .Text}}<span class="font-semibold">{{.Text}}</span> {{.Label}}{{else}}{{.Label}}{{if not .Included}}<span class="sr-only"> (not included)</span>{{end}}{{end}}</span>
+  </li>
+  {{end}}
+{{end}}

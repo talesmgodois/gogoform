@@ -46,6 +46,9 @@ type AppConfig struct {
 	// "https://forms.example.com". It is required when Stripe or mail is
 	// enabled.
 	BaseURL string `toml:"base_url" env:"APP_BASE_URL"`
+	// SupportEmail is the contact address linked from the footer of the
+	// pages; the link is left out when empty.
+	SupportEmail string `toml:"support_email" env:"SUPPORT_EMAIL"`
 }
 
 func (c AppConfig) validate() error {
@@ -434,6 +437,12 @@ func (c *Config) validate() error {
 	}
 	if err := c.Security.validate(); err != nil {
 		return fmt.Errorf("security: %w", err)
+	}
+	if c.App.SupportEmail != "" {
+		// A bare address, as it is linked with mailto:.
+		if a, err := mail.ParseAddress(c.App.SupportEmail); err != nil || a.Address != c.App.SupportEmail {
+			return fmt.Errorf("app: support_email: must be a bare email address (or provide SUPPORT_EMAIL)")
+		}
 	}
 	// The Checkout/Portal return URLs and the links in emails are absolute.
 	if c.Stripe.Enabled() || c.Mail.Enabled() {

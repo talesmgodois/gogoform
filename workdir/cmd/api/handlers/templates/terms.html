@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+{{template "site-head" "Terms of service"}}
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+{{template "site-nav" .}}
+
+  <main class="mx-auto max-w-3xl px-6 py-16">
+    {{template "legal-placeholder" .}}
+    <h1 class="mt-8 text-3xl font-bold tracking-tight">Terms of service</h1>
+    <div class="mt-8 space-y-6 text-sm leading-relaxed text-slate-300">
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">1. The service</h2>
+        <p class="mt-2">GoGoForm lets you build forms, publish them and collect the responses and files submitted to them. By creating an account you agree to these terms.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">2. Your account</h2>
+        <p class="mt-2">Keep your password and API key secret: you are responsible for what is done with them. You may delete your account at any time from your account settings, which deletes your workspace, forms, responses and files.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">3. Your forms and their responses</h2>
+        <p class="mt-2">You own your forms and the responses they collect. GoGoForm stores form responses on your behalf, as the form owner, and only processes them to provide the service. You are responsible for having a lawful basis to collect them and for telling your respondents how you use their data.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">4. Acceptable use</h2>
+        <p class="mt-2">Do not use GoGoForm for phishing, collecting passwords or payment card numbers, spam, or anything illegal. We may disable forms or accounts that do.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">5. Plans and payments</h2>
+        <p class="mt-2">The free plan is free within its limits. The Pro plan is billed monthly in advance; payments are processed by Stripe, and we never see or store your card details. You can cancel at any time from the billing page; the plan then stays active until the end of the paid period.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">6. Availability and liability</h2>
+        <p class="mt-2">The service is provided "as is", without warranties. To the extent permitted by law, our liability is limited to the amount you paid in the twelve months before the claim.</p>
+      </section>
+      <section>
+        <h2 class="text-base font-semibold text-slate-100">7. Changes</h2>
+        <p class="mt-2">We may update these terms; significant changes will be announced by email before they take effect.</p>
+      </section>
+    </div>
+  </main>
+
+{{template "footer" .}}
+</body>
+</html>
