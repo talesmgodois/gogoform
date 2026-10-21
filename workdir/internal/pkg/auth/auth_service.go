@@ -63,6 +63,8 @@ const (
 	msgInvalidPassword    = "password must be 8 to 72 bytes long"
 	msgInvalidRole        = "role must be one of ADMIN, FORM_CREATOR, BASIC"
 	msgOwnRole            = "you cannot change your own role"
+	msgWrongPassword      = "current password is incorrect"
+	msgSameEmail          = "this is already your email address"
 )
 
 // Options configures a Service.
@@ -443,6 +445,75 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	}
 	_, err = s.users.MarkEmailVerified(ctx, ut.UserID)
 	return err
+}
+
+// ChangePassword sets newPassword on the user userID once currentPassword
+// is checked, and revokes the password-reset tokens still pending: a link
+// sent before the change must not undo it.
+func (s *Service) ChangePassword(ctx context.Context, userID int32, currentPassword, newPassword string) error {
+	if len(newPassword) < minPasswordLen || len(newPassword) > maxPasswordLen {
+		return apperrors.NewBadRequest(msgInvalidPassword)
+	}
+	if _, err := s.checkOwnPassword(ctx, userID, currentPassword); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.cost)
+	if err != nil {
+		return apperrors.NewInternal(err)
+	}
+	if _, err := s.users.UpdatePassword(ctx, userID, string(hash)); err != nil {
+		return err
+	}
+	return s.userTokens.Invalidate(ctx, userID, TokenPurposePasswordReset)
+}
+
+// ChangeEmail replaces the email of the user userID with newEmail once
+// currentPassword is checked. The new address is unverified until the
+// owner redeems the verification link sent to it; the password-reset links
+// sent to the old address are revoked. An email registered to another
+// account gets a Conflict.
+func (s *Service) ChangeEmail(ctx context.Context, userID int32, currentPassword, newEmail string) (User, error) {
+	email := NormalizeEmail(newEmail)
+	if !validEmail(email) {
+		return User{}, apperrors.NewBadRequest(msgInvalidEmail)
+	}
+	u, err := s.checkOwnPassword(ctx, userID, currentPassword)
+	if err != nil {
+		return User{}, err
+	}
+	if u.Email == email {
+		return User{}, apperrors.NewBadRequest(msgSameEmail)
+	}
+	if u, err = s.users.UpdateEmail(ctx, userID, email); err != nil {
+		return User{}, err
+	}
+	if err := s.userTokens.Invalidate(ctx, userID, TokenPurposePasswordReset); err != nil {
+		return User{}, err
+	}
+	token, err := issueToken(ctx, s.userTokens, u.ID, TokenPurposeEmailVerification, EmailVerificationTokenTTL, s.now())
+	if err != nil {
+		return User{}, err
+	}
+	s.notify(ctx, func() error { return s.notifier.SendEmailVerification(ctx, u, token) })
+	return u, nil
+}
+
+// checkOwnPassword returns the active user userID when password is theirs,
+// and an InvalidArgument otherwise: the caller is already signed in, so a
+// wrong password is a form error rather than a failed authentication.
+func (s *Service) checkOwnPassword(ctx context.Context, userID int32, password string) (User, error) {
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return User{}, err
+	}
+	su, err := s.users.GetByUsername(ctx, u.Username)
+	if err != nil {
+		return User{}, err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(su.PasswordHash), []byte(password)) != nil {
+		return User{}, apperrors.NewBadRequest(msgWrongPassword)
+	}
+	return su.User, nil
 }
 
 // logTokenFailure logs the internal reason a token redemption was rejected;

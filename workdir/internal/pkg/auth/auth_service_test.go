@@ -109,6 +109,21 @@ func (m *memUsers) UpdatePassword(_ context.Context, id int32, passwordHash stri
 	return User{}, apperrors.NewNotFound(msgUserNotFound)
 }
 
+func (m *memUsers) UpdateEmail(_ context.Context, id int32, email string) (User, error) {
+	for _, u := range m.users {
+		if u.ID != id && u.Email != "" && u.Email == email {
+			return User{}, apperrors.NewConflict(msgEmailTaken)
+		}
+	}
+	for i := range m.users {
+		if m.users[i].ID == id {
+			m.users[i].Email, m.users[i].EmailVerifiedAt = email, nil
+			return m.users[i].User, nil
+		}
+	}
+	return User{}, apperrors.NewNotFound(msgUserNotFound)
+}
+
 // fakeNotifier is a recording Notifier.
 type fakeNotifier struct {
 	verifications []notifierCall

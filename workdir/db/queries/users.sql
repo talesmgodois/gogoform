@@ -47,3 +47,12 @@ SET password_hash = $2,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: UpdateUserEmail :one
+-- A changed email must be verified again.
+UPDATE users
+SET email = $2,
+    email_verified_at = NULL,
+    updated_at = now()
+WHERE id = $1 AND is_active
+RETURNING *;

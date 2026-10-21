@@ -30,6 +30,9 @@ type Repository interface {
 	MarkEmailVerified(ctx context.Context, id int32) (User, error)
 	// UpdatePassword replaces the password hash of a user and returns it.
 	UpdatePassword(ctx context.Context, id int32, passwordHash string) (User, error)
+	// UpdateEmail replaces the email of an active user, clearing its
+	// email_verified_at, and returns it.
+	UpdateEmail(ctx context.Context, id int32, email string) (User, error)
 }
 
 // Notifier sends the transactional emails issued by the auth flows. Sending

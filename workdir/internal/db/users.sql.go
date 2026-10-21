@@ -198,6 +198,38 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, id int32) (User, er
 	return i, err
 }
 
+const updateUserEmail = `-- name: UpdateUserEmail :one
+UPDATE users
+SET email = $2,
+    email_verified_at = NULL,
+    updated_at = now()
+WHERE id = $1 AND is_active
+RETURNING id, username, password_hash, role, is_active, created_at, updated_at, email, email_verified_at
+`
+
+type UpdateUserEmailParams struct {
+	ID    int32   `db:"id" json:"id"`
+	Email *string `db:"email" json:"email"`
+}
+
+// A changed email must be verified again.
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserEmail, arg.ID, arg.Email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :one
 UPDATE users
 SET password_hash = $2,

@@ -138,6 +138,18 @@ func (s *UserStore) UpdatePassword(ctx context.Context, id int32, passwordHash s
 	return toUser(row), nil
 }
 
+// UpdateEmail replaces the email of a user and marks it unverified.
+func (s *UserStore) UpdateEmail(ctx context.Context, id int32, email string) (User, error) {
+	row, err := s.q.UpdateUserEmail(ctx, db.UpdateUserEmailParams{ID: id, Email: nullIfEmpty(email)})
+	if database.IsUniqueViolationOf(err, usersEmailIndex) {
+		return User{}, apperrors.NewConflict(msgEmailTaken)
+	}
+	if err != nil {
+		return User{}, mapGetError(err)
+	}
+	return toUser(row), nil
+}
+
 // mapGetError translates the error of a single-row user query.
 func mapGetError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -9,6 +9,9 @@ import (
 )
 
 type Querier interface {
+	// Submissions the user sent to other tenants' forms stay with their owners,
+	// as anonymous submissions.
+	ClearSubmissionsUser(ctx context.Context, userID *int32) error
 	// Atomically marks a token used, but only if it is still valid for the
 	// given purpose; returns no row for an unknown, expired, already-used or
 	// wrong-purpose token.
@@ -34,7 +37,19 @@ type Querier interface {
 	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) (UserToken, error)
 	// Scoped by tenant so one tenant can never remove another tenant's file.
 	DeleteFile(ctx context.Context, arg DeleteFileParams) (int64, error)
+	// Files are database blobs: deleting the rows deletes their content.
+	DeleteFilesByTenant(ctx context.Context, tenantID int32) error
 	DeleteForm(ctx context.Context, arg DeleteFormParams) (int64, error)
+	DeleteFormsByTenant(ctx context.Context, tenantID int32) error
+	// Account deletion (internal/pkg/accounts). The foreign keys of the tenant
+	// data have no ON DELETE CASCADE, so the rows are deleted child first, in
+	// one transaction.
+	DeleteSubmissionMetadataByTenant(ctx context.Context, tenantID int32) error
+	DeleteSubmissionsByTenant(ctx context.Context, tenantID int32) error
+	DeleteTenant(ctx context.Context, id int32) error
+	// The user's tokens go with it (user_tokens ON DELETE CASCADE).
+	DeleteUser(ctx context.Context, id int32) error
+	DeleteWebhooksByTenant(ctx context.Context, tenantID int32) error
 	// Across every tenant, for the read-only /app dashboard.
 	GetAnyFormByID(ctx context.Context, id int32) (GetAnyFormByIDRow, error)
 	GetFileByID(ctx context.Context, id string) (File, error)
@@ -94,6 +109,8 @@ type Querier interface {
 	// An update about the stored subscription created before the last one
 	// applied matches no row, so events delivered out of order are dropped.
 	UpdateTenantSubscriptionByCustomer(ctx context.Context, arg UpdateTenantSubscriptionByCustomerParams) (Tenant, error)
+	// A changed email must be verified again.
+	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error)
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (User, error)
 }
