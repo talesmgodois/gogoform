@@ -18,6 +18,7 @@ no CDN). Postgres via docker compose; production stack in `docker-compose.prod.y
 | `cmd/api/main.go` | wiring: config → db → services → `handlers.Routes` |
 | `cmd/api/handlers/` | HTTP layer, one file per area (+ `_test.go`). See its AGENTS.md |
 | `cmd/api/handlers/templates/` | `layout.html` + page templates, `static/form-render.js` |
+| `cmd/api/handlers/help/` | system manual: one markdown file per page URL, shown in the help sidenav and at `/app/help` |
 | `internal/pkg/<domain>/` | accounts, auth, billing, files, forms, mailer, plans, submissions, tenants, webhooks. See its AGENTS.md |
 | `internal/errors/` | `apperrors`: `New(code,msg)`, `Wrap(err,code,msg)`, `As`, `WriteHTTP` |
 | `internal/database/` | pool, tx helper, pg error mapping (`pg_errors.go`) |

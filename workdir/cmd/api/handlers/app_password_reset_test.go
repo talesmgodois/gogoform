@@ -58,7 +58,8 @@ func TestAppForgotPasswordKnownAndUnknownEmail(t *testing.T) {
 	before = len(mailerFor(svc).Sent())
 	unknown := postForm(svc, "/app/forgot-password", url.Values{"email": {"nobody@example.com"}})
 	assertStatus(t, unknown, http.StatusOK)
-	if unknown.Body.String() != known.Body.String() {
+	// The pages differ only by their per-request CSP nonce.
+	if withoutNonces(unknown.Body.String()) != withoutNonces(known.Body.String()) {
 		t.Fatalf("response differs for a known vs unknown email: %q vs %q", known.Body.String(), unknown.Body.String())
 	}
 	if after := len(mailerFor(svc).Sent()); after != before {
@@ -152,4 +153,12 @@ func TestAppForgotPasswordCrossOriginRejected(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "https://evil.test")
 	assertStatus(t, serve(svc, req), http.StatusForbidden)
+}
+
+// nonceAttr matches the per-request nonce of the inline scripts.
+var nonceAttr = regexp.MustCompile(`nonce="[^"]*"`)
+
+// withoutNonces returns body with the nonces of its scripts blanked.
+func withoutNonces(body string) string {
+	return nonceAttr.ReplaceAllString(body, `nonce=""`)
 }
