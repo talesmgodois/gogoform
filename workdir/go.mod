@@ -8,6 +8,7 @@ require (
 	github.com/stripe/stripe-go/v82 v82.5.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.3
+	github.com/yuin/goldmark v1.7.8
 	golang.org/x/crypto v0.27.0
 )
 
