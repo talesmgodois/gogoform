@@ -21,6 +21,7 @@ type fakeGateway struct {
 	customers []string // emails passed to CreateCustomer
 	checkouts []string // customer IDs passed to CreateCheckoutSession
 	portals   []string // customer IDs passed to CreatePortalSession
+	cancels   []string // subscription IDs passed to CancelSubscription
 	priceID   string
 	urls      CheckoutURLs
 	returnURL string
@@ -51,6 +52,14 @@ func (g *fakeGateway) CreatePortalSession(_ context.Context, customerID, returnU
 	g.portals = append(g.portals, customerID)
 	g.returnURL = returnURL
 	return "https://portal.stripe.test/" + customerID, nil
+}
+
+func (g *fakeGateway) CancelSubscription(_ context.Context, subscriptionID string) error {
+	if g.err != nil {
+		return g.err
+	}
+	g.cancels = append(g.cancels, subscriptionID)
+	return nil
 }
 
 // memTenants is an in-memory tenants.Repository keyed by tenant ID. Like the
@@ -763,4 +772,35 @@ func TestHandleEventErrors(t *testing.T) {
 		env.events.err = apperrors.NewInternal(stderrors.New("db down"))
 		assertCode(t, env.svc.HandleEvent(context.Background(), stripe.Event{ID: "evt_1", Type: "customer.created"}), apperrors.CodeInternal)
 	})
+}
+
+func TestCancelSubscription(t *testing.T) {
+	cases := []struct {
+		name   string
+		tenant tenants.Tenant
+		want   []string
+	}{
+		{"active pro", tenants.Tenant{ID: 1, Plan: tenants.PlanPro, StripeSubscriptionID: "sub_1", SubscriptionStatus: "active"}, []string{"sub_1"}},
+		{"past due", tenants.Tenant{ID: 1, Plan: tenants.PlanPro, StripeSubscriptionID: "sub_1", SubscriptionStatus: "past_due"}, []string{"sub_1"}},
+		{"never subscribed", tenants.Tenant{ID: 1, Plan: tenants.PlanFree}, nil},
+		{"canceled", tenants.Tenant{ID: 1, Plan: tenants.PlanFree, StripeSubscriptionID: "sub_1", SubscriptionStatus: "canceled"}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestEnv(t, tc.tenant)
+			if err := env.svc.CancelSubscription(context.Background(), tc.tenant); err != nil {
+				t.Fatalf("CancelSubscription: %v", err)
+			}
+			if len(env.gateway.cancels) != len(tc.want) || (len(tc.want) > 0 && env.gateway.cancels[0] != tc.want[0]) {
+				t.Fatalf("cancels = %v, want %v", env.gateway.cancels, tc.want)
+			}
+		})
+	}
+}
+
+func TestCancelSubscriptionProviderError(t *testing.T) {
+	tenant := tenants.Tenant{ID: 1, Plan: tenants.PlanPro, StripeSubscriptionID: "sub_1", SubscriptionStatus: "active"}
+	env := newTestEnv(t, tenant)
+	env.gateway.err = apperrors.New(apperrors.CodeInternal, msgProviderError)
+	assertCode(t, env.svc.CancelSubscription(context.Background(), tenant), apperrors.CodeInternal)
 }

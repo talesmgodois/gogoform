@@ -22,6 +22,9 @@ type Gateway interface {
 	// CreatePortalSession opens a self-service portal session for customerID
 	// and returns its URL. The portal links back to returnURL.
 	CreatePortalSession(ctx context.Context, customerID, returnURL string) (string, error)
+	// CancelSubscription cancels subscriptionID immediately, without
+	// proration. A subscription the provider no longer knows is not an error.
+	CancelSubscription(ctx context.Context, subscriptionID string) error
 }
 
 // EventLog records processed webhook events so a redelivered event is

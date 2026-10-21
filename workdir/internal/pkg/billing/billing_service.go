@@ -137,6 +137,18 @@ func (s *Service) OpenPortal(ctx context.Context, tenant tenants.Tenant, returnU
 	return s.gateway.CreatePortalSession(ctx, tenant.StripeCustomerID, returnURL)
 }
 
+// CancelSubscription cancels the Stripe subscription of tenant right away,
+// before its workspace is deleted, so it is not billed again. A tenant that
+// never subscribed or whose subscription has ended (free plan) has nothing
+// to cancel. The tenant row itself is left as is: the subscription events
+// Stripe sends next update it, or find it deleted.
+func (s *Service) CancelSubscription(ctx context.Context, tenant tenants.Tenant) error {
+	if tenant.StripeSubscriptionID == "" || IsEndedStatus(stripe.SubscriptionStatus(tenant.SubscriptionStatus)) {
+		return nil
+	}
+	return s.gateway.CancelSubscription(ctx, tenant.StripeSubscriptionID)
+}
+
 // HandleEvent applies a verified Stripe webhook event in one transaction.
 // An event id already processed is skipped, and so are unhandled event types,
 // events about customers that belong to no tenant (or to another tenant than

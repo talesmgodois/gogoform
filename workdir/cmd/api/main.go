@@ -41,6 +41,7 @@ import (
 	"app/internal/database"
 	"app/internal/db"
 	"app/internal/logger"
+	"app/internal/pkg/accounts"
 	"app/internal/pkg/auth"
 	"app/internal/pkg/billing"
 	"app/internal/pkg/mailer"
@@ -107,12 +108,22 @@ func run() error {
 		return err
 	}
 
+	accountsOpts := accounts.Options{Tx: txRunner}
+	if billingSvc != nil {
+		// Not a nil *billing.Service in a non-nil interface.
+		accountsOpts.Subscriptions = billingSvc
+	}
+	accountsSvc, err := accounts.NewService(tenants.NewService(queries), accountsOpts)
+	if err != nil {
+		return err
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	setSwaggerHost(cfg.App.BaseURL, cfg.Server.Port)
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handlers.Routes(handlers.NewServices(queries, pool, authSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App, cfg.Security),
+		Handler:           handlers.Routes(handlers.NewServices(queries, pool, authSvc, accountsSvc, billingSvc, mail), cfg.Features, cfg.Stripe, cfg.App, cfg.Security),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"github.com/stripe/stripe-go/v82"
@@ -78,6 +79,21 @@ func (g *StripeGateway) CreatePortalSession(ctx context.Context, customerID, ret
 		return "", apperrors.Wrap(err, apperrors.CodeInternal, msgProviderError)
 	}
 	return s.URL, nil
+}
+
+// CancelSubscription cancels subscriptionID immediately. Stripe answers
+// resource_missing for a subscription that is already gone (deleted
+// customer, test data reset), which leaves nothing to cancel.
+func (g *StripeGateway) CancelSubscription(ctx context.Context, subscriptionID string) error {
+	_, err := g.client.V1Subscriptions.Cancel(ctx, subscriptionID, nil)
+	var serr *stripe.Error
+	if errors.As(err, &serr) && serr.Code == stripe.ErrorCodeResourceMissing {
+		return nil
+	}
+	if err != nil {
+		return apperrors.Wrap(err, apperrors.CodeInternal, msgProviderError)
+	}
+	return nil
 }
 
 // tenantMetadata returns the Stripe metadata identifying tenantID.
