@@ -14,7 +14,7 @@
         <h1 class="text-2xl font-bold tracking-tight">{{if .Admin}}All tenants{{else}}Your forms{{end}}</h1>
         <p class="mt-1 text-xs text-slate-500">{{if .Admin}}Admin view of every tenant, read-only · {{end}}Generated {{datetime .GeneratedAt}}</p>
       </div>
-      {{if not .Admin}}<a href="/app/builder" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/25">New form</a>{{end}}
+      {{if not .Admin}}<div class="flex items-center gap-2">{{helpIcon "new-form"}}<a href="/app/builder" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/25">New form</a></div>{{end}}
     </div>
 
     <section class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -32,7 +32,7 @@
     <section id="usage" data-plan="{{.Plan}}" class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 class="text-lg font-semibold tracking-tight">Plan usage</h2>
+          <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight">Plan usage {{helpIcon "plan-usage"}}</h2>
           <p class="mt-1 text-xs text-slate-500">{{if eq (print .Plan) "pro"}}Pro{{else}}Free{{end}} plan · submissions reset on the 1st of each month (UTC)</p>
         </div>
         {{if .Upgrade}}<a href="/app/billing" data-usage-upgrade class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition">Upgrade to Pro</a>{{end}}
@@ -56,7 +56,7 @@
 
     <section id="forms">
       <div class="flex items-end justify-between mb-4">
-        <h2 class="text-lg font-semibold tracking-tight">Forms</h2>
+        <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight">Forms {{helpIcon "forms"}}{{if not .Admin}}{{helpIcon "form-actions"}}{{end}}</h2>
         <p class="text-xs text-slate-500" data-forms-count="showing" data-forms-shown="{{len .Forms}}" data-forms-total="{{.FormsTotal}}">Showing {{len .Forms}} of {{.FormsTotal}}, newest first</p>
       </div>
       {{if not .Admin}}<p id="form-action-status" role="alert" class="hidden mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>{{end}}
@@ -121,7 +121,7 @@
 
     <section id="files">
       <div class="flex items-end justify-between mb-4">
-        <h2 class="text-lg font-semibold tracking-tight">Files</h2>
+        <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight">Files {{helpIcon "files"}}</h2>
         <p class="text-xs text-slate-500">Showing {{len .Files}} of {{.FilesTotal}}, newest first</p>
       </div>
       <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">

@@ -11,11 +11,12 @@
 
     <div class="shrink-0 border-b border-slate-800 bg-slate-900/40 px-6 py-3 flex flex-wrap items-center justify-between gap-3">
       <div class="min-w-0">
-        <h1 id="builder-heading" class="text-sm font-semibold tracking-tight">{{if eq .Mode "edit"}}Edit form{{else}}New form{{end}}</h1>
+        <div class="flex items-center gap-2"><h1 id="builder-heading" class="text-sm font-semibold tracking-tight">{{if eq .Mode "edit"}}Edit form{{else}}New form{{end}}</h1>{{helpIcon "building-a-form"}}{{helpIcon "form-settings"}}</div>
         <p id="builder-subtitle" class="text-xs text-slate-500 truncate">{{with .SourceTitle}}{{if eq $.Mode "edit"}}Editing “{{.}}”{{else}}Copy of “{{.}}”{{end}}. {{end}}Click or drag components onto the form, then {{if eq .Mode "edit"}}save your changes{{else}}create it in your workspace{{end}}.</p>
       </div>
       <div class="flex items-center gap-2 text-xs font-medium">
         <button type="button" id="issues-badge" class="rounded-lg px-3 py-2"></button>
+        {{helpIcon "preview-and-checks"}}
         <button type="button" id="show-preview" data-icon="eye" class="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 hover:bg-slate-700">Preview</button>
         <button type="button" id="download-code" data-icon="download" class="grid h-8 w-8 place-items-center rounded-lg border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"></button>
       </div>
@@ -29,7 +30,7 @@
           <button type="button" role="tab" id="tab-code" aria-controls="panel-code" data-panel="code" data-icon="code" class="flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5">Code</button>
         </div>
         <div id="panel-components" role="tabpanel" aria-labelledby="tab-components" class="flex-1 overflow-y-auto p-4">
-          <p class="mb-3 text-[11px] text-slate-500">Click a component to add it, or drag it onto the form.</p>
+          <p class="mb-3 flex items-center gap-2 text-[11px] text-slate-500">{{helpIcon "components"}}<span>Click a component to add it, or drag it onto the form.</span></p>
           <div id="palette" class="space-y-2"></div>
         </div>
         <div id="panel-code" role="tabpanel" aria-labelledby="tab-code" class="hidden flex-1 flex-col gap-3 overflow-hidden p-4">
@@ -43,7 +44,7 @@
               <button type="button" id="expand-code" data-icon="expand" title="Open in a larger view" aria-label="Open in a larger view" class="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-100"></button>
             </div>
           </div>
-          <p class="shrink-0 text-[11px] leading-snug text-slate-500">The <span data-request-label class="font-mono">{{if eq .Mode "edit"}}PUT /forms/{{.FormID}}{{else}}POST /forms{{end}}</span> request body. Its <span class="font-mono">content</span> is what respondents' clients render.</p>
+          <p class="shrink-0 text-[11px] leading-snug text-slate-500">{{helpIcon "code"}} The <span data-request-label class="font-mono">{{if eq .Mode "edit"}}PUT /forms/{{.FormID}}{{else}}POST /forms{{end}}</span> request body. Its <span class="font-mono">content</span> is what respondents' clients render.</p>
           <pre id="code-panel" class="flex-1 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300"></pre>
         </div>
       </aside>

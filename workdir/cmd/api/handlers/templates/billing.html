@@ -21,7 +21,7 @@
     <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Current plan</p>
+          <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Current plan {{helpIcon "current-plan"}}</p>
           <h1 class="mt-1 flex items-center gap-3 text-xl font-bold tracking-tight">
             {{if .Pro}}Pro{{else}}Free{{end}}
             {{if .Pro}}<span data-plan="pro" class="rounded-full bg-indigo-500/10 px-2 py-0.5 font-mono text-xs font-medium text-indigo-300 ring-1 ring-inset ring-indigo-500/20">9 USD / month</span>{{else}}<span data-plan="free" class="rounded-full bg-slate-500/10 px-2 py-0.5 font-mono text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">0 USD</span>{{end}}
@@ -29,13 +29,13 @@
           <p class="mt-1 text-xs text-slate-500">Workspace {{.Tenant.Name}} · tenant #{{.Tenant.ID}}</p>
         </div>
         {{if .Enabled}}
-        <div class="flex flex-wrap gap-2 text-xs font-semibold">
-          {{if .CanManage}}
+        <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+          {{if .CanManage}}{{helpIcon "manage-subscription"}}
           <form method="post" action="/billing/portal">
             <button type="submit" class="rounded-lg border border-slate-700 px-4 py-2 text-slate-200 hover:bg-slate-800">Manage subscription</button>
           </form>
           {{end}}
-          {{if .CanUpgrade}}
+          {{if .CanUpgrade}}{{helpIcon "upgrade"}}
           <form method="post" action="/billing/checkout">
             <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-white shadow hover:bg-indigo-500">Upgrade to Pro</button>
           </form>

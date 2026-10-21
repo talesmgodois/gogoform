@@ -36,12 +36,14 @@
           {{else}}
           <a href="/app/billing" data-upgrade-exports class="rounded-lg border border-indigo-500/40 px-3 py-2 text-indigo-300 hover:bg-indigo-500/10" title="CSV and JSON exports are available on the Pro plan">Upgrade to Pro to export</a>
           {{end}}
-          {{if not $.Admin}}<button type="button" data-form-delete class="rounded-lg border border-rose-500/30 px-3 py-2 text-rose-300 hover:bg-rose-500/10" title="Delete {{.Title}}">Delete</button>{{end}}
+          {{if $.Exports}}{{helpIcon "exports"}}{{end}}
+          {{if not $.Admin}}<button type="button" data-form-delete class="rounded-lg border border-rose-500/30 px-3 py-2 text-rose-300 hover:bg-rose-500/10" title="Delete {{.Title}}">Delete</button>{{helpIcon "form-actions"}}{{end}}
         </div>
       </div>
       {{if not $.Admin}}
       <p id="form-action-status" role="alert" class="hidden mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"></p>
-      <div class="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs">
+      <div class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs">
+        {{helpIcon "email-notifications"}}
         {{if $.EmailNotifications}}
         <label class="flex items-center gap-2 cursor-pointer text-slate-300">
           <input type="checkbox" id="notify-toggle" {{if .NotifyOnSubmission}}checked{{end}} class="h-4 w-4 rounded border-slate-700 bg-slate-950 accent-indigo-600">
@@ -58,7 +60,7 @@
     {{end}}
 
     <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-      <h2 class="text-lg font-semibold tracking-tight">Embed</h2>
+      <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight">Embed {{helpIcon "embed"}}</h2>
       <p class="mt-1 text-sm text-slate-400">Paste this snippet into any page to embed the form.</p>
       <p class="mt-3 font-mono text-xs text-indigo-400 break-all">{{$.Origin}}/f/{{$.Form.Slug}}?embed=1</p>
       <pre id="embed-code" class="mt-3 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-xs leading-relaxed text-slate-300">&lt;iframe src="{{$.Origin}}/f/{{$.Form.Slug}}?embed=1" width="100%" height="600" frameborder="0"&gt;&lt;/iframe&gt;</pre>
@@ -67,7 +69,7 @@
     <section id="submissions">
       <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
-          <h2 class="text-lg font-semibold tracking-tight">Submissions</h2>
+          <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight">Submissions {{helpIcon "submissions"}}</h2>
           {{with .Pager}}<p class="text-xs text-slate-500" data-submissions-range>{{if .To}}Showing {{.From}}–{{.To}} of {{.Total}}, newest first · page {{.Page}} of {{.Pages}}.{{else}}No submissions to show.{{end}} Downloads include every submission.</p>{{end}}
         </div>
         <div role="tablist" aria-label="Submissions view" class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
